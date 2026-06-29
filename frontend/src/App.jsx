@@ -139,7 +139,7 @@ function App() {
             <img 
               src="/logo-top.png" 
               alt="Coherence Logo" 
-              className="h-10 w-auto object-contain"
+              className="h-8 w-auto object-contain"
               onError={(e) => {
                 e.target.src = '/logo.png';
               }}
@@ -192,7 +192,7 @@ function App() {
               <img 
                 src="/logo-top.png" 
                 alt="Coherence" 
-                className="h-9 sm:h-10 w-auto object-contain"
+                className="h-6 w-auto object-contain"
                 onError={(e) => {
                   e.target.style.display = 'none';
                   e.target.nextSibling.style.display = 'flex';
