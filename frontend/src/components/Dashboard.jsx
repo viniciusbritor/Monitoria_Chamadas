@@ -61,7 +61,7 @@ export default function Dashboard({ onInspectCall }) {
           </div>
           <div>
             <h3 className="font-semibold text-textMain">Nova Monitoria</h3>
-            <p className="text-sm text-textMuted mt-1">Faça upload de áudio (MP3/WAV)</p>
+            <p className="text-sm text-textMuted mt-1">Faça upload de áudio (MP3/WAV/MPEG)</p>
           </div>
           
           <div className="w-full text-left mt-2">
@@ -80,7 +80,7 @@ export default function Dashboard({ onInspectCall }) {
             ) : (
               <>Selecionar Arquivo</>
             )}
-            <input type="file" className="hidden" accept="audio/*" onChange={handleFileUpload} disabled={uploading} />
+            <input type="file" className="hidden" accept="audio/*,video/mpeg,video/mp4,.mpeg,.mp4,.wav,.mp3" onChange={handleFileUpload} disabled={uploading} />
           </label>
         </div>
 
