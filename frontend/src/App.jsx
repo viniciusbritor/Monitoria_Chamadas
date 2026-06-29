@@ -1,13 +1,29 @@
 import { useState, useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import CallInspector from './components/CallInspector'
-import { Headphones, LogOut } from 'lucide-react'
+import AdminPanel from './components/AdminPanel'
+import { Headphones, LogOut, Shield } from 'lucide-react'
 import { GoogleLogin, googleLogout } from '@react-oauth/google'
 
 function App() {
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector'
+  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'admin'
   const [selectedCallId, setSelectedCallId] = useState(null)
   const [userToken, setUserToken] = useState(localStorage.getItem('auth_token') || null)
+
+  const getEmailFromToken = (token) => {
+    if (!token) return null
+    try {
+      const base64Url = token.split('.')[1]
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+      const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''))
+      return JSON.parse(jsonPayload).email
+    } catch (e) {
+      return null
+    }
+  }
+
+  const userEmail = getEmailFromToken(userToken)
+  const isAdmin = userEmail === 'viniciusbritor@gmail.com' || userEmail === 'rafadesouzaoliveira@gmail.com'
 
   const navigateTo = (view, callId = null) => {
     setSelectedCallId(callId)
@@ -214,13 +230,28 @@ function App() {
               </div>
             </div>
           </div>
-          <button 
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-black/60 hover:text-black transition-colors"
-          >
-            <LogOut size={16} />
-            Sair
-          </button>
+          <div className="flex items-center gap-4">
+            {isAdmin && (
+              <button 
+                onClick={() => navigateTo(currentView === 'admin' ? 'dashboard' : 'admin')}
+                className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+                  currentView === 'admin' 
+                    ? 'border-primary bg-primary/5 text-primary' 
+                    : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
+                }`}
+              >
+                <Shield size={16} />
+                Painel Admin
+              </button>
+            )}
+            <button 
+              onClick={handleLogout}
+              className="flex items-center gap-2 text-sm text-black/60 hover:text-black transition-colors"
+            >
+              <LogOut size={16} />
+              Sair
+            </button>
+          </div>
         </div>
       </header>
 
@@ -231,6 +262,9 @@ function App() {
         )}
         {currentView === 'inspector' && selectedCallId && (
           <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
+        )}
+        {currentView === 'admin' && (
+          <AdminPanel onBack={() => navigateTo('dashboard')} userToken={userToken} />
         )}
       </main>
     </div>

@@ -3,6 +3,7 @@ import sqlite3
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import uuid
 import shutil
 from datetime import datetime
@@ -272,6 +273,56 @@ async def upload_audio(
     background_tasks.add_task(process_call_task, call_id, file_path, diretrizes)
     
     return {"message": "Processamento iniciado", "id": call_id}
+
+# Endpoints Administrativos para whitelist de e-mails
+ADMIN_EMAILS = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com"]
+
+def verify_admin(user = Depends(get_current_user)):
+    email = user.get("email")
+    if email not in ADMIN_EMAILS:
+        raise HTTPException(status_code=403, detail="Acesso restrito a administradores.")
+    return user
+
+class EmailApproval(BaseModel):
+    email: str
+
+@app.get("/api/admin/users")
+def list_users(admin = Depends(verify_admin)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, email, name, picture, is_approved FROM users ORDER BY email ASC")
+    users = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return users
+
+@app.post("/api/admin/approve")
+def approve_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
+    email = payload.email.strip().lower()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    if not row:
+        user_id = str(uuid.uuid4())
+        cursor.execute("INSERT INTO users (id, email, is_approved) VALUES (?, ?, 1)", (user_id, email))
+    else:
+        cursor.execute("UPDATE users SET is_approved = 1 WHERE email = ?", (email,))
+    conn.commit()
+    conn.close()
+    return {"message": f"Acesso para {email} aprovado com sucesso."}
+
+@app.post("/api/admin/revoke")
+def revoke_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
+    email = payload.email.strip().lower()
+    if email in ADMIN_EMAILS:
+        raise HTTPException(status_code=400, detail="Não é possível revogar o acesso de um administrador.")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET is_approved = 0 WHERE email = ?", (email,))
+    conn.commit()
+    conn.close()
+    return {"message": f"Acesso para {email} revogado com sucesso."}
 
 # Frontend estático (Vite Build) - DEVE FICAR NO FINAL PARA NÃO SOBRESCREVER ROTAS /API
 FRONTEND_DIR = os.path.join("frontend", "dist")
