@@ -1,0 +1,118 @@
+{
+    "chamada_id": "CALL-2024-08745",
+    "contexto": "Cliente do sexo masculino está com dificuldade para trocar a senha do aplicativo. Atendente localiza cadastro, identifica que número de celular cadastrado está desatualizado, opta por enviar link de recuperação via e-mail. Cliente descobre que o problema era não estar usando letras na senha nova, apenas números.",
+    "genero_atendente": "FEMININO",
+    "genero_cliente": "MASCULINO",
+    "falas": [
+        {
+            "speaker": "Atendente",
+            "text": "Central de atendimento, boa tarde! Meu nome é Beatriz, com quem eu falo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Boa tarde, Beatriz... é... meu nome é Marcos, tá? Olha, moça, eu tô com um problema aqui meio bobo, mas tá me dando uma dor de cabeça dos infernos...",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Pode ficar tranquilo, Marcos, que a gente resolve. Me conta direitinho o que tá acontecendo.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "É o seguinte... ééé... eu tô tentando trocar minha senha daquele aplicativo de vocês, sabe? Aí eu ponho o e-mail, ponho o código que chega no celular, daí na hora de criar a senha nova ele fala que... tipo... não foi possível, dá erro, e volta tudo de novo. Já tentei umas cinco vezes, cara.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Entendi. Isso acontece, viu? Calma que a gente vai descobrir. Pra eu localizar o seu cadastro aqui no sistema, você consegue me passar o CPF, por gentileza?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, sim! Peraí que eu pego aqui... hmmm... é... deixa eu ver... é o seguinte: um, nove, oito, sete... seis, cinco, quatro, três... espera, moça, tô nervoso, acho que tô errando. Deixa eu recomeçar... é um, nove, oito, sete, seis, cinco, quatro, três, dois, um, zero. Acho que é isso.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Tá certinho, Marcos, localizei aqui o seu cadastro. Olha, deixa eu te explicar o que a gente vai fazer: vou te enviar um link de recuperação pelo seu celular, tá? Aí você clica nesse link e consegue redefinir a sua senha.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah tá, manda aí... só que, moça, hmmm, tem um detalhe. O número de celular que tá cadastrado aí é meu antigo, viu? Eu mudei de número mês passado e ainda não atualizei. Aí complica, né?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Ah, sem problema nenhum! O link de recuperação eu consigo disparar também no seu e-mail, tá? Você tem acesso ao e-mail que tá cadastrado aqui?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "E-mail tenho sim, esse eu não mudei, graças a Deus! Manda pro e-mail mesmo que é melhor. E aí, Beatriz, depois que eu clico no link eu já troco a senha na hora?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Isso, vai abrir uma telinha pra você confirmar o e-mail e digitar a senha nova. Só uma observação importante: a senha precisa ter pelo menos oito caracteres e tem que ter letra e número juntos, tá? Não pode ser só número.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, moça, deixa eu ver... ééé... não, peraí. Já enviei? Tô olhando aqui no celular... não chegou nada não. Será que foi?",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Acabei de enviar agora, Marcos. Pode verificar a sua caixa de entrada? Lembra de olhar também no spam, viu, porque às vezes cai lá.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá bom, peraí que eu vou olhar... caixa de entrada... nada... spam... hmmm... ah, achei! Tava no spam mesmo, credo. Vou abrir aqui... tá me pedindo pra digitar a senha nova. Beleza, tô digitando... espera... ah, não, não deu. Deu erro de novo. Que saco, viu, moça?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Marcos, essa senha que você tá digitando tem letra e número? Lembra do que eu te falei?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Aaaah, mano! É verdade! Eu tava colocando só número, tipo um dois três quatro cinco... óbvio que não ia dar certo. Tô me sentindo um abestado aqui, viu, moça. Kkkk",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Kkkk relaxa, Marcos, isso é mais comum do que você imagina. Quase todo mundo cai nessa. Coloca aí uma senha misturando letra e número e me fala se deu certo.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá, vou tentar de novo... coloquei aqui... cliquei em confirmar... e... aaaah, deu certo! Entrou no aplicativo! Ô, Beatriz, que beleza, você me salvou viu, moça! Muito obrigado mesmo!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Que ótimo, fico muito feliz! Só uma dica, viu, Marcos: anota essa senha nova em algum lugar seguro, pra não esquecer, tá? Às vezes a gente cria uma senha e na hora de logar de novo não lembra mais.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Vou anotar sim, pode deixar! Peraí que eu vou até pegar um papel e uma caneta aqui... pronto, anotei. Ô, Beatriz, mais uma vez, muito obrigado pela paciência viu, Deus abençoe você!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Amém, Marcos, muito obrigada! Qualquer outra coisa é só ligar de novo, tá? Tenha um ótimo restinho de dia!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tchau, moça! Valeu mesmo!",
+            "interrompe_anterior": false
+        }
+    ]
+}

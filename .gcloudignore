@@ -1,0 +1,17 @@
+.gcloudignore
+.git
+
+# Explicitly allow the frontend build directory
+!frontend/dist/
+
+# Ignore heavy directories
+frontend/node_modules/
+__pycache__/
+.venv/
+env/
+
+# Ignore local db and uploads
+*.db
+uploads/
+chamadas_simuladas/
+temp_docx/

@@ -1,0 +1,8 @@
+faster-whisper
+python-dotenv
+requests
+tqdm
+fastapi
+uvicorn
+python-multipart
+google-auth

@@ -1,0 +1,163 @@
+{
+    "chamada_id": "CHAM-2024-00847-OBR",
+    "contexto": "Cliente liga revoltado porque foram realizadas 3 cobranças idênticas e indevidas em sua fatura. A tensão escala rapidamente, com o cliente gritando e exigindo solução imediata. O atendente tenta manter a postura, mas não consegue resolver, pois a autonomia é limitada. A ligação termina sem acordo e com o cliente ameaçando recorrer a órgãos de defesa do consumidor e cancelar os serviços.",
+    "genero_atendente": "FEMININO",
+    "genero_cliente": "MASCULINO",
+    "falas": [
+        {
+            "speaker": "Atendente",
+            "text": "Central de atendimento, boa tarde. Meu nome é Mariana, com quem eu falo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Boa tarde, é... hmmm... Anderson, meu nome. Olha, moça, eu já vou avisando que tô de saco cheio, viu?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Pois não, Anderson. Em que posso ajudá-lo hoje?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Então, é o seguinte... eu tô com uma cobrança aqui no meu cartão que veio TRÊS VEZES, moça. TRÊS. VEZES. O mesmo valor. Eu quero saber quem foi o gênio que fez isso.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Entendo sua frustração. Vou puxar o seu cadastro aqui. O senhor poderia me confirmar o CPF, por gentileza?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá, deixa eu ver aqui no papel... 4-1... 5-2... 6-7... 8-9... 0-1... e 2. É esse aí.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Perfeito, localizei. Só um momento, por favor, que vou verificar os lançamentos da fatura.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Vai lá, vai... mas rapidinho, viu? Porque eu já tô perdendo a paciência, hmmm...",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, de fato, eu identifiquei aqui três lançamentos idênticos no valor de trezentos e noventa e dois reais.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Viu? Viu só? Não falei?! Eu falei! E ainda tem gente que duvida!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "O senhor tem toda razão, é uma falha do sistema. Eu já vou abrir a solicitação de estorno dos três valores.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Beleza, e em quanto tempo cai na minha conta? Porque eu preciso desse dinheiro hoje, tá ouvindo? HOJE.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, o estorno de valores duplicados leva em média até quarenta e oito horas úteis após a análise do nosso departamento financeiro.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Quarenta e oito horas?! MAS QUE PORRA É ESSA, MOÇA?!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Senhor, peço que mantenha o tom de voz, por favor. Eu estou tentando resolver da melhor forma possível.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Manter o tom de voz? MANTER O TOM DE VOZ?! Trezentos e noventa e dois vezes três é quase mil e duzentos reais, moça! MIL E DUZENTOS! E o senhor acha que eu vou manter o tom?!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, eu compreendo a situação, mas eu não tenho autonomia para liberar o estorno na hora. Esse é o procedimento padrão da empresa.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Procedimento padrão? PROCEDIMENTO PADRÃO?! E quem se fode sou eu, né? É sempre assim! Sempre a mesma palhaçada!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Senhor, eu peço respeito. Eu sou uma profissional tentando ajudá-lo.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ajudar? Ajudar como, moça? Se você não pode resolver nada, então nem finge que tá ajudando! Me passa o seu supervisor! AGORA!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, o supervisor só é acionado mediante agendamento prévio, senhor.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Agendamento prévio? TÁ DE SACANAGEM COM A MINHA CARA?! Olha aqui, eu tô com conta de luz pra pagar, tô com aluguel, tenho família pra alimentar! E VOCÊS me tiram mil e duzentos reais e ainda me mandam esperar? Vai se ferrar!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Senhor, o senhor tem todo o direito de registrar uma reclamação nos órgãos competentes, como o Banco Central e o Procon. Eu mesma posso fornecer os dados para isso.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Olha, moça, não me vem com esse papo de Procon não, que eu conheço! Eu vou, hein! E vou cancelar TUDO! Cartão, conta, tudo! Vocês não vão ver mais um centavo meu!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, antes de o senhor desligar, posso pelo menos finalizar o protocolo de reclamação e fornecer o número para o senhor acompanhar?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Protocolo? Pra quê? Pra não resolver nada igual sempre? Não quero, moça! Não quero protocolo, não quero número, não quero nada! Só quero meu dinheiro de volta! Mas isso vocês não devolvem, né?",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Senhor, sem o protocolo, o senhor não tem como comprovar a reclamação, e...",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Já cheguei, moça! Tô de saco cheio! Ih, cansei! Vou resolver isso pessoalmente lá na agência, que pelo menos eu olho na cara de alguém! Tchau!",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Anderson, alô? Alô, senhor? O senhor está desligando? Por favor, não desligue, vamos tentar resolver...",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "...",
+            "interrompe_anterior": true
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Alô? Alô? O senhor ouviu? A ligação foi encerrada pelo cliente. Encerrando atendimento e registrando ocorrência.",
+            "interrompe_anterior": false
+        }
+    ]
+}

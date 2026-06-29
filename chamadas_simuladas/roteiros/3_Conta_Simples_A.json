@@ -1,0 +1,78 @@
+{
+    "chamada_id": "CALL-20240617-0042",
+    "contexto": "Cliente liga para solicitar a 2ª via da fatura mensal que não chegou em seu e-mail cadastrado. Ligação rápida, sem atrito, resolvida com atualização do e-mail e reenvio imediato.",
+    "genero_atendente": "FEMININO",
+    "genero_cliente": "MASCULINO",
+    "falas": [
+        {
+            "speaker": "Atendente",
+            "text": "Central de atendimento, boa tarde! Meu nome é Mariana, com quem eu falo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Boa tarde, Mariana! Ah, é... eu sou o Carlos. Tipo, eu tô ligando porque a fatura do meu plano... ela não chegou no meu e-mail esse mês, sabe?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Ah, entendi, Carlos! Então você tá precisando da segunda via da fatura, é isso mesmo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Isso, isso aí! É que, tipo, todo mês ela chega certinho lá, mas essa vez... hmmm... simplesmente não chegou. Eu já olhei no spam, na promoção, tudo, e não tô achando. Achei estranho, viu.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Pois é, às vezes cai na caixa de spam ou pode ser alguma atualização no provedor de e-mail. Mas fica tranquilo que a gente resolve rapidinho. Pra eu localizar sua conta aqui, você consegue me passar o seu CPF, por gentileza?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, claro! Deixa eu pegar aqui... então, é... 4... 5... 6... 7... 8... 9... 0... 1... 2... 3... 4... 5. É isso aí, espero não ter errado nenhum número, hehe.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Tá certinho, Carlos! Deixa eu só puxar aqui... Hmmm, achei. Carlos Eduardo da Silva, portador da linha 11987654321, certo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Isso, eu mesmo! Ah, achei que ia dar algum problema com o cadastro, graças a Deus.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Que isso! Tá tudo certinho aqui. Só me confirma uma coisa: qual é o e-mail que você quer que eu encaminhe a fatura hoje?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, é que... tipo, justamente o e-mail cadastrado deve tá com alguma coisa errada, porque não tô recebendo nada. Se der pra atualizar, seria ótimo. É... carloseduardo.novo... arroba... gmail ponto com.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Perfeito! carloseduardo.novo arroba gmail ponto com. Vou atualizar aqui pra você e já mando a fatura agora, tá bom?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, show de bola! Muito obrigado mesmo, Mariana. Resolveu meu problema rapidinho, viu. Eu já tava preocupado de ter que ir lá na loja resolver isso pessoalmente.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Imagina, Carlos! Não precisa se preocupar não. A fatura vai chegar aí em alguns minutinhos. Qualquer outra coisa, pode ligar de novo que a gente tá aqui pra ajudar. Tenha um ótimo dia!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Pra você também, Mariana! Tchau, tchau, obrigadão!",
+            "interrompe_anterior": false
+        }
+    ]
+}

@@ -1,0 +1,8 @@
+.env
+*.db
+temp_docx/
+MONITORIA_COM_IA.zip
+__pycache__/
+*.log
+secrets/
+*.bak

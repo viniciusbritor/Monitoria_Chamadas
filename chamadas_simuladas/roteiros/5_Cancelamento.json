@@ -1,0 +1,118 @@
+{
+    "chamada_id": "CHAM-20240618-9821",
+    "contexto": "Cliente deseja cancelar o serviço de internet/telefonia pois está se mudando para o exterior em breve. Atendente tenta reter o cliente com oferta de desconto progressivo e suspensão temporária, mas o cliente recusa firmemente (embora de forma educada), alegando que ficará fora por tempo indeterminado. A ligação termina de forma amigável.",
+    "genero_atendente": "FEMININO",
+    "genero_cliente": "MASCULINO",
+    "falas": [
+        {
+            "speaker": "Atendente",
+            "text": "Central de atendimento, boa tarde! Meu nome é Letícia, com quem eu falo?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Boa tarde, Letícia. É o Márcio aqui, Márcio Silva, tudo bem?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Márcio, muito prazer! Em que posso te ajudar hoje?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Olha, é o seguinte, moça... é... eu vou ter que cancelar o plano, tá? É uma situação meio chata, mas... não tem outro jeito, né.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Hmmmm, entendo. Mas antes de qualquer coisa, Márcio, me deixa entender direitinho o que tá acontecendo, porque a gente tem algumas opções aqui que talvez te ajudem, tá?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "É que... olha, não tem muito o que fazer, viu? Eu vou me mudar do país. Tô indo pra Portugal, mês que vem já, e... é, não vai dar pra continuar.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Nossa, que oportunidade boa, hein, Márcio! Parabéns! Mas olha, você sabia que a gente tem planos que funcionam lá fora? Você consegue manter o seu plano normal e usar tipo um roaming, sabe?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Não, não, moça, já pesquisei isso tudo, viu? É que... olha, vou ser bem sincero com você, a grana tá apertada pra caramba. E pagar plano aqui e mais as coisas de lá fora... ééé... não fecha, sabe?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Tá, entendo, Márcio. Olha, deixa eu te dar uma ideia aqui, viu? A gente tem uma condição especial pra cliente antigo, que seria um desconto de uns 40% nos próximos seis meses, e ainda dá pra suspender o serviço por três meses enquanto você se instala lá, sem cobrar nada. O que cê acha?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Cara... quarenta por cento é uma boa, viu? Mas... hmmm, deixa eu pensar... não, moça, não vai dar. O problema é que eu vou ficar uns dois, três anos fora, no mínimo. Vou ter que fazer um plano de lá mesmo, com chip português. Não compensa manter aqui.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Entendo, Márcio. Olha, vou ser bem honesta com você, não vou conseguir ir muito além disso, mas... olha, espera aí, deixa eu ver aqui no sistema... achei! Consigo te dar 50% de desconto por um ano inteiro, Márcio. É o máximo que a política permite pra retenção. É uma baita oportunidade, viu?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Mano, cinquenta por cento? É osso! Mas mesmo assim... olha, moça, desculpa, o problema não é só o valor, sabe? É que eu já vendi as coisas aqui, tô desmontando o apartamento já, tô com a passagem comprada... é, não tem mais volta, entende?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Poxa, Márcio... tá certo, eu entendo sua situação. Olha, já que não tem como segurar o plano, deixa eu te pedir alguns dados pra fazer o cancelamento direitinho, tudo bem? Você consegue me passar o CPF?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Pode sim, deixa eu pegar o documento aqui que tá em cima da mesa... [barulho de papel] hmmm, cadê... ah, achei. É o seguinte, moça: 1, 5, 2... 3, 7, 8... 4, 9, 6... 2, 0. Deu certo aí?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Perfeito, Márcio, encontrei aqui! É o Márcio Silva mesmo, né? Só pra confirmar a titularidade?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Isso, isso mesmo, sou eu.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Ótimo! Olha, Márcio, vou te explicar como vai funcionar: vou processar o cancelamento agora, mas o serviço fica ativo até o final do ciclo atual, que é dia quinze do mês que vem, tá? E como você tem mais de doze meses de fidelidade, não tem multa nenhuma, pode ficar tranquilo.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, que bom! Pensei que ia ter alguma multa, viu? Até fiquei com um pé atrás de ligar, pra te falar a verdade. Ufa!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Que isso, Márcio, pode ficar sossegado! E olha, qualquer coisa que precisar, a gente tá aqui, tá bom? Se um dia você voltar pro Brasil, é só entrar em contato que a gente te ajuda, viu? E... aproveita bastante Portugal, hein!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, obrigado, Letícia. Você foi muito simpática, viu? Desculpa o trabalhão aí, e obrigadinho pela paciência. Valeu mesmo!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Imagina, Márcio, não foi trabalho nenhum! Boa sorte com tudo, e se cuida, tá? Tchau, tchau!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tchau, Letícia! Valeu, moça, um abraço!",
+            "interrompe_anterior": false
+        }
+    ]
+}

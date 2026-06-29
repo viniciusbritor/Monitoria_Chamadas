@@ -1,0 +1,39 @@
+steps:
+  # Etapa 1: Build da imagem Docker com tags da SHA do commit e latest
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/monitoria-cx:$COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/monitoria-cx:latest',
+      '.'
+    ]
+
+  # Etapa 2: Push das imagens construídas para o Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-cx:$COMMIT_SHA']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-cx:latest']
+
+  # Etapa 3: Deploy do container atualizado no Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'beta'
+      - 'run'
+      - 'deploy'
+      - 'monitoria-cx'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/monitoria-cx:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--execution-environment=gen2'
+      - '--add-volume=name=db-vol,type=cloud-storage,bucket=consultoria-bess-mme136-db-bucket'
+      - '--add-volume-mount=volume=db-vol,mount-path=/mnt/db'
+      - '--allow-unauthenticated'
+      - '--cpu=4'
+      - '--memory=8Gi'
+      - '--quiet'
+
+images:
+  - 'gcr.io/$PROJECT_ID/monitoria-cx:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/monitoria-cx:latest'

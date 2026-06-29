@@ -1,0 +1,173 @@
+{
+    "chamada_id": "CHAM-20240918-7821",
+    "contexto": "Problema técnico avançado: falha no roteamento do modem do cliente, exigindo reset de fábrica e reconfiguração manual de IP dinâmico (DHCP) com auxílio passo a passo do atendente.",
+    "genero_atendente": "FEMININO",
+    "genero_cliente": "MASCULINO",
+    "falas": [
+        {
+            "speaker": "Atendente",
+            "text": "Central de atendimento, boa tarde! Meu nome é Mariana, em que posso ajudar o senhor hoje?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Boa tarde, Mariana, é... hmmm... cara, tô com um problemão aqui, viu? Minha internet tá uma desgraça, caindo toda hora, e quando consegue conectar, não carrega nada direito. Ó, se eu não resolver isso hoje, eu vou ficar maluco, pode acreditar!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Poxa, compreendo sua frustração, senhor. O senhor poderia me informar seu CPF para eu localizar o cadastro, por favor?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Ah, claro, esperaí que eu pego o caderninho aqui da minha esposa... tá, achei! É... quatro... cinco... oito... três... sete... dois... zero... um... oito... dois... nove. Anotou aí, moça?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Perfeito, localizei. O senhor é o Rogério Aparecido da Silva, correto?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Isso mesmo, eu mesmo! Vai lá, pode mexer no cadastro.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Obrigada, Rogério. Olha, pelos sintomas que o senhor tá me descrevendo, tudo indica que o roteador tá com o sistema de roteamento travado. A gente vai precisar fazer um procedimento técnico, tá?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Aí é que tá o problema, viu, moça... hmmm... eu sou meio leigo nessas coisas de computador. A minha esposa que tinha configurado esse trem aí, e ela tá no trampo. Tem como ser alguém pra resolver de lá de vocês, tipo, sem eu precisar mexer muito não?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Infelizmente esse reset físico só pode ser feito aí mesmo, mas relaxa que é bem simples se a gente for devagar. Eu vou te guiando passo a passo, tá bem?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá bom, tá bom... se a senhora fala que é fácil, bora lá. Tô torcendo pra não estragar de vez esse negócio.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Não vai estragar, prometo! Primeiro passo: o senhor vai pegar o roteador, aquele aparelho da internet que fica com as luzinhas piscando, e vai olhar atrás dele. Tem um buraquinho bem pequeno escrito 'reset'. O senhor achou?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Peraí que o cachorro tá no meu pé... hmmm... achei, achei sim! Tá escrito 'reset' aqui. E agora, furo ele? (ri)",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Não, Rogério, pelo amor de Deus, não fura nada! (ri) O senhor vai precisar de um clipe de papel. Desdobra ele, enfia a pontinha dentro do buraquinho e aperta o botão por uns quinze segundos seguidos, tá?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Quinze segundos é osso, hein! Tá, vou atrás de um clipe... ah não, o gato comeu meu clipe. Peraí que achei uma agulha de costura aqui, serve?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Serve sim, desde que não seja muito grossa. Apertou?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tô apertando... um... dois... três... esse negócio tá esquentando pra caramba, hein, moça... oito... nove... ih, moça, apagou tudo aqui!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Isso aí, continua apertando! Vai voltar a piscar agora, tá?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá piscando, tá piscando! Pode soltar?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Pode soltar! Pronto, o roteador voltou pro padrão de fábrica. Agora a gente precisa configurar ele do zero. O senhor consegue pegar o cabo de rede que veio na caixinha, aquele fio azul?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Cabo de rede... hmmm, eu joguei a caixa fora faz tempo, mas acho que tem um fio parecido aqui. É aquele que parece um telefone grandão né? Achei sim!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Esse mesmo! Liga uma ponta no PC e a outra em uma das portas LAN atrás do roteador, que geralmente é amarela. Depois abre o navegador de internet, pode ser o Google ou qualquer um que o senhor usa.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá, fiz tudo. Abri o Google. E agora, o que eu digito?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Na barrinha lá em cima, onde digita o nome do site, o senhor vai digitar o endereço de IP do roteador. Digita exatamente assim: 192 ponto 168 ponto 0 ponto 1. E aperta enter.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "192... 168... 0... 1. Digitei. Apertei enter. Ih, moça, abriu uma telinha feia aqui pedindo usuário e senha, tá tudo em inglês! Eu não tô entendendo patavina!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Fica tranquilo que é tudo padrão. No campo usuário o senhor digita 'admin', tudo minúsculo, e na senha também digita 'admin'. Depois clica em entrar.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Admin... admin... ok, cliquei! Ufa, entrei! Agora tem um monte de coisa escrita aqui, parece painel de nave espacial, credo!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Pode ficar de boa que o senhor não vai mexer em nada perigoso. Procura lá no menu do lado esquerdo um escrito 'WAN' ou 'Internet'. Achou?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Lado esquerdo... tem escrito status, wizard, wireless... ah, achei WAN! Cliquei. E aí, o que eu faço?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Vai ter uma opção do tipo de conexão. Marca 'IP dinâmico' ou 'DHCP', se já não tiver marcado, e clica em 'aplicar' ou 'salvar' lá embaixo. Aí é só esperar uns dois minutinhos e o roteador vai pegar o sinal novo.",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá, cliquei em aplicar... ó, moça, tá escrito 'conectando' aqui na tela... cruz credo, será que dessa vez vai? Hmmm... ih! Olha o sinalzinho do wifi aqui no canto piscando verdinho! MARIANA, você é um anjo da guarda, viu? Tô até emocionado aqui, que Deus te abençoe!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Que ótimo, Rogério! Fico muito feliz que tenha dado certo! Só uma dica importante: aproveita e troca essa senha de admin depois, tá? É por questão de segurança. E a navegação, tá fluindo bem agora?",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Cliente",
+            "text": "Tá uma beleza! Já carreguei até um vídeo no YouTube aqui pra testar. Vou trocar a senha sim, depois peço pra minha filha que manja desses trem me ajudar. Moça, muito obrigado mesmo, você me salvou de quebrar o roteador na marra! Tenha um ótimo dia!",
+            "interrompe_anterior": false
+        },
+        {
+            "speaker": "Atendente",
+            "text": "Eu que agradeço, senhor Rogério! Um abraço e qualquer coisa é só ligar de novo. Tchau, tchau!",
+            "interrompe_anterior": false
+        }
+    ]
+}
