@@ -102,7 +102,7 @@ def get_current_user(authorization: str = Header(None)):
         row = cursor.fetchone()
         conn.close()
         
-        allowed_emails = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com"]
+        allowed_emails = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com", "mapxessa@gmail.com"]
         if email not in allowed_emails and (not row or not row[0]):
             raise ValueError(f"Acesso negado: O email {email} não está autorizado.")
             
