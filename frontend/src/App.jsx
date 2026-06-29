@@ -137,11 +137,11 @@ function App() {
         <div className="relative z-10 flex flex-col items-center">
           <div className="flex items-center gap-3 mb-8">
             <img 
-              src="/logo-top.png" 
+              src="/logo-top-v2.png" 
               alt="Coherence Logo" 
-              className="h-8 w-auto object-contain"
+              className="h-[24px] w-auto object-contain"
               onError={(e) => {
-                e.target.src = '/logo.png';
+                e.target.src = '/logo-v2.png';
               }}
             />
             <div className="h-6 w-[1px] bg-black/10"></div>
@@ -190,9 +190,9 @@ function App() {
             {/* Logo da Empresa e Subtexto */}
             <div className="flex items-center gap-3">
               <img 
-                src="/logo-top.png" 
+                src="/logo-top-v2.png" 
                 alt="Coherence" 
-                className="h-6 w-auto object-contain"
+                className="h-[15px] w-auto object-contain"
                 onError={(e) => {
                   e.target.style.display = 'none';
                   e.target.nextSibling.style.display = 'flex';
