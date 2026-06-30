@@ -27,6 +27,23 @@ export default function Dashboard({ onInspectCall }) {
     }
   }
 
+  const calculateRetentionStats = () => {
+    let opportunities = 0;
+    let successes = 0;
+    calls.forEach(call => {
+      if (call.raw_evaluation) {
+        try {
+          const evalData = typeof call.raw_evaluation === 'string' ? JSON.parse(call.raw_evaluation) : call.raw_evaluation;
+          if (evalData.oportunidade_venda_retencao) opportunities++;
+          if (evalData.sucesso_venda_retencao) successes++;
+        } catch (e) {}
+      }
+    });
+    return { opportunities, successes };
+  }
+
+  const { opportunities, successes } = calculateRetentionStats();
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -87,21 +104,27 @@ export default function Dashboard({ onInspectCall }) {
         {/* Stats */}
         <div className="glass-panel p-6 flex flex-col justify-center md:col-span-2">
           <h3 className="font-semibold text-textMain mb-6">Visão Geral</h3>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-background rounded-xl p-4 border border-black/5">
               <div className="text-sm text-textMuted mb-1">Chamadas</div>
               <div className="text-2xl font-bold text-textMain">{calls.length}</div>
             </div>
             <div className="bg-background rounded-xl p-4 border border-black/5">
-              <div className="text-sm text-textMuted mb-1">Média QA (Operador)</div>
+              <div className="text-sm text-textMuted mb-1">Média QA</div>
               <div className="text-2xl font-bold text-primary">
                 {calls.length ? Math.round(calls.reduce((a,b) => a + (b.nota_qualidade_operador||0), 0) / calls.length) : 0}
               </div>
             </div>
             <div className="bg-background rounded-xl p-4 border border-black/5">
-              <div className="text-sm text-textMuted mb-1">Satisfação Cliente</div>
+              <div className="text-sm text-textMuted mb-1">NPS Médio</div>
               <div className="text-2xl font-bold text-green-500">
                 {calls.length ? (calls.reduce((a,b) => a + (b.nota_sentimento_cliente||0), 0) / calls.length).toFixed(1) : 0}
+              </div>
+            </div>
+            <div className="bg-green-50/50 rounded-xl p-4 border border-green-500/20">
+              <div className="text-sm text-green-800 font-medium mb-1">Vendas / Retenção</div>
+              <div className="text-2xl font-bold text-green-600">
+                {successes} <span className="text-sm text-green-700/60 font-medium">/ {opportunities} op.</span>
               </div>
             </div>
           </div>

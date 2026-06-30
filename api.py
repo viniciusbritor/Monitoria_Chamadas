@@ -10,6 +10,7 @@ from datetime import datetime
 import json
 from google.oauth2 import id_token
 from google.auth.transport import requests
+import jwt
 
 from core.transcriber import Transcriber
 from core.evaluator import Evaluator
@@ -39,11 +40,16 @@ def init_db():
             email TEXT UNIQUE,
             name TEXT,
             picture TEXT,
-            is_approved BOOLEAN DEFAULT 0
+            is_approved BOOLEAN DEFAULT 0,
+            role TEXT DEFAULT 'user'
         )
     ''')
     try:
         cursor.execute("ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
     except sqlite3.OperationalError:
         pass
         
@@ -73,6 +79,14 @@ def init_db():
             transcricao_diarizada TEXT
         )
     ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_settings (
+            user_id TEXT PRIMARY KEY,
+            checklist_items TEXT,
+            estrategia_vendas TEXT,
+            estrategia_retencao TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
 
@@ -88,24 +102,36 @@ def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Missing Authorization Header")
     try:
         token = authorization.split("Bearer ")[1]
-        if not GOOGLE_CLIENT_ID:
-            # Bypass para desenvolvimento se Client ID não configurado
-            return {"email": "dev@coherence.ai", "name": "Dev User", "sub": "dev-123"}
-            
-        idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
         
+        if not GOOGLE_CLIENT_ID:
+            # Em ambiente local (sem credenciais), confia no JWT sem validar assinatura
+            # Em produção, você deverá configurar o firebase-admin:
+            # idinfo = firebase_admin.auth.verify_id_token(token)
+            idinfo = jwt.decode(token, options={"verify_signature": False})
+        else:
+            # Modo Legado Google (ou futuro verify_id_token)
+            idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
+            
         # Bloqueio de Segurança (Whitelist)
         email = idinfo.get("email")
         
         conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT is_approved FROM users WHERE email = ?", (email,))
+        cursor.execute("SELECT is_approved, role FROM users WHERE email = ?", (email,))
         row = cursor.fetchone()
         conn.close()
         
-        allowed_emails = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com", "mapxessa@gmail.com", "dirleifreitasjr@gmail.com"]
-        if email not in allowed_emails and (not row or not row[0]):
-            raise ValueError(f"Acesso negado: O email {email} não está autorizado.")
+        # Hardcoded fallback para evitar lockout total caso o admin perca acesso
+        fallback_admins = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com"]
+        
+        if not row or not row["is_approved"]:
+            if email not in fallback_admins:
+                raise ValueError(f"Acesso negado: O email {email} não está autorizado.")
+            # Se for admin fallback e não estiver no banco, o save_user vai criá-lo.
+            idinfo["role"] = "admin"
+        else:
+            idinfo["role"] = row["role"]
             
         return idinfo
     except ValueError as ve:
@@ -117,16 +143,19 @@ def save_user(user_info):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR IGNORE INTO users (id, email, name, picture)
-        VALUES (?, ?, ?, ?)
-    ''', (user_info.get("sub"), user_info.get("email"), user_info.get("name"), user_info.get("picture")))
+        INSERT OR IGNORE INTO users (id, email, name, picture, is_approved, role)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user_info.get("sub"), user_info.get("email"), user_info.get("name"), user_info.get("picture"), 1, user_info.get("role", "user")))
+    cursor.execute('''
+        UPDATE users SET name = ?, picture = ? WHERE email = ?
+    ''', (user_info.get("name"), user_info.get("picture"), user_info.get("email")))
     conn.commit()
     conn.close()
 
 transcriber = Transcriber()
 evaluator = Evaluator()
 
-def process_call_task(call_id: str, file_path: str, diretrizes_qualidade: str):
+def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qualidade: str):
     def update_status(status_text):
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
@@ -135,6 +164,18 @@ def process_call_task(call_id: str, file_path: str, diretrizes_qualidade: str):
         conn.close()
 
     try:
+        # Busca configurações do usuário
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
+        settings_row = cursor.fetchone()
+        conn.close()
+        
+        user_settings = {}
+        if settings_row:
+            user_settings = dict(settings_row)
+
         # Etapa 1: Transcrição Bruta
         update_status("Transcrevendo Áudio (Whisper)...")
         raw_transcript, segments = transcriber.transcribe(file_path)
@@ -145,7 +186,7 @@ def process_call_task(call_id: str, file_path: str, diretrizes_qualidade: str):
         
         # Etapa 3: Avaliação IA
         update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
-        evaluation = evaluator.evaluate(diarized_transcript, quality_form=diretrizes_qualidade)
+        evaluation = evaluator.evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
         
         # Etapa 4: Conclusão
         nota = evaluation.get("nota_geral")
@@ -216,12 +257,45 @@ async def approve_access(token: str):
     conn.close()
     return {"message": f"Acesso aprovado para {email} com sucesso!"}
 
+class UserSettings(BaseModel):
+    checklist_items: str
+    estrategia_vendas: str
+    estrategia_retencao: str
+
+@app.get("/api/settings")
+def get_settings(user = Depends(get_current_user)):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user.get("sub"),))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {
+        "checklist_items": "[]",
+        "estrategia_vendas": "",
+        "estrategia_retencao": ""
+    }
+
+@app.post("/api/settings")
+def save_settings(settings: UserSettings, user = Depends(get_current_user)):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR REPLACE INTO user_settings (user_id, checklist_items, estrategia_vendas, estrategia_retencao)
+        VALUES (?, ?, ?, ?)
+    ''', (user.get("sub"), settings.checklist_items, settings.estrategia_vendas, settings.estrategia_retencao))
+    conn.commit()
+    conn.close()
+    return {"message": "Configurações salvas com sucesso"}
+
 @app.get("/api/calls")
 def get_calls(user = Depends(get_current_user)):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, filename, uploaded_at, status, nota, nota_sentimento_cliente, nota_qualidade_operador FROM chamadas WHERE user_id = ? ORDER BY uploaded_at DESC", (user.get("sub"),))
+    cursor.execute("SELECT id, filename, uploaded_at, status, nota, nota_sentimento_cliente, nota_qualidade_operador, raw_evaluation FROM chamadas WHERE user_id = ? ORDER BY uploaded_at DESC", (user.get("sub"),))
     calls = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return calls
@@ -270,28 +344,30 @@ async def upload_audio(
     conn.close()
     
     # Aciona processo assíncrono
-    background_tasks.add_task(process_call_task, call_id, file_path, diretrizes)
+    background_tasks.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
     
     return {"message": "Processamento iniciado", "id": call_id}
 
-# Endpoints Administrativos para whitelist de e-mails
-ADMIN_EMAILS = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com"]
-
+# Endpoints Administrativos
 def verify_admin(user = Depends(get_current_user)):
-    email = user.get("email")
-    if email not in ADMIN_EMAILS:
+    if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Acesso restrito a administradores.")
     return user
 
 class EmailApproval(BaseModel):
     email: str
+    role: str = "user"
+
+class BatchApproval(BaseModel):
+    emails: str
+    role: str = "user"
 
 @app.get("/api/admin/users")
 def list_users(admin = Depends(verify_admin)):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, email, name, picture, is_approved FROM users ORDER BY email ASC")
+    cursor.execute("SELECT id, email, name, picture, is_approved, role FROM users ORDER BY email ASC")
     users = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return users
@@ -299,24 +375,58 @@ def list_users(admin = Depends(verify_admin)):
 @app.post("/api/admin/approve")
 def approve_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
     email = payload.email.strip().lower()
+    role = payload.role.strip().lower()
+    if role not in ["admin", "user"]:
+        role = "user"
+        
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
     row = cursor.fetchone()
     if not row:
         user_id = str(uuid.uuid4())
-        cursor.execute("INSERT INTO users (id, email, is_approved) VALUES (?, ?, 1)", (user_id, email))
+        cursor.execute("INSERT INTO users (id, email, is_approved, role) VALUES (?, ?, 1, ?)", (user_id, email, role))
     else:
-        cursor.execute("UPDATE users SET is_approved = 1 WHERE email = ?", (email,))
+        cursor.execute("UPDATE users SET is_approved = 1, role = ? WHERE email = ?", (role, email))
     conn.commit()
     conn.close()
-    return {"message": f"Acesso para {email} aprovado com sucesso."}
+    return {"message": f"Acesso para {email} aprovado como {role} com sucesso."}
+
+@app.post("/api/admin/approve_batch")
+def approve_batch_emails(payload: BatchApproval, admin = Depends(verify_admin)):
+    import re
+    # Separa por virgula ou nova linha
+    raw_emails = re.split(r'[,\n]+', payload.emails)
+    valid_emails = []
+    for e in raw_emails:
+        clean_e = e.strip().lower()
+        if clean_e and "@" in clean_e:
+            valid_emails.append(clean_e)
+            
+    if not valid_emails:
+        raise HTTPException(status_code=400, detail="Nenhum e-mail válido encontrado.")
+        
+    role = payload.role.strip().lower()
+    if role not in ["admin", "user"]:
+        role = "user"
+        
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    count = 0
+    for email in valid_emails:
+        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO users (id, email, is_approved, role) VALUES (?, ?, 1, ?)", (str(uuid.uuid4()), email, role))
+        else:
+            cursor.execute("UPDATE users SET is_approved = 1, role = ? WHERE email = ?", (role, email))
+        count += 1
+    conn.commit()
+    conn.close()
+    return {"message": f"{count} e-mails aprovados como {role} com sucesso."}
 
 @app.post("/api/admin/revoke")
 def revoke_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
     email = payload.email.strip().lower()
-    if email in ADMIN_EMAILS:
-        raise HTTPException(status_code=400, detail="Não é possível revogar o acesso de um administrador.")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("UPDATE users SET is_approved = 0 WHERE email = ?", (email,))

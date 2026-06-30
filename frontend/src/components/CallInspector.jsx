@@ -145,6 +145,58 @@ export default function CallInspector({ callId, onBack }) {
         {/* Coluna Direita: Analise */}
         <div className="space-y-6">
           
+          {call.analysis?.checklist_conformidade && (
+            <div className="glass-panel p-6">
+              <h3 className="font-semibold text-textMain mb-4 flex items-center gap-2">
+                <CheckCircle2 size={18} className="text-primary" />
+                Checklist de Conformidade
+              </h3>
+              <div className="space-y-3">
+                {call.analysis.checklist_conformidade.map((item, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="mt-0.5">
+                      {item.cumprido ? (
+                        <CheckCircle2 size={16} className="text-green-500" />
+                      ) : (
+                        <AlertTriangle size={16} className="text-red-500" />
+                      )}
+                    </div>
+                    <span className={`text-sm leading-tight ${item.cumprido ? 'text-textMain' : 'text-red-600 font-medium'}`}>
+                      {item.item}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {call.analysis?.oportunidade_venda_retencao && (
+            <div className={`glass-panel p-6 ${call.analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
+              <h3 className={`font-semibold mb-4 flex items-center gap-2 ${call.analysis.sucesso_venda_retencao ? 'text-green-700' : 'text-yellow-700'}`}>
+                <ThumbsUp size={18} />
+                {call.analysis.tipo_oportunidade || 'Oportunidade Comercial'}
+              </h3>
+              <div className="mb-4 text-sm font-medium text-textMain">
+                Sucesso na conversão? 
+                <span className={`ml-2 px-2 py-0.5 rounded-full ${call.analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {call.analysis.sucesso_venda_retencao ? 'Sim' : 'Não'}
+                </span>
+              </div>
+              {call.analysis.argumentos_operador && call.analysis.argumentos_operador.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-textMuted uppercase mb-2">Argumentos Utilizados:</div>
+                  <ul className="space-y-2">
+                    {call.analysis.argumentos_operador.map((arg, i) => (
+                      <li key={i} className="text-sm text-textMain flex items-start gap-2">
+                        <span className="mt-1 text-primary flex-shrink-0">•</span> {arg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="glass-panel p-6 flex items-center justify-between">
             <div>
               <h3 className="font-medium text-textMuted text-sm uppercase tracking-wide">QA Score (Operador)</h3>

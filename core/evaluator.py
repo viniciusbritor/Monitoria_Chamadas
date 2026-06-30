@@ -25,10 +25,17 @@ Regras:
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)
         return text.strip() if text else transcript
 
-    def evaluate(self, transcript, pop_context="", quality_form=""):
+    def evaluate(self, transcript, user_settings=None, pop_context="", quality_form=""):
         """
         Avalia a transcrição com base nos POPs e formulário de qualidade.
         """
+        if user_settings is None:
+            user_settings = {}
+            
+        checklist_str = user_settings.get('checklist_items', '[]')
+        estrategia_vendas = user_settings.get('estrategia_vendas', 'Não informada.')
+        estrategia_retencao = user_settings.get('estrategia_retencao', 'Não informada.')
+
         system_prompt = f"""Você é um Auditor de Qualidade Sênior em CX.
 Sua tarefa é avaliar a seguinte transcrição DIARIZADA (Operador e Cliente) de atendimento baseada nos POPs e nas Diretrizes de Qualidade fornecidas.
 
@@ -37,6 +44,19 @@ Sua tarefa é avaliar a seguinte transcrição DIARIZADA (Operador e Cliente) de
 
 --- DIRETRIZES DE QUALIDADE (EXPECTATIVAS DO OPERADOR) ---
 {quality_form if quality_form else "1. Cordialidade, 2. Resolução do Problema, 3. Empatia, 4. Clareza na comunicação."}
+
+--- CONFIGURAÇÕES DINÂMICAS DA EMPRESA ---
+1. CHECKLIST OBRIGATÓRIO (Em JSON string):
+{checklist_str}
+Audite rigorosamente cada um destes itens e defina se foram 'cumpridos' (true) ou não (false) durante a chamada.
+
+2. PLAYBOOK DE VENDAS (Estratégia de Up-sell / Cross-sell):
+{estrategia_vendas}
+
+3. PLAYBOOK DE RETENÇÃO (Estratégia Anti-Cancelamento):
+{estrategia_retencao}
+
+Baseado no contexto da ligação, decida se o Operador estava lidando com uma oportunidade de Vendas ou de Retenção e avalie seu sucesso considerando os Playbooks acima.
 
 --- INSTRUÇÕES DE AVALIAÇÃO ---
 Você deve dividir a chamada em 3 fases principais e avaliá-las individualmente:
@@ -66,7 +86,12 @@ Responda EXATAMENTE em formato JSON estruturado com os seguintes campos:
 - humor_expert (string: Positivo, Neutro, Desinteressado)
 - sentimentos_cliente (lista de strings) -> Sentimentos/emoções do cliente durante o contato (ex: ["Ansioso", "Frustrado", "Satisfeito"]).
 - sentimentos_operador (lista de strings) -> Posturas/sentimentos demonstrados pelo operador (ex: ["Empático", "Paciente", "Claro"]).
-- erros_fatais_identificados (lista de strings) -> Erros graves ou descumprimentos de regras críticas identificados (ex: ["Rudeza", "Informação incorreta"])."""
+- erros_fatais_identificados (lista de strings) -> Erros graves ou descumprimentos de regras críticas identificados (ex: ["Rudeza", "Informação incorreta"]).
+- checklist_conformidade (lista de objetos) -> Extraia um checklist baseado nas Diretrizes de Qualidade. Cada objeto deve ter: 'item' (string com o passo avaliado) e 'cumprido' (booleano). Ex: [{"item": "Saudação inicial", "cumprido": true}].
+- oportunidade_venda_retencao (booleano) -> Houve oportunidade óbvia para retenção de cliente (evitar cancelamento) ou realizar venda (cross-sell/up-sell)?
+- sucesso_venda_retencao (booleano) -> Se houve a oportunidade, o operador conseguiu concretizar a venda/retenção com sucesso?
+- tipo_oportunidade (string) -> Descreva o tipo, ex: "Retenção", "Cross-sell", "Up-sell", "Nenhuma".
+- argumentos_operador (lista de strings) -> Liste as exatas argumentações que o operador usou (ou tentou usar) para convencer o cliente nessa oportunidade."""
 
         user_prompt = f"--- TRANSCRIÇÃO DIARIZADA ---\n{transcript}"
 

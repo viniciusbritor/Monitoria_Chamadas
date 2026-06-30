@@ -23,6 +23,10 @@
   5. O Background Task executa `Evaluator` (Gemini), atualizando o status e nota final.
   6. Frontend recebe "Concluído" e a interface atualiza com o Score de QA (Verde, Amarelo, Vermelho) e esconde a barra de progresso em troca do detalhe.
 
+## 🧪 Ambiente de Teste vs Produção
+- **REGRA ESTABELECIDA:** A primeira implementação de qualquer nova funcionalidade ou alteração **SEMPRE** deve ser feita no ambiente de Teste/Homologação (`Monitoria_Chamadas_Teste`). Nenhuma alteração deve ser feita diretamente no ambiente de produção.
+- Após a implementação no ambiente de teste, o usuário avaliará e decidirá se as alterações devem ser "viradas" para Produção.
+
 ## 📂 Estrutura de Diretórios
 - `/core`: Lógicas isoladas de IA (`transcriber.py`, `evaluator.py`).
 - `/frontend`: Aplicação React/Vite isolada (dist build é servido estaticamente no backend FastAPI).

@@ -34,14 +34,14 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/monitoria-cx:latest']
 
-  # Etapa 5: Deploy do container atualizado no Cloud Run
+  # Etapa 5: Deploy do container atualizado no Cloud Run (Teste)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'gcloud'
     args:
       - 'beta'
       - 'run'
       - 'deploy'
-      - 'monitoria-cx'
+      - 'monitoria-test-env'
       - '--image'
       - 'gcr.io/$PROJECT_ID/monitoria-cx:$COMMIT_SHA'
       - '--region'

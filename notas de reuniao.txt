@@ -1,0 +1,11 @@
+carga batch  - usar gerenciador de filas
+indicar problemas dele, onde atacar e plano para resolver
+resumo de um volume de chamadas (múltiplas chamadas)
+CSAT - nota do operador (QA) - qual motivo de chamada tem o melhor QA, melhor NPS, etc.
+Valor agregado -> venda e retenção
+Identificar oportunidade de cross-sell e up-sell
+retenção: das 50 chamadas - 10 pediram cancelamento - 5 conseguiu reter desconto
+Mostrar o quanto é válido
+das 5 chamadas de retenção - identificar argumentos que aumentou venda.
+
+modelo atual - fazer check list (o que o operador fez) informar o que precisa ser verificado

@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import CallInspector from './components/CallInspector'
 import AdminPanel from './components/AdminPanel'
-import { Headphones, LogOut, Shield } from 'lucide-react'
-import { GoogleLogin, googleLogout } from '@react-oauth/google'
+import SettingsPanel from './components/SettingsPanel'
+import { Headphones, LogOut, Shield, Settings, Mail } from 'lucide-react'
+import { auth, googleProvider, microsoftProvider, signInWithPopup } from './firebase'
 
 function App() {
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'admin'
+  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'admin' | 'settings'
   const [selectedCallId, setSelectedCallId] = useState(null)
   const [userToken, setUserToken] = useState(localStorage.getItem('auth_token') || null)
+  const [userRole, setUserRole] = useState(localStorage.getItem('user_role') || null)
 
   const getEmailFromToken = (token) => {
     if (!token) return null
@@ -23,7 +25,7 @@ function App() {
   }
 
   const userEmail = getEmailFromToken(userToken)
-  const isAdmin = userEmail === 'viniciusbritor@gmail.com' || userEmail === 'rafadesouzaoliveira@gmail.com'
+  const isAdmin = userRole === 'admin'
 
   const navigateTo = (view, callId = null) => {
     setSelectedCallId(callId)
@@ -34,9 +36,11 @@ function App() {
   const [requestingAccess, setRequestingAccess] = useState(false)
   const [requestSent, setRequestSent] = useState(false)
 
-  const handleLoginSuccess = async (credentialResponse) => {
-    const token = credentialResponse.credential
+  const handleLogin = async (provider) => {
     try {
+      const result = await signInWithPopup(auth, provider)
+      const token = await result.user.getIdToken()
+      
       const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-cx-4105010761.us-central1.run.app"
       const res = await fetch(`${API_URL}/api/auth/me`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -44,22 +48,20 @@ function App() {
       
       if (!res.ok) {
         if (res.status === 403) {
-          // Extrai o email do JWT
-          const base64Url = token.split('.')[1]
-          const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
-          const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''))
-          const email = JSON.parse(jsonPayload).email
-          setAccessDenied(email)
+          setAccessDenied(result.user.email)
           return
         }
         throw new Error("Login failed")
       }
       
+      const userData = await res.json()
       localStorage.setItem('auth_token', token)
+      localStorage.setItem('user_role', userData.role)
       setUserToken(token)
+      setUserRole(userData.role)
     } catch (err) {
       console.error(err)
-      alert("Erro ao validar login com o servidor.")
+      alert("Erro ao validar login. Verifique sua conexão.")
     }
   }
 
@@ -82,9 +84,11 @@ function App() {
   }
 
   const handleLogout = () => {
-    googleLogout()
+    auth.signOut()
     localStorage.removeItem('auth_token')
+    localStorage.removeItem('user_role')
     setUserToken(null)
+    setUserRole(null)
     setAccessDenied(null)
     setRequestSent(false)
   }
@@ -93,12 +97,16 @@ function App() {
     const validateTokenOnMount = async () => {
       if (!userToken) return
       try {
-        const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-cx-4105010761.us-central1.run.app"
+        const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env.coherenceai.com.br"
         const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: { Authorization: `Bearer ${userToken}` }
         })
         if (!res.ok) {
           handleLogout()
+        } else {
+          const userData = await res.json()
+          setUserRole(userData.role)
+          localStorage.setItem('user_role', userData.role)
         }
       } catch (err) {
         console.error("Token verification failed, logging out:", err)
@@ -171,18 +179,25 @@ function App() {
             <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-6 border border-primary/5">
               <Headphones size={32} />
             </div>
-            <h1 className="text-3xl font-bold mb-3 tracking-tight">Login</h1>
-            <p className="text-black/60 mb-10 text-center text-sm leading-relaxed">
-              Faça login com sua conta do Google para acessar o painel de Qualidade e Diarização por IA da Coherence.
+            <h1 className="text-3xl font-bold mb-3 tracking-tight">Login Universal</h1>
+            <p className="text-black/60 mb-8 text-center text-sm leading-relaxed">
+              Faça login com a sua plataforma preferida para acessar o painel de Qualidade e Diarização por IA.
             </p>
-            <div className="w-full flex justify-center bg-black/5 p-2 rounded-2xl border border-black/5 hover:bg-black/10 transition-colors">
-              <GoogleLogin
-                onSuccess={handleLoginSuccess}
-                onError={() => {
-                  console.log('Login Failed')
-                }}
-                useOneTap
-              />
+            <div className="w-full flex flex-col gap-3">
+              <button 
+                onClick={() => handleLogin(googleProvider)}
+                className="w-full flex items-center justify-center gap-3 bg-white border border-black/10 hover:bg-black/5 text-black font-semibold py-3 px-4 rounded-xl transition-all shadow-sm"
+              >
+                <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5" />
+                Continuar com Google
+              </button>
+              <button 
+                onClick={() => handleLogin(microsoftProvider)}
+                className="w-full flex items-center justify-center gap-3 bg-[#2F2F2F] hover:bg-black text-white font-semibold py-3 px-4 rounded-xl transition-all shadow-sm"
+              >
+                <img src="https://www.svgrepo.com/show/452062/microsoft.svg" alt="Microsoft" className="w-5 h-5" />
+                Continuar com Microsoft
+              </button>
             </div>
           </div>
           
@@ -245,6 +260,17 @@ function App() {
               </button>
             )}
             <button 
+              onClick={() => navigateTo(currentView === 'settings' ? 'dashboard' : 'settings')}
+              className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+                currentView === 'settings' 
+                  ? 'border-primary bg-primary/5 text-primary' 
+                  : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
+              }`}
+            >
+              <Settings size={16} />
+              Configurações
+            </button>
+            <button 
               onClick={handleLogout}
               className="flex items-center gap-2 text-sm text-black/60 hover:text-black transition-colors"
             >
@@ -265,6 +291,9 @@ function App() {
         )}
         {currentView === 'admin' && (
           <AdminPanel onBack={() => navigateTo('dashboard')} userToken={userToken} />
+        )}
+        {currentView === 'settings' && (
+          <SettingsPanel />
         )}
       </main>
     </div>

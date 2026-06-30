@@ -4,7 +4,11 @@ import { ArrowLeft, UserPlus, UserCheck, ShieldAlert, Check, X, Shield } from 'l
 export default function AdminPanel({ onBack, userToken }) {
   const [users, setUsers] = useState([])
   const [newEmail, setNewEmail] = useState('')
+  const [newRole, setNewRole] = useState('user')
+  const [batchEmails, setBatchEmails] = useState('')
+  const [batchRole, setBatchRole] = useState('user')
   const [loading, setLoading] = useState(false)
+  const [batchLoading, setBatchLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(null)
   const [message, setMessage] = useState(null)
 
@@ -45,7 +49,7 @@ export default function AdminPanel({ onBack, userToken }) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${userToken}`
         },
-        body: JSON.stringify({ email: newEmail.trim() })
+        body: JSON.stringify({ email: newEmail.trim(), role: newRole })
       })
       if (res.ok) {
         const data = await res.json()
@@ -60,6 +64,36 @@ export default function AdminPanel({ onBack, userToken }) {
       setMessage({ type: 'error', text: "Erro na requisição ao servidor." })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAddBatch = async (e) => {
+    e.preventDefault()
+    if (!batchEmails.trim()) return
+    setBatchLoading(true)
+    setMessage(null)
+    try {
+      const res = await fetch(`${API_URL}/api/admin/approve_batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${userToken}`
+        },
+        body: JSON.stringify({ emails: batchEmails, role: batchRole })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setMessage({ type: 'success', text: data.message })
+        setBatchEmails('')
+        fetchUsers()
+      } else {
+        const errData = await res.json()
+        setMessage({ type: 'error', text: errData.detail || "Erro no processamento em lote." })
+      }
+    } catch (err) {
+      setMessage({ type: 'error', text: "Erro na requisição ao servidor." })
+    } finally {
+      setBatchLoading(false)
     }
   }
 
@@ -137,8 +171,19 @@ export default function AdminPanel({ onBack, userToken }) {
                 value={newEmail}
                 onChange={(e) => setNewEmail(e.target.value)}
                 required
-                className="w-full bg-black/[0.02] border border-black/5 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-primary/20 focus:bg-white transition-all"
+                className="w-full bg-black/[0.02] border border-black/5 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-primary/20 focus:bg-white transition-all mb-4"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-black/40 mb-2">Perfil</label>
+              <select 
+                value={newRole} 
+                onChange={(e) => setNewRole(e.target.value)}
+                className="w-full bg-black/[0.02] border border-black/5 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-primary/20 focus:bg-white transition-all"
+              >
+                <option value="user">Usuário Padrão</option>
+                <option value="admin">Administrador</option>
+              </select>
             </div>
             <button 
               type="submit" 
@@ -150,8 +195,46 @@ export default function AdminPanel({ onBack, userToken }) {
           </form>
         </div>
 
+        {/* Formulário Lote */}
+        <div className="glass-panel bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-black/5 shadow-lg space-y-4 h-fit">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            <UserPlus size={18} className="text-primary" />
+            Adição em Lote
+          </h3>
+          <form onSubmit={handleAddBatch} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-black/40 mb-2">Lista de E-mails (Separados por vírgula ou linha)</label>
+              <textarea 
+                placeholder="email1@teste.com&#10;email2@teste.com"
+                value={batchEmails}
+                onChange={(e) => setBatchEmails(e.target.value)}
+                required
+                className="w-full h-24 bg-black/[0.02] border border-black/5 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-primary/20 focus:bg-white transition-all mb-4 resize-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-black/40 mb-2">Perfil de Acesso</label>
+              <select 
+                value={batchRole} 
+                onChange={(e) => setBatchRole(e.target.value)}
+                className="w-full bg-black/[0.02] border border-black/5 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-primary/20 focus:bg-white transition-all"
+              >
+                <option value="user">Usuário Padrão</option>
+                <option value="admin">Administrador</option>
+              </select>
+            </div>
+            <button 
+              type="submit" 
+              disabled={batchLoading}
+              className="w-full bg-primary hover:bg-primary-hover text-white rounded-2xl py-3 text-sm font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {batchLoading ? 'Processando...' : 'Adicionar Múltiplos'}
+            </button>
+          </form>
+        </div>
+
         {/* Tabela de Usuários */}
-        <div className="lg:col-span-2 glass-panel bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-black/5 shadow-lg space-y-4">
+        <div className="lg:col-span-3 glass-panel bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-black/5 shadow-lg space-y-4">
           <h3 className="text-lg font-bold">Usuários no Banco de Dados</h3>
           
           {loading && users.length === 0 ? (
@@ -164,13 +247,14 @@ export default function AdminPanel({ onBack, userToken }) {
                 <thead>
                   <tr className="border-b border-black/5 text-xs font-semibold uppercase tracking-wider text-black/40">
                     <th className="pb-3 pl-2">Usuário</th>
+                    <th className="pb-3">Perfil</th>
                     <th className="pb-3">Status</th>
                     <th className="pb-3 text-right pr-2">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-black/5 text-sm">
                   {users.map((u) => {
-                    const isAdmin = u.email === "viniciusbritor@gmail.com" || u.email === "rafadesouzaoliveira@gmail.com"
+                    const isSuperAdmin = u.email === "viniciusbritor@gmail.com" || u.email === "rafadesouzaoliveira@gmail.com"
                     return (
                       <tr key={u.id || u.email} className="hover:bg-black/[0.01] transition-colors">
                         <td className="py-4 pl-2 flex items-center gap-3">
@@ -185,6 +269,15 @@ export default function AdminPanel({ onBack, userToken }) {
                             <div className="font-semibold text-black/90">{u.name || "Pendente de Login"}</div>
                             <div className="text-xs text-black/40">{u.email}</div>
                           </div>
+                        </td>
+                        <td className="py-4">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
+                            u.role === 'admin' 
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200/50' 
+                              : 'bg-blue-50 text-blue-700 border border-blue-200/50'
+                          }`}>
+                            {u.role === 'admin' ? 'Administrador' : 'Usuário'}
+                          </span>
                         </td>
                         <td className="py-4">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold ${
@@ -206,8 +299,8 @@ export default function AdminPanel({ onBack, userToken }) {
                           </span>
                         </td>
                         <td className="py-4 text-right pr-2">
-                          {isAdmin ? (
-                            <span className="text-xs font-semibold text-black/30 select-none pr-3">Admin</span>
+                          {isSuperAdmin ? (
+                            <span className="text-xs font-semibold text-black/30 select-none pr-3">Super Admin</span>
                           ) : (
                             <button
                               disabled={actionLoading === u.email}
