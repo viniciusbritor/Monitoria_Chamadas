@@ -213,7 +213,7 @@ function QueueManager({ userToken, onBack }) {
             <p>Nenhuma mensagem pendente. Fila limpa.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-96 border border-black/5 rounded-lg">
             <table className="w-full text-sm">
               <thead className="bg-black/5 text-xs text-textMuted uppercase tracking-wider">
                 <tr>

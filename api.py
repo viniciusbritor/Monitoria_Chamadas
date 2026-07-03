@@ -515,7 +515,7 @@ def queue_retry(message_id: str, body: RetryPayload, user: dict = Depends(requir
     """Republica mensagem no topico com novo message_id."""
     new_id = pubsub_admin.retry_message(
         message_id,
-        payload_b64=body.payload,
+        payload=body.payload,
         attributes=body.attributes,
     )
     print(f"[Queue] user={user.get('email')} RETRY {message_id} -> {new_id}", flush=True)

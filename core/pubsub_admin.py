@@ -78,8 +78,14 @@ def get_stats() -> dict:
 def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
     """Lista mensagens pendentes (peek sem consumir).
 
-    Estrategia: usa pull(return_immediately=True) + modify_ack_deadline(ack_id, 0)
-    para devolver a mensagem IMEDIATAMENTE ao worker real. Sem janela de perda.
+    Estrategia (FIX 03/07/2026): usa pull(return_immediately=True) e NAO chama
+    modify_ack_deadline. As mensagens ficam "in-flight" para o admin ate ele
+    decidir (Ack ou Repassar). Se ele nao fizer nada apos 600s (ack_deadline),
+    a mensagem volta automaticamente para o worker real.
+
+    IMPORTANTE: NAO CHAMAR modify_ack_deadline(0) aqui - isso invalida os
+    ack_ids retornados, fazendo o Ack do admin virar no-op silencioso.
+    (Bate-papos desse bug estao no DIARIO_BORDO.md.)
 
     Retorna:
       {
@@ -89,6 +95,7 @@ def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
             "ack_id": str,
             "publish_time": ISO8601 str,
             "attributes": dict,
+            "payload": str completo (decoded utf-8),
             "payload_preview": str (256 chars JSON),
           },
           ...
@@ -98,7 +105,6 @@ def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
     """
     subscriber = pubsub_v1.SubscriberClient()
     result = {"messages": [], "peeked_count": 0}
-    ack_ids_to_release = []
     try:
         # Pull com janela minima (return_immediately=True evita bloquear ate deadline)
         response = subscriber.pull(
@@ -128,24 +134,10 @@ def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
                 "payload_preview": payload_preview,
             }
             result["messages"].append(msg_dict)
-            ack_ids_to_release.append(ack_id)
     except Exception as e:
         # Em caso de erro (subscription vazia, permission denied), retornar vazio
         print(f"[pubsub_admin] list_pending error: {e}", flush=True)
     finally:
-        # LIBERAR mensagens IMEDIATAMENTE para o worker real
-        if ack_ids_to_release:
-            try:
-                subscriber.modify_ack_deadline(
-                    request={
-                        "subscription": SUBSCRIPTION_PATH,
-                        "ack_ids": ack_ids_to_release,
-                        "ack_deadline_seconds": 0,
-                    },
-                    timeout=5.0,
-                )
-            except Exception as e:
-                print(f"[pubsub_admin] WARN: nao liberou ack_ids: {e}", flush=True)
         subscriber.close()
     return result
 
@@ -168,12 +160,21 @@ def acknowledge(ack_ids: list[str]) -> int:
         subscriber.close()
 
 
-def retry_message(message_id: str, payload_b64: str = "", attributes: dict = None) -> str:
-    """Republica uma mensagem no topico. Retorna o novo message_id."""
+def retry_message(message_id: str, payload: str = "", attributes: dict = None) -> str:
+    """Republica uma mensagem no topico. Retorna o novo message_id.
+
+    Args:
+        message_id: ID da mensagem original (apenas para tracking).
+        payload: Payload JA DECODIFICADO (string utf-8), NAO base64.
+                 Veio direto de list_pending()[].payload.
+        attributes: Atributos da mensagem original (dict).
+
+    Returns:
+        O novo message_id atribuido pelo Pub/Sub.
+    """
     publisher = pubsub_v1.PublisherClient()
     try:
-        data = base64.b64decode(payload_b64) if payload_b64 else b""
-        # novo publish_time = agora (atributo automatico do Pub/Sub)
+        data = payload.encode("utf-8") if payload else b""
         attrs = dict(attributes or {})
         attrs["retried_from"] = message_id
         attrs["retry_ts"] = str(int(time.time()))
@@ -192,7 +193,8 @@ def purge_all(max_per_call: int = 1000) -> int:
     """Ack em massa: descarta TODAS mensagens pendentes. Retorna qtd descartada.
 
     ATENCAO: use apenas apos confirmacao explicita do usuario.
-    Implementacao: loop de peek+ack ate esvaziar ou atingir max_per_call.
+    Como list_pending nao libera mais as mensagens (ver docstring),
+    purge_all funciona com pull+ack em loop ate esvaziar.
     """
     total_acked = 0
     while total_acked < max_per_call:
