@@ -48,6 +48,21 @@ WORKER_ID = os.getenv("K_REVISION", f"local-{os.getpid()}")
 _transcriber = None
 _evaluator = None
 
+# ============================================================================
+# Estado do worker (para watchdog e /healthz)
+# ============================================================================
+WORKER_STATE = {
+    "started_at": time.time(),
+    "last_msg_received_at": None,    # timestamp da ultima mensagem recebida
+    "last_msg_id": None,
+    "last_msg_call_id": None,
+    "current_state": "initializing",  # initializing | ready | processing | stuck
+    "messages_processed": 0,
+    "consecutive_errors": 0,
+}
+
+HEALTHZ_LOCK = __import__("threading").Lock()
+
 
 def get_transcriber():
     global _transcriber
@@ -220,33 +235,80 @@ def callback(message):
         user_id = data["user_id"]
         diretrizes = data.get("diretrizes", "")
 
+        with HEALTHZ_LOCK:
+            WORKER_STATE["last_msg_received_at"] = time.time()
+            WORKER_STATE["last_msg_id"] = message.message_id
+            WORKER_STATE["last_msg_call_id"] = call_id
+            WORKER_STATE["current_state"] = "processing"
+
         process_call(call_id, gcs_uri, user_id, diretrizes)
 
         # Ack message (sucesso)
         message.ack()
         print(f"[Worker {WORKER_ID}] Message {message.message_id} ACKed", flush=True)
+
+        with HEALTHZ_LOCK:
+            WORKER_STATE["messages_processed"] += 1
+            WORKER_STATE["consecutive_errors"] = 0
+            WORKER_STATE["current_state"] = "ready"
     except Exception as e:
         print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
         # Nack (vai ser reentregue)
         message.nack()
+        with HEALTHZ_LOCK:
+            WORKER_STATE["consecutive_errors"] += 1
 
 
 def health_check_server():
     """
     Cloud Run exige que o container escute em PORT (default 8080).
-    Este servidor HTTP minimo responde 200 OK para health checks.
+    Este servidor HTTP minimo responde health checks com JSON detalhado do estado.
     Roda em thread separada para nao bloquear o consumer Pub/Sub.
+
+    Endpoint /healthz:
+      - 200 OK se worker esta saudavel (ready ou processing)
+      - 503 SERVICE_UNAVAILABLE se worker travado (stuck por mais de 5min)
+      - JSON com: state, uptime_sec, last_msg_age_sec, msgs_processed, consecutive_errors
     """
     from http.server import BaseHTTPRequestHandler, HTTPServer
     import threading
 
+    STUCK_THRESHOLD_SEC = 300  # 5min sem mensagem = travado
+
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/" or self.path == "/healthz":
-                self.send_response(200)
+            if self.path in ("/", "/healthz"):
+                with HEALTHZ_LOCK:
+                    now = time.time()
+                    uptime = now - WORKER_STATE["started_at"]
+                    last_msg_at = WORKER_STATE["last_msg_received_at"]
+                    last_msg_age = (now - last_msg_at) if last_msg_at else None
+
+                    # Detecta travamento: ready + sem mensagem ha muito tempo
+                    if last_msg_age is not None and last_msg_age > STUCK_THRESHOLD_SEC and WORKER_STATE["current_state"] != "processing":
+                        WORKER_STATE["current_state"] = "stuck"
+                        status_code = 503
+                    elif WORKER_STATE["current_state"] == "processing":
+                        status_code = 200  # trabalhando = saudavel
+                    else:
+                        status_code = 200  # ready (pode estar idle aguardando)
+
+                    payload = {
+                        "status": "ok" if status_code == 200 else "stuck",
+                        "worker_id": WORKER_ID,
+                        "state": WORKER_STATE["current_state"],
+                        "uptime_sec": round(uptime, 1),
+                        "last_msg_age_sec": round(last_msg_age, 1) if last_msg_age is not None else None,
+                        "last_msg_id": WORKER_STATE["last_msg_id"],
+                        "last_msg_call_id": WORKER_STATE["last_msg_call_id"],
+                        "messages_processed": WORKER_STATE["messages_processed"],
+                        "consecutive_errors": WORKER_STATE["consecutive_errors"],
+                    }
+
+                self.send_response(status_code)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok", "worker_id": WORKER_ID}).encode())
+                self.wfile.write(json.dumps(payload).encode())
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -260,6 +322,43 @@ def health_check_server():
     server.serve_forever()
 
 
+def watchdog_loop():
+    """
+    Watchdog: monitora o estado do worker a cada 30s e loga.
+    Se worker ficar 'stuck' (sem processar ha > 5min) ou 'consecutive_errors' crescer,
+    loga alerta critico. Cloud Run nao mata container baseado nisso; apenas para
+    visibilidade operacional.
+    """
+    import threading
+    INTERVAL_SEC = 30
+    ERROR_THRESHOLD = 5
+
+    while True:
+        time.sleep(INTERVAL_SEC)
+        with HEALTHZ_LOCK:
+            now = time.time()
+            uptime = now - WORKER_STATE["started_at"]
+            last_msg_age = (now - WORKER_STATE["last_msg_received_at"]) if WORKER_STATE["last_msg_received_at"] else None
+            state = WORKER_STATE["current_state"]
+            errs = WORKER_STATE["consecutive_errors"]
+            msgs = WORKER_STATE["messages_processed"]
+
+        # Log periodico de saude
+        age_str = f"{last_msg_age:.0f}s" if last_msg_age is not None else "nunca"
+        print(
+            f"[WATCHDOG] worker={WORKER_ID} uptime={uptime:.0f}s state={state} "
+            f"msgs={msgs} last_msg_age={age_str} errors={errs}",
+            flush=True,
+        )
+
+        # Alerta: muitos erros consecutivos
+        if errs >= ERROR_THRESHOLD:
+            print(
+                f"[WATCHDOG] ALERTA: {errs} erros consecutivos no callback",
+                flush=True,
+            )
+
+
 def main():
     """Loop principal: pull de Pub/Sub e processa."""
     print(f"[Worker {WORKER_ID}] Subscrevendo em {PUBSUB_SUBSCRIPTION}...", flush=True)
@@ -268,6 +367,10 @@ def main():
     import threading
     health_thread = threading.Thread(target=health_check_server, daemon=True)
     health_thread.start()
+
+    # Inicia watchdog em thread separada
+    watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
+    watchdog_thread.start()
 
     # Pre-aquecimento: instancia transcriber e evaluator
     print(f"[Worker {WORKER_ID}] Pre-aquecendo modelos IA...", flush=True)
@@ -309,6 +412,9 @@ def main():
         callback=callback,
         flow_control=flow_control,
     )
+
+    with HEALTHZ_LOCK:
+        WORKER_STATE["current_state"] = "ready"
 
     print(f"[Worker {WORKER_ID}] Aguardando mensagens... (Ctrl+C para parar)", flush=True)
 
