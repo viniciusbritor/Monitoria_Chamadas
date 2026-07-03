@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import Dashboard from './components/Dashboard'
 import CallInspector from './components/CallInspector'
 import SettingsPanel from './components/SettingsPanel'
-import { Headphones, LogOut, Settings } from 'lucide-react'
+import QueueManager from './components/QueueManager'
+import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
 import { auth, signInWithPopup, googleProvider, signInWithEmailAndPassword } from './firebase'
 
 function App() {
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'settings'
+  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'settings' | 'queue'
   const [selectedCallId, setSelectedCallId] = useState(null)
 
   // IMPORTANTE: userToken sempre comeca como null para evitar race condition.
@@ -340,18 +341,31 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button 
+            {userRole === 'admin' && (
+              <button
+                onClick={() => navigateTo(currentView === 'queue' ? 'dashboard' : 'queue')}
+                className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+                  currentView === 'queue'
+                    ? 'border-primary bg-primary/5 text-primary'
+                    : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
+                }`}
+              >
+                <Inbox size={16} />
+                Fila
+              </button>
+            )}
+            <button
               onClick={() => navigateTo(currentView === 'settings' ? 'dashboard' : 'settings')}
               className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
-                currentView === 'settings' 
-                  ? 'border-primary bg-primary/5 text-primary' 
+                currentView === 'settings'
+                  ? 'border-primary bg-primary/5 text-primary'
                   : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
               }`}
             >
               <Settings size={16} />
               Configurações
             </button>
-            <button 
+            <button
               onClick={handleLogout}
               className="flex items-center gap-2 text-sm text-black/60 hover:text-black transition-colors"
             >
@@ -371,6 +385,9 @@ function App() {
         )}
         {currentView === 'settings' && (
           <SettingsPanel />
+        )}
+        {currentView === 'queue' && (
+          <QueueManager userToken={userToken} onBack={() => navigateTo('dashboard')} />
         )}
       </main>
     </div>
