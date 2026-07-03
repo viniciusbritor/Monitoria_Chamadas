@@ -38,7 +38,21 @@ class Transcriber:
         Otimização B: Pré-processa áudio para mono 16kHz PCM (formato ideal para Whisper).
         Reduz trabalho do decoder. Usa ffmpeg que já está instalado no Dockerfile.
         Retorna o caminho do arquivo pré-processado (em /tmp).
+
+        Timeout aumentado para 180s (era 60s) após incidente 03/07/2026 com audio
+        WhatsApp .mpeg de 1MB que estourou mesmo sendo pequeno - causa raiz foi
+        contencao de CPU com Whisper ja carregado em paralelo. Ver DIARIO_BORDO.
         """
+        # Pula pre-processamento para arquivos >100MB (codec exotico arrisca timeout
+        # OU problemas de memoria). Trade-off: audio bruto fica mais lento pro Whisper.
+        try:
+            size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+            if size_mb > 100:
+                print(f"[Transcriber] Audio grande ({size_mb:.1f}MB) - pulando pre-processamento", flush=True)
+                return audio_path
+        except OSError:
+            pass
+
         if not audio_path.endswith((".wav", ".mp3", ".m4a", ".flac", ".ogg")):
             # Arquivos como .mpeg, .mp4, .aac precisam de conversão
             try:
@@ -52,16 +66,24 @@ class Transcriber:
                     "-f", "wav",
                     output_path
                 ]
-                print(f"[Transcriber] Pre-processando audio para mono 16kHz PCM...", flush=True)
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                try:
+                    size_mb_str = f" ({os.path.getsize(audio_path) / (1024*1024):.2f}MB)"
+                except OSError:
+                    size_mb_str = ""
+                print(f"[Transcriber] Pre-processando audio para mono 16kHz PCM{size_mb_str}...", flush=True)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
                 if result.returncode == 0 and os.path.exists(output_path):
                     print(f"[Transcriber] Pre-processamento concluido: {output_path}", flush=True)
                     return output_path
                 else:
-                    print(f"[Transcriber] ffmpeg falhou (rc={result.returncode}), usando original: {result.stderr[:200]}", flush=True)
+                    err_snip = (result.stderr or "")[:200]
+                    print(f"[Transcriber] ffmpeg falhou (rc={result.returncode}), usando original: {err_snip}", flush=True)
                     return audio_path
-            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-                print(f"[Transcriber] Pre-processamento falhou ({e}), usando original", flush=True)
+            except subprocess.TimeoutExpired as e:
+                print(f"[Transcriber] Pre-processamento TIMEOUT 180s (audio: {audio_path}), usando original", flush=True)
+                return audio_path
+            except FileNotFoundError as e:
+                print(f"[Transcriber] ffmpeg nao encontrado ({e}), usando original", flush=True)
                 return audio_path
         return audio_path
 

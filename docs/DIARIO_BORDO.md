@@ -87,6 +87,36 @@ Validacao com admin auth (via login no browser) - pendente smoke manual pelo own
 
 ---
 
+## 03/07/2026 - Fix ffmpeg timeout (60s → 180s) + skip em arquivos grandes
+
+### Sintoma observado
+Worker processou `3b6e0c9a-..._WhatsApp Audio 2026-06-29.mpeg` (1.08MB) e logou:
+```
+[Transcriber] Pre-processando audio para mono 16kHz PCM...
+... (60s depois) ...
+[Transcriber] Pre-processamento falhou (timeout 60s), usando original
+[Transcriber] Transcrevendo: WhatsApp Audio 2026-06-29.mpeg...
+```
+A transcricao continuou (fallback para audio original), mas com warning do CTranslate2 e provavelmente mais lenta que o normal.
+
+### Causa raiz
+- O timeout de 60s no `subprocess.run([ffmpeg...], timeout=60)` foi pensado para audios tipicos (ate ~10MB). Estourou para um arquivo de 1MB, o que indica **contencao de CPU no worker**: o Whisper ja estava carregado em paralelo (cold start do container consumindo CPU) e ffmpeg ficou sem fatia suficiente.
+- O arquivo `.mpeg` provavelmente tem codec exotico (MPEG-1 Audio Layer II/III). ffmpeg precisa decodifica-lo por completo antes de re-encodar em PCM.
+
+### Fix aplicado (`core/transcriber.py`)
+1. **Timeout 60s → 180s** para dar margem em cenarios de contencao de CPU.
+2. **Skip pre-processamento em arquivos >100MB** — trade-off: audio bruto fica mais lento pro Whisper, mas evita OOM em container Cloud Run (1GB+ de RAM).
+3. **Log de tamanho do arquivo** antes do pre-processamento para diagnostico futuro: `Pre-processando audio para mono 16kHz PCM (1.08MB)...`
+4. **Excecoes separadas** (`TimeoutExpired` vs `FileNotFoundError`) para log mais informativo quando ffmpeg nao esta instalado vs demorado.
+
+### Validacao esperada
+- Audios <10MB: pre-processamento em <5s (tipicamente <1s).
+- Audios 10-100MB: pre-processamento em 10-30s.
+- Audios >100MB: skip pre-processamento (usa original). Whisper consegue transcrever m4a/mp4/etc direto, so fica mais lento.
+- Audios com codigo exotico: 180s e suficiente na maioria dos casos. Se ainda estourar, fallback automatico.
+
+---
+
 ## 03/07/2026 - Pipeline CI/CD: Whisper pré-baked no worker + envs MiniMax M3 no test-env
 
 ### Contexto
