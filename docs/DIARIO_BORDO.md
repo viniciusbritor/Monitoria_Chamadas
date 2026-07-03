@@ -2,6 +2,32 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - OTIMIZAÇÕES WHISPER (Camada 2 sem perda de qualidade)
+
+### Contexto
+Após corrigir o bug de VITE_API_URL (entrada anterior), foi identificado que o Whisper estava **muito lento** (~10x mais lento que real-time). Em um áudio de WhatsApp de 30s, a transcrição levava ~5min. Após análise, foram aplicadas otimizações que **mantêm qualidade idêntica** mas aceleram significativamente.
+
+### Otimizações aplicadas
+
+#### Otimização A — Paralelismo CPU
+Adicionado `num_workers=2` em `core/transcriber.py`. O `faster-whisper` (via CTranslate2) paraleliza o decode de segmentos em CPU quando há múltiplos workers.
+
+#### Otimização B — Pré-processamento de áudio
+Antes de transcrever, o áudio é convertido para **mono 16kHz PCM** via `ffmpeg` (já instalado no Dockerfile). Esse é o formato nativo que o Whisper espera internamente — qualquer desvio gera trabalho extra do decoder.
+
+Também adicionado `vad_filter=True` com `min_silence_duration_ms=500` para pular automaticamente trechos de silêncio (otimização bonus, sem impacto na qualidade).
+
+#### Otimização C — Pré-carregar modelo no startup
+Transcriber agora é inicializado **no `@app.on_event("startup")`** em vez de lazy load. Custo: 33s extras no startup do container. Benefício: **primeiro upload não paga esse custo** (33s → 0s).
+
+### Resultado esperado
+- ~2x speedup no tempo de transcrição total
+- Qualidade **idêntica** ao baseline (mesmo modelo `base`, mesmo `compute_type="default"` float32)
+- Trade-off: container sempre com ~1-2GB de RAM ocupados pelo modelo
+
+### Validação
+Após deploy, novo upload deve processar em **metade do tempo** comparado ao anterior. Áudio de teste (WhatsApp Audio 2026-06-29 ~30s): esperado ~2-3min (antes: ~5min).
+
 ## 03/07/2026 - FIX UPLOAD: frontend dist embutia VITE_API_URL=127.0.0.1:8001 (dev local)
 
 ### Sintoma

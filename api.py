@@ -21,7 +21,7 @@ except Exception as _e:
     print(f"Aviso: firebase-admin nao inicializado: {_e}")
     fb_auth = None
 
-from core.transcriber import Transcriber
+from core.transcriber import Transcriber, preload_model
 from core.evaluator import Evaluator
 from core.portal_auth import is_authorized_for_module, get_user_role_and_admin
 from core.portal_audit import log_access_denied
@@ -108,6 +108,13 @@ def startup_event():
     init_db()
     if fb_auth is None:
         print("ERRO CRITICO: firebase-admin nao foi inicializado. Verifique FIRESTORE_PROJECT_ID.", flush=True)
+    # Otimizacao C: pre-carregar modelo Whisper no startup
+    # Salva ~33s no primeiro upload
+    try:
+        get_transcriber()
+        print("Transcriber pre-carregado no startup", flush=True)
+    except Exception as e:
+        print(f"AVISO: Falha ao pre-carregar Transcriber: {e}", flush=True)
 
 def get_current_user(authorization: str = Header(None)):
     """Valida Firebase token, valida permissao no Portal, retorna user info."""
@@ -175,14 +182,14 @@ transcriber = None
 evaluator = None
 
 def get_transcriber():
-    """Lazy load do Transcriber (evita download do modelo Whisper no startup do container)."""
+    """Retorna Transcriber pre-carregado no startup."""
     global transcriber
     if transcriber is None:
         transcriber = Transcriber()
     return transcriber
 
 def get_evaluator():
-    """Lazy load do Evaluator (evita carga de LLM provider no startup)."""
+    """Retorna Evaluator (carga lazy para nao atrasar startup)."""
     global evaluator
     if evaluator is None:
         evaluator = Evaluator()

@@ -20,3 +20,22 @@
 
 ## Barreiras Limitantes
 - **Processamento em CPU (Whisper):** O Cloud Run operando com recursos de CPU (sem GPU dedicada) é a principal barreira arquitetural de performance. A transcrição via faster-whisper em arquivos de áudio leva em média cerca de 1 a 2 minutos, o que afeta a percepção do usuário (ansiedade gerando sensação de erro) já que o frontend não possui websockets para atualizar o status em tempo real. A barreira requer a gestão de expectativa do tempo de processamento.
+
+## 🎙️ Configuração do Whisper (Performance vs Qualidade)
+
+### Regra de Ouro
+**Nunca alterar `compute_type` para `int8` ou reduzir tamanho do modelo sem aprovação do owner.** A qualidade da transcrição é crítica para o score de QA e análise de sentimentos. Mudanças nessas variáveis degradam detecção de nuances em PT-BR.
+
+### Configuração aprovada (2026-07-03)
+- **Modelo**: `base` (75M params, melhor custo/benefício)
+- **compute_type**: `default` (float32) — **NÃO** alterar
+- **num_workers**: `2` (paralelismo CPU, sem perda de qualidade)
+- **OMP_NUM_THREADS**: `2` (evita contenção em CPUs do Cloud Run)
+- **vad_filter**: `True` (pula silêncios, não afeta qualidade)
+- **Pré-processamento**: `ffmpeg` → mono 16kHz PCM antes do Whisper (não afeta qualidade)
+- **Modelo pré-carregado** no `@app.on_event("startup")` — salva 33s no primeiro upload
+
+### Variáveis de ambiente relacionadas
+- `OMP_NUM_THREADS=2`: Obrigatório no Cloud Run (evita hang do CTranslate2)
+- `PYTHONUNBUFFERED=1`: Obrigatório para logs em tempo real
+- `WHISPER_MODEL=base`: Padrão (definido em `secrets/` ou env)

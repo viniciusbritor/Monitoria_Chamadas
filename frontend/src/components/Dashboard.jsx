@@ -172,7 +172,7 @@ export default function Dashboard({ onInspectCall }) {
                       </span>
                       {call.status !== 'Concluído' && !call.status.startsWith('Erro') && (
                         <span className="text-[10px] text-textMuted mt-1 ml-1 animate-pulse">
-                          Tempo estimado: ~60 segundos
+                          Tempo estimado: ~3-5 min (audio curto) / ate 25 min (audio longo)
                         </span>
                       )}
                     </div>
