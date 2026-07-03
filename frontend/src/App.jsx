@@ -19,6 +19,9 @@ function App() {
   const [loginError, setLoginError] = useState(null)
   const [emailLogin, setEmailLogin] = useState('')
   const [passwordLogin, setPasswordLogin] = useState('')
+  // NEW (Sprint 2 - 03/07/2026): estado de bootstrap para evitar o flash da tela de login
+  // no primeiro render quando ha ?token= na URL. Permanece true ate o primeiro useEffect rodar.
+  const [bootstrapping, setBootstrapping] = useState(true)
 
   const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env.coherenceai.com.br"
   const PORTAL_URL = import.meta.env.VITE_PORTAL_URL || "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app"
@@ -48,6 +51,9 @@ function App() {
         console.log('[Monitoria SSO] sem token em lugar nenhum')
       }
     }
+    // NEW (Sprint 2 - 03/07/2026): encerra bootstrap. Apos isso o componente pode decidir
+    // entre mostrar login, validating ou dashboard, conforme o userToken atual.
+    setBootstrapping(false)
   }, [])
 
   const navigateTo = (view, callId = null) => {
@@ -169,6 +175,20 @@ function App() {
     validateTokenOnMount()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userToken])
+
+  // NEW (Sprint 2 - 03/07/2026): spinner NEUTRO durante bootstrap.
+  // Sem branding da Monitoria para nao confundir com a tela de login
+  // nem comprometer a transicao Portal -> Monitoria.
+  if (bootstrapping) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-black/40">Carregando...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (accessDenied) {
     return (

@@ -2,6 +2,27 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - Fix flash da tela de login no SSO Portal -> Monitoria
+
+- **Sintoma:** ao clicar no card "Monitoria de Chamadas" no Portal Coherence, a nova aba abria com a tela de Login (com branding "MONITORIA DE CHAMADA") por um instante antes do dashboard renderizar. Quebrava a percepção de SSO continuo.
+
+- **Causa raiz:** `frontend/src/App.jsx` inicializava `userToken=null` e o `useEffect` que lia `?token=` da URL so executava apos o primeiro render. No primeiro render, `!userToken === true` mostrava a tela de Login.
+
+- **Fix:**
+  - Novo estado `bootstrapping` (inicial = `true`).
+  - Final do `useEffect[?token=]` agora chama `setBootstrapping(false)`.
+  - **Spinner NEUTRO** (sem branding) renderizado durante o bootstrap, com texto discreto "Carregando...".
+  - Ordem de render reorganizada: `bootstrapping` -> `accessDenied` -> `!userToken` -> `validating` -> dashboard. Bootstrap tem prioridade absoluta.
+
+- **Decisao de design:** spinner sem branding porque o objetivo eh NAO mostrar nada da Monitoria ate a validacao terminar. O usuario so ve o branding quando o dashboard ja esta pronto.
+
+- **Validacao esperada (apos deploy):**
+  - Clique no card do Portal -> spinner neutro -> spinner com branding (validating) -> dashboard.
+  - Acesso direto sem token: spinner neutro -> tela de Login (transicao aceitavel, e o usuario ja estava na Monitoria direto).
+  - Acesso direto com token invalido: spinner neutro -> spinner com branding -> "Acesso Restrito".
+
+- **Arquivos alterados:** `frontend/src/App.jsx` (apenas adicoes; nenhum trecho existente foi removido ou reescrito).
+
 ## 03/07/2026 - OTIMIZAÇÕES WHISPER (Camada 2 sem perda de qualidade)
 
 ### Contexto
