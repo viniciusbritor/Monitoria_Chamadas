@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "module_id": "monitoria-chamadas",
+  "display_name": "Monitoria de Chamadas",
+  "description": "Transcricao e avaliacao QA de audios de atendimento ao cliente usando faster-whisper (PT-BR) e MiniMax M3.",
+  "icon": "Headphones",
+  "schema_version": "1.1.0",
+  "last_updated": "2026-07-03",
+  "owner": "viniciusbritor@gmail.com",
+  "repository": "viniciusbritor/Monitoria_Chamadas",
+  "_canonical_location": "Monitoria_Chamadas_Teste/docs/conexao_modulo.json (FONTE CANONICA)",
+  "_portal_consumption": "Portal clona este arquivo via cloudbuild-test.yaml step 0 (git clone https://github.com/viniciusbritor/Monitoria_Chamadas.git)",
+  "variants": {
+    "test": {
+      "url": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app",
+      "url_aliases": [
+        "https://monitoria-test-env-894828119087.us-central1.run.app"
+      ],
+      "cloud_run_service": "monitoria-test-env",
+      "gcp_project": "coherence-ominichannel-fs",
+      "gcp_region": "us-central1",
+      "branch": "test",
+      "build_config": "cloudbuild-test.yaml",
+      "support_contact": "viniciusbritor@gmail.com",
+      "deployed_at": "2026-07-03",
+      "last_revision": "monitoria-test-env-00026-z6d"
+    },
+    "prod": {
+      "url": null,
+      "url_aliases": [],
+      "cloud_run_service": null,
+      "gcp_project": "coherence-ominichannel-fs",
+      "gcp_region": "us-central1",
+      "branch": "main",
+      "build_config": "cloudbuild.yaml",
+      "support_contact": "viniciusbritor@gmail.com",
+      "deployed_at": null,
+      "last_revision": null,
+      "_note": "Ainda nao deployado neste projeto. URL sera preenchida quando o servico for criado."
+    }
+  },
+  "entry_point": {
+    "method": "GET",
+    "url_pattern": "{variant.url}/?token={firebase_id_token}",
+    "token_source": "Firebase ID Token (Firebase Auth JS SDK, obtido via user.getIdToken(true) no Portal)",
+    "token_validation_endpoint": "{variant.url}/api/auth/portal-sso",
+    "token_validation_method": "POST com form-data { token }",
+    "session_creation": "Modulo cria JWT local em localStorage; usado em Authorization: Bearer em requests subsequentes",
+    "open_behavior": "window.open(url_completo, '_blank') no Portal frontend"
+  },
+  "required_portal_apis": [
+    {
+      "_note": "Fase 8 (03/07/2026): contrato consolidado em UNICO endpoint /api/auth/me. Substitui /api/me/permissions + /api/me/role + /api/admin/audit-logs/log-access-denied.",
+      "method": "GET",
+      "path": "/api/auth/me",
+      "auth": "Authorization: Bearer <firebase_id_token> (OBRIGATORIO)",
+      "query_params": {
+        "module_id": "string (opcional). Se passado, valida acesso ESPECIFICO e retorna 403 + audit log se sem permissao."
+      },
+      "purpose": "Endpoint canonico de SSO + validacao de permissao.",
+      "called_by": "core/portal_auth.py:is_authorized_for_module() (Bearer token)",
+      "response_200_without_module_id": {
+        "email": "string",
+        "is_super_admin": "bool",
+        "client_id": "string|null",
+        "role": "string (role GLOBAL)",
+        "modules": {
+          "<module_id>": {
+            "is_active": "bool",
+            "role": "string (role ESPECIFICO do modulo)",
+            "client_id": "string"
+          }
+        }
+      },
+      "response_200_with_module_id_and_permission": "Mesmo payload, mas role reflete role ESPECIFICO do modulo",
+      "response_403": "Sem permissao ativa no module_id; audit log ACCESS_DENIED automatico",
+      "response_401": "Token ausente, malformado ou invalido",
+      "response_503": "Firebase Admin SDK nao inicializou",
+      "validation": "Criptografica via firebase-admin.verify_id_token",
+      "audit_log_atrelado_a": "user real (email extraido do token)"
+    }
+  ],
+  "deprecated_apis": [
+    {
+      "method": "GET",
+      "path": "/api/me/permissions",
+      "deprecated_at": "2026-07-03",
+      "reason": "Substituido por /api/auth/me (sem auth, fragil, sem audit log automatico)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/role",
+      "deprecated_at": "2026-07-03",
+      "reason": "Substituido por /api/auth/me (sem auth, query param fragil)"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/audit-logs/log-access-denied",
+      "deprecated_at": "2026-07-03",
+      "reason": "Substituido por /api/auth/me?module_id=X (retorna 403 + audit log automatico)"
+    }
+  ],
+  "firestore_schema": {
+    "collection": "modules",
+    "doc_id": "monitoria-chamadas",
+    "fields": {
+      "module_id": {
+        "type": "string",
+        "immutable": true,
+        "value": "monitoria-chamadas",
+        "description": "Identificador canonico do modulo. Imutavel."
+      },
+      "name": {
+        "type": "string",
+        "value": "Monitoria de Chamadas",
+        "description": "Nome exibido no card do Portal."
+      },
+      "url": {
+        "type": "string",
+        "immutable": false,
+        "description": "URL canonica da variante ativa. Rotacionavel via PATCH no Firestore, sem deploy.",
+        "pattern": "^https://monitoria-(test-)?env-[a-z0-9-]+\\.a\\.run\\.app/?$"
+      }
+    },
+    "source_of_truth": "Firestore runtime (NUNCA criado via seed ou init_db do Portal)",
+    "created_via": "POST /api/admin/modules (quando implementado) ou manualmente via Firebase Console",
+    "current_state_url": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+  },
+  "ui_in_portal": {
+    "icon_component": "lucide-react > Headphones",
+    "icon_map_entry": "ICON_MAP['monitoria-chamadas'] = Headphones",
+    "rendered_in_file": "frontend/src/pages/Dashboard.jsx",
+    "rendered_in_function": "handleModuleClick(m)",
+    "header_text_pattern": ["MONITORIA DE", "CHAMADA"],
+    "card_color_primary": "#3b82f6"
+  },
+  "permissions": {
+    "who_sees_card": "is_super_admin == true OR user_permissions['monitoria-chamadas'].is_active == true",
+    "denial_endpoint": "GET /api/_debug/state?email=<user_email> (debug only)",
+    "front_end_denied_state": "accessDenied=true na UI mostra 'Acesso Restrito' card",
+    "permission_collection": "user_permissions",
+    "permission_doc_id_pattern": "{user_email}_monitoria-chamadas"
+  },
+  "env_vars": {
+    "MONITORIA_URL": {
+      "scope": "test only (fallback para scripts de teste)",
+      "value_test": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app",
+      "value_prod": null,
+      "where_defined": "backend/.env.runtime.yaml",
+      "where_consumed": "backend/models.py:get_monitoria_url() (Firestore first, env var fallback)"
+    },
+    "MONITORIA_MODULE_ID": {
+      "scope": "code constant (anywhere)",
+      "value": "monitoria-chamadas",
+      "where_defined": "backend/models.py:178",
+      "purpose": "Identidade do modulo para auto-referencias em codigo"
+    },
+    "PORTAL_API_URL": {
+      "scope": "any",
+      "value_test": "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app",
+      "where_defined": "backend/.env.runtime.yaml",
+      "where_consumed": "core/portal_auth.py (modulo chama Portal /api/auth/me)"
+    }
+  },
+  "module_capabilities": {
+    "audio_formats_supported": ["MP3", "WAV", "MPEG"],
+    "transcription_engine": "faster-whisper base (PT-BR)",
+    "qa_evaluation_engine": "MiniMax M3",
+    "queue_engine": "Google Cloud Pub/Sub",
+    "topic": "monitoria-whisper-jobs",
+    "subscription": "monitoria-whisper-jobs-worker",
+    "worker_service": "monitoria-whisper-worker",
+    "max_audio_size_mb": 100,
+    "estimated_processing_time_short_audio_sec": "180-300",
+    "estimated_processing_time_long_audio_sec": "1500"
+  },
+  "rotation_procedure": {
+    "summary": "PATCH Firestore URL; zero deploy do Portal",
+    "steps": [
+      "1. Identificar nova URL apos deploy do Cloud Run (gcloud run services describe <service> --format='value(status.url)')",
+      "2. PATCH Firestore: gcloud firestore documents patch --document=modules/monitoria-chamadas --field=url=<nova_url>",
+      "3. Validar: curl https://coherence-portal-test-...run.app/api/modules | jq '.[0].url'",
+      "4. Monitorar logs do Portal por 1min para confirmar leitura da nova URL",
+      "5. Rollback se necessario: PATCH url=<url_anterior>"
+    ],
+    "zero_deploy": true,
+    "zero_restart": true,
+    "zero_git_push": true
+  },
+  "contract_breakers": [
+    "Portal sem endpoint /api/auth/me",
+    "Portal retornar 503 em /api/auth/me (modulo quebra)",
+    "Portal hardcodar URL de modulo em seed/init_db (causa regressao)",
+    "Modulo nao enviar Authorization: Bearer token em /api/auth/me",
+    "Modulo chamar endpoints legados /api/me/permissions + /api/me/role + /api/admin/audit-logs/log-access-denied (substituidos por /api/auth/me)"
+  ]
+}
