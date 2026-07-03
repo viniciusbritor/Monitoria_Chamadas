@@ -362,17 +362,56 @@ def get_call(call_id: str, user = Depends(get_current_user)):
 
 @app.post("/api/upload")
 async def upload_audio(
-    background_tasks: BackgroundTasks, 
+    background_tasks_fallback: BackgroundTasks,
     file: UploadFile = File(...),
     diretrizes: str = Form(""),
     user = Depends(get_current_user)
 ):
+    """
+    Fase B: agora enfileira job no Pub/Sub em vez de processar via BackgroundTasks.
+    Vantagens:
+    - Backend principal nao trava durante transcricao
+    - Worker escala independentemente (0-10 instancias)
+    - Persistencia: audio no GCS, nao em disco local volatil
+    """
     call_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{call_id}_{file.filename}")
-    
+
+    # 1. Salva audio local temporariamente (sera uploadado para GCS)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
+
+    # 2. Upload para GCS (bucket dedicado para arquivos temporarios do worker)
+    gcs_bucket = os.getenv("AUDIO_BUCKET", "coherence-monitoria-audios-tmp")
+    gcs_path = f"{call_id}_{file.filename}"
+
+    try:
+        from google.cloud import storage as gcs_storage
+        gcs_client = gcs_storage.Client()
+        bucket = gcs_client.bucket(gcs_bucket)
+        blob = bucket.blob(gcs_path)
+        blob.upload_from_filename(file_path)
+        gcs_uri = f"gs://{gcs_bucket}/{gcs_path}"
+        print(f"[Upload] Audio salvo em {gcs_uri}", flush=True)
+    except Exception as e:
+        # Se GCS falhar, faz fallback para BackgroundTasks local (modo degradado)
+        print(f"[Upload] FALHA ao subir para GCS: {e}. Fallback: BackgroundTasks local.", flush=True)
+        gcs_uri = None
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute('''
+            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes))
+        conn.commit()
+        conn.close()
+
+        background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
+        return {"message": "Processamento iniciado (modo degradado)", "id": call_id, "mode": "local"}
+
+    # 3. INSERT no SQLite com status "Na Fila de Processamento..."
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
@@ -382,11 +421,38 @@ async def upload_audio(
     ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes))
     conn.commit()
     conn.close()
-    
-    # Aciona processo assíncrono
-    background_tasks.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
-    
-    return {"message": "Processamento iniciado", "id": call_id}
+
+    # 4. Publica job no Pub/Sub para o worker dedicado processar
+    try:
+        from google.cloud import pubsub_v1
+        publisher = pubsub_v1.PublisherClient()
+        topic_path = publisher.topic_path(
+            os.getenv("GCP_PROJECT", "coherence-ominichannel-fs"),
+            os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs"),
+        )
+        message_data = json.dumps({
+            "call_id": call_id,
+            "gcs_uri": gcs_uri,
+            "filename": file.filename,
+            "user_id": user.get("sub"),
+            "diretrizes": diretrizes,
+            "uploaded_at": now,
+        }).encode("utf-8")
+        future = publisher.publish(topic_path, message_data)
+        message_id = future.result(timeout=10)
+        print(f"[Upload] Job publicado no Pub/Sub: {message_id}", flush=True)
+    except Exception as e:
+        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}", flush=True)
+        # Continua mesmo assim — o usuario vera "Na Fila de Processamento..." para sempre.
+        # Em prod, considere alerta admin aqui.
+
+    # 5. Cleanup arquivo local (foi copiado para GCS)
+    try:
+        os.remove(file_path)
+    except OSError:
+        pass
+
+    return {"message": "Processamento iniciado", "id": call_id, "mode": "pubsub"}
 
 # Endpoints administrativos migrados para o Coherence Portal (SSO Global).
 

@@ -9,3 +9,5 @@ google-auth
 firebase-admin
 httpx
 pyjwt
+google-cloud-pubsub
+google-cloud-storage
