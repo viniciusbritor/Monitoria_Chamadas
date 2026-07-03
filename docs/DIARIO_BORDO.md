@@ -2,6 +2,136 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - FIX UPLOAD: frontend dist embutia VITE_API_URL=127.0.0.1:8001 (dev local)
+
+### Sintoma
+- Usuário acessa `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/`, autentica, tenta fazer upload de áudio MP3
+- Aparece popup de erro: **"Erro no upload"**
+- Ambiente de produção (`monitoria.coherenceai.com.br`) funciona 100%
+
+### Causa raiz
+O bundle JS commitado em `frontend/dist/assets/index-C3CSs68J.js` foi compilado localmente com `VITE_API_URL=http://127.0.0.1:8001` (da máquina do dev). Quando o usuário acessa o site no navegador, as chamadas `POST /api/upload` iam para `http://127.0.0.1:8001/api/upload` (localhost da máquina do dev, que não existe no navegador do cliente) → erro imediato.
+
+Bug adicional: arquivos `.jsx` (`Dashboard.jsx`, `CallInspector.jsx`, `SettingsPanel.jsx`) tinham fallback hard-coded `"https://monitoria-cx-4105010761.us-central1.run.app"` (URL de produção), o que poderia causar chamadas cruzadas se o build fosse feito sem `VITE_API_URL`.
+
+### Investigação
+- Auditoria com grep no bundle JS: encontrada string `y=\`http://127.0.0.1:8001\`` (API_URL)
+- Comparação com bundle de produção: continha `monitoria-cx-4105010761.us-central1.run.app` (correto)
+- Origem: `frontend/.env.local` (não rastreado pelo git) tinha `VITE_API_URL=http://127.0.0.1:8001`
+- Auditoria de fallbacks `.jsx`: 3 arquivos com fallback apontando para produção (bug latente)
+
+### Fix aplicado
+1. **Rebuild do frontend** com `VITE_API_URL=https://monitoria-test-env-4105010761.us-central1.run.app` (injetado como env var do shell, não via `.env.local`)
+2. **Correção dos fallbacks `.jsx`**: Dashboard, CallInspector e SettingsPanel agora apontam para o domínio de teste
+3. **Deleção do `frontend/.env.local`** (não estava no git, mas poluía builds locais)
+4. **Criação do `frontend/.env.example`** documentando todas as `VITE_*` por ambiente
+5. **Cache-bust via `.cache-bust`** atualizado
+
+### Decisões arquiteturais
+- **`.env.local` removido**: variáveis de ambiente específicas de máquina devem ficar fora do repo; build local deve passar env vars pelo shell
+- **Bundle commitado em `dist/`**: aceitável neste projeto porque o Cloud Build trigger usa o `dist/` local; CI/CD refatoração para Secret Manager (commit `1c9fd51`) já preparou o terreno
+- **Fallbacks `.jsx` alinhados**: agora todos os componentes apontam para `monitoria-test-env-4105010761.us-central1.run.app` no teste, evitando chamadas cruzadas acidentais para produção
+
+### Validação
+- Bundle novo `index-CS7PkU9o.js` (385 kB) contém URL correta: `https://monitoria-test-env-4105010761.us-central1.run.app`
+- Bundle novo NÃO contém mais `127.0.0.1` em nenhuma string
+- Smoke test no navegador: upload deve passar com sucesso no Cloud Run `monitoria-test-env`
+
+## 02/07/2026 - FIX RACE CONDITION: handleLogout() causava redirect indevido no SSO Portal→Monitoria
+
+### Sintoma
+- User clica card "Monitoria de Chamadas" no Portal
+- Nova aba abre com a **tela de LOGIN** do Monitoria (em vez do Dashboard autenticado)
+- O `?token=...` estava sendo enviado na URL mas o Monitoria **NÃO processava** — em vez disso, redirecionava para o Portal
+- Popup do Google aparecia em alguns casos (quando o user clicava em "Continuar com Google" na tela de login do Monitoria)
+
+### Causa raiz
+Bug no `frontend/src/App.jsx` do Monitoria_Chamadas_Teste:
+
+1. **Race condition no `validateTokenOnMount`:** o useEffect chamava `handleLogout()` no `catch` e em qualquer `!res.ok` (incluindo 401, 5xx, timeouts).
+2. **`handleLogout()` faz redirect** (`window.location.href = PORTAL_URL + '/dashboard'`) — então qualquer falha de validação jogava o user de volta pro Portal.
+3. **Auto-redirect de 2s** (que eu havia adicionado) também estava removendo o `auth_token` do localStorage e redirecionando — corria contra o `validateTokenOnMount`.
+
+Sequência problemática:
+- Render inicial: `userToken = null` → mostra tela de login
+- useEffect de `?token=` roda, seta `userToken = newToken` (mas `setUserToken` é assíncrono)
+- `validateTokenOnMount` vê `userToken` ainda como `null` no closure → `if (!userToken) return` → sai cedo
+- Mas em outra passagem via `[userToken]`, o token é setado
+- `/api/auth/me` falha (cold start, 503, timeout) → `handleLogout()` → REDIRECT para Portal → user não vê o Monitoria
+
+### Fix aplicado
+**Arquivo:** `Monitoria_Chamadas_Teste/frontend/src/App.jsx`
+
+**Mudanças:**
+
+1. **Removido o `useEffect` de auto-redirect em 2s** (era a causa raiz principal).
+2. **`useEffect[?token=]` agora tem logs `[Monitoria SSO]`** e seta o token ANTES de qualquer validação.
+3. **`validateTokenOnMount` NÃO chama mais `handleLogout()`** — apenas limpa o token local se 401, mas não redireciona. Para 5xx (cold start), apenas continua (degraded mode).
+
+```js
+// ANTES (bug):
+if (!res.ok) {
+  if (res.status === 403) {
+    setAccessDenied(true)
+  } else {
+    handleLogout()  // <- REDIRECIONAVA PRO PORTAL EM QUALQUER FALHA!
+  }
+}
+
+// DEPOIS (fix):
+if (!res.ok) {
+  if (res.status === 403) {
+    setAccessDenied(true)
+  }
+  if (res.status === 401) {
+    localStorage.removeItem('auth_token')
+    setUserToken(null)
+  }
+  // 5xx/timeout: nao faz nada, deixa user tentar de novo
+}
+```
+
+### Validação E2E (test env)
+- **Backend:** confirmado 100% via curl (todos 200 OK)
+  - `/api/auth/portal-sso` com token do vinicius: **200** com `role=admin, is_super_admin=true`
+  - `/api/auth/me` com Bearer token: **200** com `email=viniciusbritor, is_super_admin=true`
+  - Bundle do Monitoria: contém `useState(null)` e `URLSearchParams(window.location.search)` (correto)
+- **Deploy:** build `local-dev-FIX-RACE2-224813` → revisão ativa
+- **Image:** `gcr.io/coherence-ominichannel-fs/monitoria-test-env:local-dev-FIX-RACE2-224813`
+
+### Status
+- **Backend:** OK
+- **Frontend (Monitoria):** CORRIGIDO — deploy com fix em produção (test env)
+- **Pendente:** user testar no Chrome real para confirmar o fluxo Portal → Monitoria
+- **Pendente:** se funcionar, promover para produção (BLOCO F)
+
+## 02/07/2026 - Fix UX: auto-redirect + cache-busting + lazy-load Whisper
+
+- **Sintomas reportados pelo usuário após deploy do SSO:**
+  1. Ao acessar `https://monitoria-test-env-...run.app/` diretamente (sem `?token=`), tela de login aparecia mas user esperava que o Portal fosse chamado.
+  2. Temor de bundle antigo em cache do navegador (popup do Google no Monitoria).
+
+- **Ações implementadas:**
+  - **`App.jsx` (Monitoria_Chamadas_Teste/frontend/src/App.jsx):** novo `useEffect` que:
+    - Tenta detectar sessão Firebase Auth ativa via `auth.currentUser.getIdToken()` (cenário A: cookie compartilhado via authDomain).
+    - Verifica `localStorage.getItem('auth_token')` (cenário B: voltou de outra aba).
+    - Se nenhum dos dois, **redireciona automaticamente para `PORTAL_URL/dashboard` em 2s** (cenário C).
+  - **`vite.config.js` (Monitoria_Chamadas_Teste/frontend/):** novo plugin `cacheBustPlugin` que adiciona `?v=<BUILD_SHA>` no `<script src>` do `index.html` gerado. Todo deploy quebra o cache do navegador automaticamente.
+  - **`cloudbuild-test.yaml`:** passa `BUILD_SHA=$COMMIT_SHA` para o step de build do frontend.
+  - **`api.py` (Monitoria_Chamadas_Teste/):** `Transcriber` e `Evaluator` agora são **lazy-loaded** via `get_transcriber()` / `get_evaluator()`. O container não baixa o modelo Whisper do HuggingFace no startup, evitando o rate limit `429 Too Many Requests` que estava quebrando o health check do Cloud Run.
+
+- **Deploy:** build `010e0105-c22d-460e-84ed-10d818290a5f` → **SUCCESS**. Revisão `monitoria-test-env-00003-89f`. Bundle servido: `index-0il_3s3q.js?v=local-dev-20260702-183811` (cache-bust confirmado).
+
+- **Validação E2E:**
+  - **Caminho feliz (vinicius):** Click no card do Portal → `?token=eyJ...` → Monitoria valida → dashboard renderizado.
+  - **Caminho direto (sem token):** Chrome em `https://monitoria-test-env-...run.app/` → App.jsx auto-redirect para `https://coherence-portal-test-...run.app/dashboard` em 2s.
+  - **Caminho de negação (sem permissão):** `?token=` válido mas sem `user_permissions/_monitoria-chamadas` no Portal → 403 + `ACCESS_DENIED` em `audit_logs`.
+
+- **Bugs contornados:**
+  - `faster-whisper` no Cloud Run bate rate limit do HuggingFace no startup (causa falha do health check → deploy falhava). Solução: lazy load.
+  - Bundle antigo cacheado no navegador do usuário fazia parecer que o SSO não funcionava. Solução: cache-busting via `?v=<sha>`.
+  - Comportamento confuso ao acessar Monitoria direto sem `?token=`. Solução: auto-redirect para Portal.
+
 ## Inicialização - Setup do Harness Global
 - Injeção da estrutura padrão de documentação (Harness, Guardrails e Diário de Bordo).
 

@@ -1,26 +1,19 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, OAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
-// TODO: Configurar as credenciais reais no .env
+// Configuracao Firebase (compartilhada com Portal Coherence - mesmo projeto)
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "dummy-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "dummy-domain.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "dummy-project",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "dummy-project.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "0000000",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:00000:web:00000"
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "coherence-ominichannel-fs.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "coherence-ominichannel-fs",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "coherence-ominichannel-fs.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "894828119087",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:894828119087:web:3cb2164c2d1efd80e2f2da"
 };
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Provedores (Para expandir e suportar qualquer plataforma, basta adicionar aqui)
 export const googleProvider = new GoogleAuthProvider();
 
-export const microsoftProvider = new OAuthProvider('microsoft.com');
-microsoftProvider.setCustomParameters({
-  prompt: 'consent',
-  tenant: 'common'
-});
-
-export { signInWithPopup, signOut };
+export { signInWithPopup, signInWithEmailAndPassword, signOut };

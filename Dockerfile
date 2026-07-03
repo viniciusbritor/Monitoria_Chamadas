@@ -1,8 +1,18 @@
-FROM gcr.io/consultoria-bess-mme136/monitoria-base:latest
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copia o código fonte (incluindo a pasta frontend/dist que foi compilada localmente)
+# Dependências do sistema (faster-whisper precisa de compiladores?)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala todas as deps Python (incluindo firebase-admin, httpx, pyjwt)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia o código fonte (incluindo a pasta frontend/dist compilada pelo cloudbuild)
 COPY . .
 
 # Expõe a porta que o Cloud Run usa por padrão (8080)

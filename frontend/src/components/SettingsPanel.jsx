@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Save, Plus, Trash2, CheckCircle2, ShieldAlert, Loader2 } from 'lucide-react'
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-cx-4105010761.us-central1.run.app"
+const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-4105010761.us-central1.run.app"
 
 export default function SettingsPanel() {
   const [checklist, setChecklist] = useState(["Saudação inicial", "Validação de dados"])

@@ -8,12 +8,25 @@ import uuid
 import shutil
 from datetime import datetime
 import json
-from google.oauth2 import id_token
-from google.auth.transport import requests
 import jwt
+
+# Firebase Admin (substitui Google OAuth direto - agora validamos tokens emitidos pelo Portal)
+try:
+    import firebase_admin
+    from firebase_admin import credentials, auth as fb_auth
+    if not firebase_admin._apps:
+        _fb_project = os.getenv("FIRESTORE_PROJECT_ID", "coherence-ominichannel-fs")
+        firebase_admin.initialize_app(credentials.ApplicationDefault(), {"projectId": _fb_project})
+except Exception as _e:
+    print(f"Aviso: firebase-admin nao inicializado: {_e}")
+    fb_auth = None
 
 from core.transcriber import Transcriber
 from core.evaluator import Evaluator
+from core.portal_auth import is_authorized_for_module, get_user_role_and_admin
+from core.portal_audit import log_access_denied
+
+MODULE_ID = "monitoria-chamadas"
 
 app = FastAPI(title="Monitoria de Chamadas API")
 
@@ -93,67 +106,87 @@ def init_db():
 @app.on_event("startup")
 def startup_event():
     init_db()
-
-# Substitua pelo seu Google Client ID real depois
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+    if fb_auth is None:
+        print("ERRO CRITICO: firebase-admin nao foi inicializado. Verifique FIRESTORE_PROJECT_ID.", flush=True)
 
 def get_current_user(authorization: str = Header(None)):
+    """Valida Firebase token, valida permissao no Portal, retorna user info."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization Header")
     try:
         token = authorization.split("Bearer ")[1]
-        
-        if not GOOGLE_CLIENT_ID:
-            # Em ambiente local (sem credenciais), confia no JWT sem validar assinatura
-            # Em produção, você deverá configurar o firebase-admin:
-            # idinfo = firebase_admin.auth.verify_id_token(token)
-            idinfo = jwt.decode(token, options={"verify_signature": False})
-        else:
-            # Modo Legado Google (ou futuro verify_id_token)
-            idinfo = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
-            
-        # Bloqueio de Segurança (Whitelist)
-        email = idinfo.get("email")
-        
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT is_approved, role FROM users WHERE email = ?", (email,))
-        row = cursor.fetchone()
-        conn.close()
-        
-        # Hardcoded fallback para evitar lockout total caso o admin perca acesso
-        fallback_admins = ["viniciusbritor@gmail.com", "rafadesouzaoliveira@gmail.com"]
-        
-        if not row or not row["is_approved"]:
-            if email not in fallback_admins:
-                raise ValueError(f"Acesso negado: O email {email} não está autorizado.")
-            # Se for admin fallback e não estiver no banco, o save_user vai criá-lo.
-            idinfo["role"] = "admin"
-        else:
-            idinfo["role"] = row["role"]
-            
-        return idinfo
-    except ValueError as ve:
-        raise HTTPException(status_code=403, detail=str(ve))
+        if fb_auth is None:
+            raise HTTPException(status_code=503, detail="firebase-admin nao disponivel no servidor")
+        decoded = fb_auth.verify_id_token(token)
+        email = decoded.get("email")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token sem email")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid Token: {str(e)}")
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
+
+    # Valida permissao no Portal (source of truth)
+    if not is_authorized_for_module(email, MODULE_ID):
+        # Registra acesso negado no audit log do Portal (fire-and-forget)
+        log_access_denied(MODULE_ID, token, f"Tentativa de acesso ao modulo '{MODULE_ID}' negada")
+        raise HTTPException(status_code=403, detail=f"Acesso negado: {email} nao tem permissao para '{MODULE_ID}'")
+
+    # Decora user com role info vinda do Portal
+    role_info = get_user_role_and_admin(email)
+    decoded["is_super_admin"] = role_info["is_super_admin"]
+    decoded["client_id"] = role_info["client_id"]
+    decoded["role"] = "admin" if role_info["is_super_admin"] else "user"
+    return decoded
 
 def save_user(user_info):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR IGNORE INTO users (id, email, name, picture, is_approved, role)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (user_info.get("sub"), user_info.get("email"), user_info.get("name"), user_info.get("picture"), 1, user_info.get("role", "user")))
-    cursor.execute('''
-        UPDATE users SET name = ?, picture = ? WHERE email = ?
-    ''', (user_info.get("name"), user_info.get("picture"), user_info.get("email")))
-    conn.commit()
-    conn.close()
+    pass # Usuários agora são salvos no banco global do SSO
 
-transcriber = Transcriber()
-evaluator = Evaluator()
+# SSO handoff: Portal abre Monitoria com ?token=<jwt> e Monitoria valida + cria sessao
+@app.post("/api/auth/portal-sso")
+def portal_sso(token: str = Form(...)):
+    """Valida Firebase token vindo do Portal e cria sessao local."""
+    if fb_auth is None:
+        raise HTTPException(status_code=503, detail="firebase-admin nao disponivel")
+    try:
+        decoded = fb_auth.verify_id_token(token)
+        email = decoded.get("email")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token sem email")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
+
+    # Verifica permissao
+    if not is_authorized_for_module(email, MODULE_ID):
+        log_access_denied(MODULE_ID, token, "Tentativa de SSO Portal sem permissao")
+        raise HTTPException(status_code=403, detail=f"Acesso negado: {email} sem permissao para '{MODULE_ID}'")
+
+    role_info = get_user_role_and_admin(email)
+    return {
+        "email": email,
+        "name": decoded.get("name"),
+        "picture": decoded.get("picture"),
+        "role": "admin" if role_info["is_super_admin"] else "user",
+        "is_super_admin": role_info["is_super_admin"],
+        "token": token,
+    }
+
+transcriber = None
+evaluator = None
+
+def get_transcriber():
+    """Lazy load do Transcriber (evita download do modelo Whisper no startup do container)."""
+    global transcriber
+    if transcriber is None:
+        transcriber = Transcriber()
+    return transcriber
+
+def get_evaluator():
+    """Lazy load do Evaluator (evita carga de LLM provider no startup)."""
+    global evaluator
+    if evaluator is None:
+        evaluator = Evaluator()
+    return evaluator
 
 def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qualidade: str):
     def update_status(status_text):
@@ -178,15 +211,15 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
 
         # Etapa 1: Transcrição Bruta
         update_status("Transcrevendo Áudio (Whisper)...")
-        raw_transcript, segments = transcriber.transcribe(file_path)
+        raw_transcript, segments = get_transcriber().transcribe(file_path)
         
         # Etapa 2: Diarização IA
         update_status("Separando falas (Diarização MiniMax)...")
-        diarized_transcript = evaluator.diarize(raw_transcript)
+        diarized_transcript = get_evaluator().diarize(raw_transcript)
         
         # Etapa 3: Avaliação IA
         update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
-        evaluation = evaluator.evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
+        evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
         
         # Etapa 4: Conclusão
         nota = evaluation.get("nota_geral")
@@ -348,91 +381,7 @@ async def upload_audio(
     
     return {"message": "Processamento iniciado", "id": call_id}
 
-# Endpoints Administrativos
-def verify_admin(user = Depends(get_current_user)):
-    if user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Acesso restrito a administradores.")
-    return user
-
-class EmailApproval(BaseModel):
-    email: str
-    role: str = "user"
-
-class BatchApproval(BaseModel):
-    emails: str
-    role: str = "user"
-
-@app.get("/api/admin/users")
-def list_users(admin = Depends(verify_admin)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, email, name, picture, is_approved, role FROM users ORDER BY email ASC")
-    users = [dict(row) for row in cursor.fetchall()]
-    conn.close()
-    return users
-
-@app.post("/api/admin/approve")
-def approve_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
-    email = payload.email.strip().lower()
-    role = payload.role.strip().lower()
-    if role not in ["admin", "user"]:
-        role = "user"
-        
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-    row = cursor.fetchone()
-    if not row:
-        user_id = str(uuid.uuid4())
-        cursor.execute("INSERT INTO users (id, email, is_approved, role) VALUES (?, ?, 1, ?)", (user_id, email, role))
-    else:
-        cursor.execute("UPDATE users SET is_approved = 1, role = ? WHERE email = ?", (role, email))
-    conn.commit()
-    conn.close()
-    return {"message": f"Acesso para {email} aprovado como {role} com sucesso."}
-
-@app.post("/api/admin/approve_batch")
-def approve_batch_emails(payload: BatchApproval, admin = Depends(verify_admin)):
-    import re
-    # Separa por virgula ou nova linha
-    raw_emails = re.split(r'[,\n]+', payload.emails)
-    valid_emails = []
-    for e in raw_emails:
-        clean_e = e.strip().lower()
-        if clean_e and "@" in clean_e:
-            valid_emails.append(clean_e)
-            
-    if not valid_emails:
-        raise HTTPException(status_code=400, detail="Nenhum e-mail válido encontrado.")
-        
-    role = payload.role.strip().lower()
-    if role not in ["admin", "user"]:
-        role = "user"
-        
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    count = 0
-    for email in valid_emails:
-        cursor.execute("SELECT id FROM users WHERE email = ?", (email,))
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO users (id, email, is_approved, role) VALUES (?, ?, 1, ?)", (str(uuid.uuid4()), email, role))
-        else:
-            cursor.execute("UPDATE users SET is_approved = 1, role = ? WHERE email = ?", (role, email))
-        count += 1
-    conn.commit()
-    conn.close()
-    return {"message": f"{count} e-mails aprovados como {role} com sucesso."}
-
-@app.post("/api/admin/revoke")
-def revoke_user_email(payload: EmailApproval, admin = Depends(verify_admin)):
-    email = payload.email.strip().lower()
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET is_approved = 0 WHERE email = ?", (email,))
-    conn.commit()
-    conn.close()
-    return {"message": f"Acesso para {email} revogado com sucesso."}
+# Endpoints administrativos migrados para o Coherence Portal (SSO Global).
 
 # Frontend estático (Vite Build) - DEVE FICAR NO FINAL PARA NÃO SOBRESCREVER ROTAS /API
 FRONTEND_DIR = os.path.join("frontend", "dist")
