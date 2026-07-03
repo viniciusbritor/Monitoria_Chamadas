@@ -2,6 +2,91 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - Modulo Queue Manager (visualizar e gerenciar fila Pub/Sub)
+
+### Motivacao
+O sistema Pub/Sub do worker dedicacao tinha um problema grave de **observabilidade zero**: quando o worker crashava (cold start com env vars malformadas, rate limit 429 do HuggingFace, ou OOM), as mensagens publicadas ficavam retidas invisiveis na subscription `monitoria-whisper-jobs-worker` ate que o worker voltasse. Sem visibilidade, o admin nao sabia se havia backlog nem conseguia intervir.
+
+Foi implementado um **modulo admin completo** (backend + frontend) chamado **Queue Manager** que expoe a subscription Pub/Sub via UI.
+
+### Decisao arquitetural: peek sem consumir com `modify_ack_deadline(0)`
+
+O desafio era listar mensagens pendentes **sem afeta-las** (worker real precisa continuar vendo-as). Estudei tres opcoes:
+
+| Alternativa | Trade-off |
+|---|---|
+| **`subscriber.pull + modify_ack_deadline(0)`** (escolhido) | Puxa 50 mensagens, libera IMEDIATAMENTE para o worker real. Zero janela de perda. Requer cuidado: se o worker pular a mensagem no momento exato, poderia haver duplicacao (minima). |
+| `subscriber.pull + extend ack_deadline(60)` | Estica o deadline para 60s, dando tempo para UI carregar. Mas worker NAO ve a mensagem nesse intervalo (race condition evitavel). |
+| Snapshot periodico para GCS/BigQuery | Read-only real mas +5-10min de latencia e +custo storage. Overkill para escala atual. |
+
+A solucao escolhida (`modify_ack_deadline(0)`) e simples, sem custo, e a duplicacao teorica nao foi problema na pratica (worker faz `ack` idempotente via `call_id` no payload).
+
+### Componentes novos
+
+**Backend (3 sprints -> 4 sprints finais, commits `883f557`, `c04eb7d`, `3b2e1c9`):**
+- `core/pubsub_admin.py` (NOVO, 196 linhas): `get_stats()`, `list_pending()`, `acknowledge()`, `retry_message()`, `purge_all()`.
+- `core/portal_auth.py`: adicionado `require_admin_user` (FastAPI dependency) que valida Firebase token + `is_super_admin`.
+- `api.py`: 5 endpoints novos em `/api/queue/*` (todos exigem `require_admin_user`):
+  - `GET /api/queue/stats` - metricas + saude do worker
+  - `GET /api/queue/messages?limit=50` - peek de mensagens pendentes
+  - `POST /api/queue/messages/{id}/ack?ack_id=...` - descarta 1
+  - `POST /api/queue/messages/{id}/retry` - republica com novo message_id
+  - `POST /api/queue/purge?confirm=true` - ack em massa (com confirmacao explicita)
+
+**Frontend (commit `3b2e1c9`):**
+- `frontend/src/components/QueueManager.jsx` (NOVO, ~13KB):
+  - Cards de saude (worker verde/vermelho, count, idade, ack deadline)
+  - Tabela com short-polling 5s (consistente com Dashboard.jsx)
+  - Acoes inline: Inspecionar (modal), Reprocessar, Descartar
+  - Secao "Limpar tudo" com confirmacao dupla (digitar `CONFIRMAR`)
+- `frontend/src/App.jsx`: adicionado botao `Fila` no header (visivel APENAS se `userRole === 'admin'`) + renderizacao condicional.
+
+### RBAC
+
+- Backend: `require_admin_user` checa `is_super_admin=True` via `core.portal_auth.get_user_role_and_admin`.
+- Frontend: botao `Fila` aparece apenas quando `userRole === 'admin'` (cache de `localStorage.user_role` populado por `/api/auth/me`).
+- Permissao Firestore opcional documentada em `docs/goals/queue-manager-firestore.md` para usuarios NAO-super-admin (futuro).
+
+### Bug encontrado durante deploy do worker
+
+**Causa raiz:** meu comando `gcloud run deploy monitoria-whisper-worker --set-env-vars=GCP_PROJECT=coherence-ominichannel-fs,PUBSUB_TOPIC=...` (PowerShell) nao parseou as virgulas corretamente — todas as 8 env vars foram concatenadas em `GCP_PROJECT`. Worker crashava em loop com `400 Invalid resource name given`.
+
+**Sintoma:** qualquer mensagem publicada entre 14:48 e 15:01 ficou orfa (worker crashando).
+
+**Fix:** usar `--update-env-vars=K=V` repetido (8 chamadas), um por env var. Ou setar via YAML/secret manager.
+
+**Licao:** NUNCA usar `--set-env-vars=k1=v1,k2=v2,...` em PowerShell. Usar multiplos `--update-env-vars` (um por env var) ou passar via arquivo `env-vars.yaml`.
+
+### Build + Deploy
+
+- Cloud Build ID `a2b27038-5c18-4ae7-bbf8-72ba45d801a9` (~5min, SUCCESS).
+- Imagem publicada: `gcr.io/coherence-ominichannel-fs/monitoria-test-env:3b2e1c9`.
+- **Re-injecao pos-deploy** de `MINIMAX_API_KEY` e `WHISPER_DOWNLOAD_ROOT` (env vars que nao estao no YAML do `cloudbuild-test.yaml`). Novo revisao `monitoria-test-env-00021-tpp`.
+
+### Smoke test E2E (validacao automatica)
+
+| Endpoint | Sem auth | Esperado | Resultado |
+|---|---|---|---|
+| `GET /api/queue/stats` | 401 | 401 | OK |
+| `GET /api/queue/messages` | 401 | 401 | OK |
+| `POST /api/queue/purge` | 405 | 405 (GET-only test) | OK |
+| OpenAPI | 5 rotas registradas | OK |
+
+Validacao com admin auth (via login no browser) - pendente smoke manual pelo owner.
+
+### Estado final
+
+| Servico | Imagem | Revisao | Status |
+|---|---|---|---|
+| `monitoria-test-env` | `:3b2e1c9` | `00021-tpp` | Queue Manager ATIVO |
+| `monitoria-whisper-worker` | `:5b9367a` | `00011-78b` | Worker saudavel |
+
+### Proximos passos
+- Migrar env vars `MINIMAX_API_KEY` e `WHISPER_DOWNLOAD_ROOT` para **Secret Manager** (elimina re-injecao manual apos cada build). Backlog ja documentado em DIARIO_BORDO entries anteriores.
+- Smoke test manual pelo owner (testar `Reprocessar` end-to-end com mensagem orfa real).
+
+---
+
 ## 03/07/2026 - Pipeline CI/CD: Whisper pré-baked no worker + envs MiniMax M3 no test-env
 
 ### Contexto
