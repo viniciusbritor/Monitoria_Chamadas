@@ -84,3 +84,19 @@ Para o schema JSON validável e a documentação humana detalhada (13 seções),
 
 **Última sincronização:** 2026-07-03
 **Mantido por:** viniciusbritor@gmail.com
+## Mudancas em 03/07/2026 (sincronizado com Portal)
+
+Apos a Fase 8 (commit `ee292b5` do Portal), o contrato foi **consolidado**:
+
+- ANTES (Fase 4-7): 3 endpoints separados
+  - `GET /api/me/permissions?email=X`
+  - `GET /api/me/role?email=X`
+  - `POST /api/admin/audit-logs/log-access-denied`
+
+- AGORA (Fase 8): **1 endpoint canonico**
+  - `GET /api/auth/me?module_id=<id>`
+  - Header: `Authorization: Bearer <firebase_id_token>`
+  - Resposta: `{email, is_super_admin, client_id, role, modules{}}`
+  - 403 + audit log automatico se `?module_id=X` e user sem permissao
+
+Endpoints legados ainda funcionam mas sao deprecated.
