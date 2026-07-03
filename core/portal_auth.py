@@ -91,3 +91,61 @@ def get_user_role_and_admin(email: str) -> dict:
 def clear_cache():
     """Limpa cache (util para testes)."""
     _PERM_CACHE.clear()
+
+
+# ============================================================================
+# Dependencias FastAPI (para usar com Depends(...))
+# ============================================================================
+from fastapi import Header, HTTPException
+
+
+def require_admin_user(authorization: str = Header(None)) -> dict:
+    """Validacao lightweight para endpoints /api/* admin-only.
+
+    NAO revalida permissao de modulo (modulo inteiro e admin-only).
+    Apenas:
+      1. Extrai Bearer token do header Authorization
+      2. Valida Firebase token (fb_auth.verify_id_token)
+      3. Consulta Portal: is_super_admin
+
+    Retorna dict com keys: email, is_super_admin, role.
+
+    Levanta HTTPException 401/403 conforme o caso.
+
+    Uso:
+      @app.get("/api/admin/foo")
+      def foo(user = Depends(require_admin_user)):
+          ...
+    """
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization Header")
+    try:
+        token = authorization.split("Bearer ", 1)[1]
+    except (IndexError, AttributeError):
+        raise HTTPException(status_code=401, detail="Authorization Header mal formado")
+    try:
+        # Import lazy para evitar erro se firebase-admin nao inicializou
+        import firebase_admin
+        from firebase_admin import auth as fb_auth
+        if not firebase_admin._apps:
+            raise RuntimeError("firebase-admin nao inicializado")
+        decoded = fb_auth.verify_id_token(token)
+        email = decoded.get("email")
+        if not email:
+            raise HTTPException(status_code=401, detail="Token sem email")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
+
+    role_info = get_user_role_and_admin(email)
+    if not role_info.get("is_super_admin"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Acesso restrito a administradores: {email}"
+        )
+
+    decoded["is_super_admin"] = True
+    decoded["role"] = "admin"
+    decoded["client_id"] = role_info.get("client_id")
+    return decoded
