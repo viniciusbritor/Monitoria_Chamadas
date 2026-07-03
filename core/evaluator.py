@@ -1,5 +1,6 @@
 import os
 import json
+import datetime
 from .llm_provider import LLMClient
 
 class Evaluator:
@@ -9,9 +10,49 @@ class Evaluator:
         # Histórico de FinOps (Tokens)
         self.finops_log = "finops_usage.json"
 
-    def _log_usage(self, response):
-        """No momento, o log_usage será um stub porque o MiniMax cached_chat não retorna a usage no wrapper."""
-        pass
+    def _log_usage(self, response, etapa="desconhecida"):
+        """Persiste o consumo de tokens em finops_usage.json para rastreamento FinOps."""
+        try:
+            usage = response.get("usage", {}) if isinstance(response, dict) else {}
+            if not usage:
+                return
+
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            cached_tokens = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
+            total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+
+            # Cálculo de custo estimado (preços MiniMax M3 com 50% de desconto)
+            input_noncached = max(0, prompt_tokens - cached_tokens)
+            custo_usd = (
+                (input_noncached / 1_000_000 * 0.30) +
+                (cached_tokens  / 1_000_000 * 0.06) +
+                (completion_tokens / 1_000_000 * 1.20)
+            )
+
+            entry = {
+                "timestamp": datetime.datetime.now().isoformat(),
+                "etapa": etapa,
+                "modelo": "MiniMax-M3",
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "cached_tokens": cached_tokens,
+                "total_tokens": total_tokens,
+                "custo_estimado_usd": round(custo_usd, 8),
+            }
+
+            log_path = self.finops_log
+            historico = []
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as f:
+                    historico = json.load(f)
+            historico.append(entry)
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(historico, f, ensure_ascii=False, indent=2)
+
+            print(f"[FinOps] {etapa}: {total_tokens} tokens | custo estimado: USD {custo_usd:.6f}")
+        except Exception as e:
+            print(f"[FinOps] Aviso: falha ao registrar uso de tokens: {e}")
 
     def diarize(self, transcript):
         system_prompt = """Você é um especialista em transcrição de call centers.
@@ -22,7 +63,7 @@ Regras:
 """
         user_prompt = f"--- TRANSCRIÇÃO CONTÍNUA ---\n{transcript}"
         print("🤖 Diarizando transcrição com MiniMax M3...")
-        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)
+        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)  # json_mode=False: reply_constraints NÃO suprime Thinking no M3 — revertido após teste
         return text.strip() if text else transcript
 
     def evaluate(self, transcript, user_settings=None, pop_context="", quality_form=""):

@@ -29,7 +29,7 @@ class LLMClient:
         
         while retries <= max_retries:
             try:
-                response = requests.post(self.base_url, headers=headers, json=payload, timeout=60)
+                response = requests.post(self.base_url, headers=headers, json=payload, timeout=120)  # 120s: M3 com Thinking ativo pode levar >60s em respostas longas
                 if response.status_code == 429: # Rate Limit
                     retries += 1
                     if retries > max_retries:
