@@ -2,6 +2,56 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - Pipeline CI/CD: Whisper pré-baked no worker + envs MiniMax M3 no test-env
+
+### Contexto
+O worker dedicado (`monitoria-whisper-worker`) estava rodando uma imagem antiga (`:worker-fix-crash`) que **não tinha o modelo Whisper pré-baixado**. Cada cold start forçava o `faster-whisper` a baixar ~300MB do HuggingFace, gerando dois problemas recorrentes:
+- Cold start de 30-60s.
+- Rate limit HTTP 429 do HuggingFace quebrando o health check (vide `02/07/2026 - Fix UX` mais abaixo neste diário).
+
+Além disso, o serviço `monitoria-test-env` estava **sem** as env vars `MINIMAX_API_KEY` e `WHISPER_DOWNLOAD_ROOT`, fazendo uploads processados pelo test-env (não roteados ao worker) falharem na avaliação QA com a LLM MiniMax M3.
+
+### Commit `5b9367a` — `feat(worker): pre-baixar modelo Whisper no build`
+**Arquivos alterados:**
+- `Dockerfile.worker`: adiciona `git` aos pacotes do `apt-get install`, define `WHISPER_DOWNLOAD_ROOT=/app/whisper_models`, e roda `python -c "from faster_whisper import WhisperModel; WhisperModel('base', ...)"` durante o build para que o modelo fique **embutido na imagem**.
+- `core/transcriber.py`: passa `download_root=os.getenv("WHISPER_DOWNLOAD_ROOT", None)` para `WhisperModel`.
+- `worker.py`: simplifica criação da subscription Pub/Sub — remove `dead_letter_topic` e `max_delivery_attempts` da config inicial (`ack_deadline_seconds` ajustado de 900 para 600s).
+
+### Pipeline executado (branch `test`)
+1. **Build worker** via `cloudbuild-worker.yaml` → build ID `0273c1f5-db58-4c69-b43f-196626161735` (2m21s, SUCCESS). Imagem `gcr.io/coherence-ominichannel-fs/monitoria-whisper-worker:5b9367a` publicada em `:5b9367a` e `:latest`.
+2. **Build test-env** via `cloudbuild-test.yaml` → build ID `404492d5-e93f-4a3b-9e3c-1c59d40a2f29` (5m13s, SUCCESS). Imagem `gcr.io/coherence-ominichannel-fs/monitoria-test-env:5b9367a` publicada + deploy da revisão `monitoria-test-env-00016-brn`.
+3. **Redeploy manual do worker** com a imagem nova (`cloudbuild-worker.yaml` não tem step de `deploy`): revisão `monitoria-whisper-worker-00010-pwz`. Env vars idênticas à revisão anterior, incluindo `MINIMAX_API_KEY` (injetada via `--set-env-vars`, **não commitada**).
+4. **`gcloud run services update monitoria-test-env`** para injetar `MINIMAX_API_KEY` e `WHISPER_DOWNLOAD_ROOT=/app/whisper_models` sem recriar revisão (preserva uptime). Nova revisão: `monitoria-test-env-00017-8gg`.
+5. **Verificação final**: UI (`https://monitoria-test-env-894828119087.us-central1.run.app/`) retorna HTTP 200, worker rodando `:5b9367a`, test-env com env vars injetadas, zero warnings nos logs do worker.
+
+### Commit `9709068` — `feat(sso): corrigir flash da tela de login no SSO Portal -> Monitoria (Sprint 2)`
+Mudanças `frontend/src/App.jsx` que estavam pendentes no working tree (estado `bootstrapping`, spinner neutro, reorganização da ordem de render). **Build extra disparado** via `cloudbuild-test.yaml` para incluir o bundle novo → build ID `fabda702-dc7a-43aa-a006-df7b2c1612f9` (6m12s, SUCCESS).
+
+### Decisões arquiteturais importantes tomadas
+- **Whisper pré-carregado no build** elimina cold-start downloads e o rate limit HTTP 429 do HuggingFace. Trade-off aceito: imagem do worker cresceu ~300MB (~$0.01/mês adicionais no Container Registry).
+- **Env vars via `gcloud run services update`**, **NUNCA** via commit em YAML. Conformidade com GUARDRAILS.md:18 (sem hardcode de secrets em código). Inclusive, a chave `MINIMAX_API_KEY` foi extraída da config anterior do próprio serviço via `gcloud run services describe`.
+- **`cloudbuild-worker.yaml` precisa de step de deploy**. Hoje só faz build+push, então o worker só é atualizado quando alguém dispara `gcloud run deploy` manualmente. Considerar adicionar etapa de deploy no futuro para fechar o loop.
+- **DLQ removida temporariamente** da subscription Pub/Sub. Mensagens com erro serão retentadas até `ack_deadline_seconds=600` e depois descartadas pelo Pub/Sub. Para reintroduzir DLQ, criar tópico `monitoria-whisper-jobs-dlq` e atualizar subscription com `dead_letter_topic` + `max_delivery_attempts=3`.
+
+### Estado pós-deploy (ambiente TESTE)
+| Serviço | Imagem | Revisão | Env vars críticas |
+|---|---|---|---|
+| `monitoria-test-env` | `:9709068` (último build) | `00018-...` | FIRESTORE_PROJECT_ID, PORTAL_API_URL, OMP_NUM_THREADS, PYTHONUNBUFFERED, **MINIMAX_API_KEY**, **WHISPER_DOWNLOAD_ROOT** |
+| `monitoria-whisper-worker` | `:5b9367a` | `00010-pwz` | GCP_PROJECT, PUBSUB_TOPIC, PUBSUB_SUBSCRIPTION, AUDIO_BUCKET, OMP_NUM_THREADS=4, **WHISPER_DOWNLOAD_ROOT**, **MINIMAX_API_KEY**, PYTHONUNBUFFERED |
+| `coherence-portal-test` | inalterado | — | — |
+
+### Custos incrementais
+- Container Registry: +~$0.01/mês pela imagem ~300MB maior do worker.
+- Compute: inalterado (mesmas alocações `4 vCPU + 8Gi` por instância, `min-instances=0`).
+- **Ganho**: cold start do worker caiu de ~30-60s → ~5-10s (Whisper já no `/app/whisper_models`), sem risco de rate limit 429 do HuggingFace.
+
+### Validação esperada
+- Cold start do worker agora é rápido e silencioso (sem logs de download do HuggingFace).
+- Upload via Portal → Monitoria → worker: token JWT chega no worker, áudio baixado do GCS, Whisper transcreve, LLM MiniMax M3 pontua — sem nenhum HTTP 429.
+- Upload direto via test-env (fora do worker): transcrição (lazy-load no test-env) e avaliação MiniMax M3 funcionam porque ambas as env vars estão presentes.
+
+---
+
 ## 03/07/2026 - Fix flash da tela de login no SSO Portal -> Monitoria
 
 - **Sintoma:** ao clicar no card "Monitoria de Chamadas" no Portal Coherence, a nova aba abria com a tela de Login (com branding "MONITORIA DE CHAMADA") por um instante antes do dashboard renderizar. Quebrava a percepção de SSO continuo.
