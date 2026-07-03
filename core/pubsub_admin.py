@@ -32,14 +32,11 @@ DEFAULT_PEEK_DEADLINE_SEC = 10  # janela em que worker real NAO ve a msg
 
 
 def _decode_payload(data: bytes) -> str:
-    """Decodifica payload Pub/Sub (base64) para string. Trunca para preview."""
+    """Decodifica payload Pub/Sub para string UTF-8 (payload completo, sem truncar)."""
     try:
-        decoded = base64.b64decode(data).decode("utf-8", errors="replace")
+        return base64.b64decode(data).decode("utf-8", errors="replace")
     except Exception:
         return "<binario>"
-    if len(decoded) > 256:
-        return decoded[:256] + "..."
-    return decoded
 
 
 def get_stats() -> dict:
@@ -120,12 +117,14 @@ def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
             publish_time = None
             if msg.publish_time and hasattr(msg.publish_time, "isoformat"):
                 publish_time = msg.publish_time.isoformat()
-            payload_preview = _decode_payload(msg.data) if msg.data else ""
+            payload_full = _decode_payload(msg.data) if msg.data else ""
+            payload_preview = payload_full[:256] + ("..." if len(payload_full) > 256 else "")
             msg_dict = {
                 "message_id": msg.message_id,
                 "ack_id": ack_id,
                 "publish_time": publish_time,
                 "attributes": dict(msg.attributes or {}),
+                "payload": payload_full,
                 "payload_preview": payload_preview,
             }
             result["messages"].append(msg_dict)

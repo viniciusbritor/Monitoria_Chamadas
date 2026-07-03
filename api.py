@@ -23,8 +23,9 @@ except Exception as _e:
 
 from core.transcriber import Transcriber, preload_model
 from core.evaluator import Evaluator
-from core.portal_auth import is_authorized_for_module, get_user_role_and_admin
+from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, require_admin_user
 from core.portal_audit import log_access_denied
+from core import pubsub_admin
 
 MODULE_ID = "monitoria-chamadas"
 
@@ -453,6 +454,83 @@ async def upload_audio(
         pass
 
     return {"message": "Processamento iniciado", "id": call_id, "mode": "pubsub"}
+
+# ============================================================================
+# Queue Manager (Admin-only): visualizar e gerenciar fila Pub/Sub
+# Implementa as Tasks 2.1-2.5 do backlog docs/goals/queue-manager.md
+# ============================================================================
+
+WORKER_URL = os.getenv("WORKER_URL", "https://monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app")
+
+
+def _worker_healthy() -> bool:
+    """Checa saude do worker via GET /health. 403 (sem auth) tambem indica vivo."""
+    try:
+        import httpx
+        r = httpx.get(WORKER_URL.rstrip("/") + "/health", timeout=3.0)
+        return r.status_code in (200, 403, 404)  # 404 = rota nao existe mas server up
+    except Exception:
+        return False
+
+
+@app.get("/api/queue/stats")
+def queue_stats(user: dict = Depends(require_admin_user)):
+    """Metricas da subscription Pub/Sub + saude do worker."""
+    try:
+        stats = pubsub_admin.get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Falha ao ler subscription: {e}")
+    stats["worker_healthy"] = _worker_healthy()
+    stats["subscription"] = pubsub_admin.PUBSUB_SUBSCRIPTION
+    stats["topic"] = pubsub_admin.PUBSUB_TOPIC
+    stats["project"] = pubsub_admin.GCP_PROJECT
+    return stats
+
+
+@app.get("/api/queue/messages")
+def queue_messages(limit: int = 50, user: dict = Depends(require_admin_user)):
+    """Lista mensagens pendentes (peek sem consumir). Max 50 por chamada."""
+    limit = max(1, min(limit, 50))
+    try:
+        return pubsub_admin.list_pending(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Falha ao listar mensagens: {e}")
+
+
+@app.post("/api/queue/messages/{message_id}/ack")
+def queue_ack(message_id: str, ack_id: str, user: dict = Depends(require_admin_user)):
+    """Descarta 1 mensagem orfa (acknowledge)."""
+    n = pubsub_admin.acknowledge([ack_id])
+    print(f"[Queue] user={user.get('email')} ACK message_id={message_id} -> {n}", flush=True)
+    return {"acked": n, "message_id": message_id}
+
+
+class RetryPayload(BaseModel):
+    payload: str = ""
+    attributes: dict = {}
+
+
+@app.post("/api/queue/messages/{message_id}/retry")
+def queue_retry(message_id: str, body: RetryPayload, user: dict = Depends(require_admin_user)):
+    """Republica mensagem no topico com novo message_id."""
+    new_id = pubsub_admin.retry_message(
+        message_id,
+        payload_b64=body.payload,
+        attributes=body.attributes,
+    )
+    print(f"[Queue] user={user.get('email')} RETRY {message_id} -> {new_id}", flush=True)
+    return {"new_message_id": new_id, "original_message_id": message_id}
+
+
+@app.post("/api/queue/purge")
+def queue_purge(confirm: bool = False, user: dict = Depends(require_admin_user)):
+    """Ack em massa: descarta TODAS mensagens pendentes (EXIGE confirm=true)."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="Passe confirm=true para confirmar purge")
+    n = pubsub_admin.purge_all()
+    print(f"[Queue] user={user.get('email')} PURGE -> {n} mensagens", flush=True)
+    return {"purged": n}
+
 
 # Endpoints administrativos migrados para o Coherence Portal (SSO Global).
 
