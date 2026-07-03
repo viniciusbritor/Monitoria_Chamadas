@@ -29,6 +29,7 @@ class Transcriber:
             compute_type=compute_type,
             cpu_threads=cpu_threads,
             num_workers=2,  # Otimização A: paralelismo de decode em CPU
+            download_root=os.getenv("WHISPER_DOWNLOAD_ROOT", None),  # Cache local (pre-build)
         )
         print(f"[Transcriber] Modelo carregado em {time.time() - start_time:.2f}s", flush=True)
 

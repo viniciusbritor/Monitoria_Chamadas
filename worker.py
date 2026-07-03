@@ -281,24 +281,26 @@ def main():
     subscriber = pubsub_v1.SubscriberClient()
     subscription_path = subscriber.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
 
-    # Ensure subscription existe
+    # Ensure subscription existe (criacao simples, sem DLQ por enquanto)
     try:
         subscriber.get_subscription(request={"subscription": subscription_path})
         print(f"[Worker {WORKER_ID}] Subscription {subscription_path} ja existe", flush=True)
     except Exception:
         print(f"[Worker {WORKER_ID}] Criando subscription {subscription_path}...", flush=True)
         try:
+            topic_path = subscriber.topic_path(GCP_PROJECT, PUBSUB_TOPIC)
             subscriber.create_subscription(
                 request={
                     "name": subscription_path,
-                    "topic": subscriber.topic_path(GCP_PROJECT, PUBSUB_TOPIC),
-                    "ack_deadline_seconds": 900,  # 15min para processar audio longo
-                    "max_delivery_attempts": 3,
-                    "dead_letter_topic": subscriber.topic_path(GCP_PROJECT, f"{PUBSUB_TOPIC}-dlq"),
+                    "topic": topic_path,
+                    "ack_deadline_seconds": 600,
                 }
             )
+            print(f"[Worker {WORKER_ID}] Subscription criada com sucesso", flush=True)
         except Exception as e:
-            print(f"[Worker {WORKER_ID}] Erro criando subscription (pode ja existir): {e}", flush=True)
+            err_str = str(e)
+            print(f"[Worker {WORKER_ID}] Subscription error (continuando): {err_str[:150]}", flush=True)
+            # Sempre continua - subscription ja pode existir
 
     # Pull em streaming (bloqueante)
     flow_control = pubsub_v1.types.FlowControl(max_messages=1)  # 1 msg por vez por instancia
