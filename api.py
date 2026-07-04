@@ -118,7 +118,16 @@ def startup_event():
         print(f"AVISO: Falha ao pre-carregar Transcriber: {e}", flush=True)
 
 def get_current_user(authorization: str = Header(None)):
-    """Valida Firebase token, valida permissao no Portal, retorna user info."""
+    """Valida Firebase token, valida permissao no Portal via /api/auth/me, retorna user info.
+
+    Fluxo (Fase 8 - 03/07/2026):
+      1. Extrai Bearer token do header Authorization
+      2. Valida Firebase token LOCALMENTE (firebase_admin.verify_id_token)
+      3. Consulta Portal: GET /api/auth/me?module_id=monitoria-chamadas com Bearer
+         - 200 = user tem permissao (payload completo da sessao)
+         - 403 = user NAO tem (Portal ja gravou ACCESS_DENIED automatico)
+         - 401/503 = tratar como falha transitoria
+    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization Header")
     try:
@@ -134,14 +143,17 @@ def get_current_user(authorization: str = Header(None)):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
 
-    # Valida permissao no Portal (source of truth)
-    if not is_authorized_for_module(email, MODULE_ID):
-        # Registra acesso negado no audit log do Portal (fire-and-forget)
+    # Valida permissao no Portal via /api/auth/me?module_id=... (1 chamada)
+    # is_authorized_for_module ja levanta 403 quando Portal bloqueia.
+    if not is_authorized_for_module(email, MODULE_ID, token):
+        # 403 ja foi levantado por is_authorized_for_module via Portal.
+        # Chegamos aqui so se is_authorized_for_module retornou False sem HTTPException,
+        # o que nao acontece mais (helper propaga 403). Defesa em profundidade:
         log_access_denied(MODULE_ID, token, f"Tentativa de acesso ao modulo '{MODULE_ID}' negada")
         raise HTTPException(status_code=403, detail=f"Acesso negado: {email} nao tem permissao para '{MODULE_ID}'")
 
-    # Decora user com role info vinda do Portal
-    role_info = get_user_role_and_admin(email)
+    # Decora user com role info vinda do payload /api/auth/me
+    role_info = get_user_role_and_admin(email, token)
     decoded["is_super_admin"] = role_info["is_super_admin"]
     decoded["client_id"] = role_info["client_id"]
     decoded["role"] = "admin" if role_info["is_super_admin"] else "user"
@@ -164,12 +176,12 @@ def portal_sso(token: str = Form(...)):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
 
-    # Verifica permissao
-    if not is_authorized_for_module(email, MODULE_ID):
+    # Verifica permissao via /api/auth/me?module_id=... (1 chamada, Portal ja grava ACCESS_DENIED)
+    if not is_authorized_for_module(email, MODULE_ID, token):
         log_access_denied(MODULE_ID, token, "Tentativa de SSO Portal sem permissao")
         raise HTTPException(status_code=403, detail=f"Acesso negado: {email} sem permissao para '{MODULE_ID}'")
 
-    role_info = get_user_role_and_admin(email)
+    role_info = get_user_role_and_admin(email, token)
     return {
         "email": email,
         "name": decoded.get("name"),
