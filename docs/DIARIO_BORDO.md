@@ -2,6 +2,58 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 04/07/2026 - Fix callback OIDC + auto-restart worker (test-env funcional)
+
+### Contexto
+O test-env (monitoria-test-env-c5nbfc5meq-uc.a.run.app) apresentava um problema critico:
+- UI sempre mostrava "Na Fila de Processamento..." mesmo apos worker processar
+- Worker travava periodicamente (streaming_pull do Pub/Sub ficava em silencio)
+- Container subia mas uvicorn crash (NameError: Request) por bug meu
+
+Foi estabelecido que o modulo de PRODUCAO (`monitoria.coherenceai.com.br`, deployado em outro projeto GCP - `consultoria-bess-mme136` - `monitoria-cx-4105010761`) ja funciona com a feature "Relatorio de Monitoria (3 Fases)" + Sentimentos do Operador + Diarizacao, e o user pediu para replicar esse padrao no test-env.
+
+### Descoberta importante: feature 3 Fases JA existia no codigo do test-env
+Apos investigacao, descobriu-se que `core/evaluator.py` (linhas 103-131) ja tem a estrutura de 3 Fases (Apresentacao/Metodos de Resolucao/Fechamento) com QA + NPS por fase, alem de:
+- `checklist_conformidade` (lista de objetos com 'item' e 'cumprido')
+- `oportunidade_venda_retencao` + `sucesso_venda_retencao` + `tipo_oportunidade` + `argumentos_operador`
+- `sentimentos_operador` (lista de strings: ["Empatico", "Paciente", "Claro"])
+- `sentimentos_cliente` (lista de strings: ["Ansioso", "Frustrado", "Satisfeito"])
+- `erros_fatais_identificados`
+- `diarize()` separado (system_prompt especifico para separar Operador/Cliente)
+
+E `frontend/src/components/CallInspector.jsx` (linhas 78-114) ja renderiza as 3 fases como cards com badges QA/NPS, tem tabs "Relatorio de Monitoria (3 Fases)" / "Transcricao Diarizada", checklist, oportunidade comercial, QA Score, Sentimentos tags.
+
+CONCLUSAO: A feature ja estava implementada no codigo fonte. O motivo de o user nao ver no test-env era:
+1. As 2 chamadas mostradas na UI ainda estao "Na Fila de Processamento" (processamento nao concluido)
+2. O container do test-env quebrava (NameError: Request) — agora corrigido
+
+### Mudancas aplicadas (3 commits)
+1. `b0594ae fix(worker+api): callback HTTP OIDC + auto-restart streaming_pull`
+   - api.py: novo endpoint `POST /api/internal/calls/{call_id}/status` autenticado via OIDC (Google Cloud identity tokens)
+   - worker.py: `update_status()` agora chama callback via OIDC; callback final com transcript + qa
+   - worker.py: auto-restart do streaming_pull quando trava (watchdog detecta state=ready+uptime>180s+last_msg_age>300s+message_count>0)
+2. `5dc905f fix(api): adicionar Request ao import do fastapi (bug que quebrou deploy)`
+   - Adiciona `Request` ao `from fastapi import ...` (linha 3) - sem isso container crash com `NameError: name 'Request' is not defined`
+3. Deploy:
+   - test-env: build `ad74dc84` → revisao `monitoria-test-env-00030-c4h` (imagem `5dc905f`)
+   - worker: build `cb9cacd8` → revisao `monitoria-whisper-worker-00017-qb7` (imagem `b0594ae`)
+
+### Q3-a (OIDC puro) implementado
+- Worker obtem identity token do Cloud Run metadata server: `audience=test-env URL`
+- test-env valida JWT via `google.oauth2.id_token.verify_oauth2_token`
+- Zero secrets compartilhados (sem WORKER_CALLBACK_SECRET)
+- Aplica a regra global #7 (Portal + Modulos)
+
+### Estado atual
+- test-env-00030-c4h: Ready=True, MONITORIA_URL=..., MINIMAX_API_KEY=... (env vars re-injetados)
+- worker-00017-qb7: Ready=True, WORKER_CALLBACK_URL=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app
+- Worker esta processando mensagem antiga stale (b9d838fc-1_Discussao_Extrema.mp3)
+- callbacks funcionando (worker recebe 404 do test-env para chamadas orphan, NAO bloqueia processamento)
+
+### Proximo passo para o user
+- Upload de uma nova chamada para confirmar end-to-end
+- Apos conclusao (~3-5min), UI mostrara o Relatorio de 3 Fases completo
+
 ## 03/07/2026 - Modulo Queue Manager (visualizar e gerenciar fila Pub/Sub)
 
 ### Motivacao
