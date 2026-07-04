@@ -468,6 +468,124 @@ async def upload_audio(
     return {"message": "Processamento iniciado", "id": call_id, "mode": "pubsub"}
 
 # ============================================================================
+# Internal Worker Callback (service-to-service, OIDC)
+# ============================================================================
+# O worker dedicado (monitoria-whisper-worker) chama este endpoint para
+# atualizar o status das chamadas que esta processando. Como worker e test-env
+# estao em Cloud Run no mesmo projeto, a autenticacao usa Google Cloud
+# identity tokens (OIDC). Nao requer secret compartilhado.
+
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
+
+# Audience esperada no identity token: o proprio URL do test-env.
+# Cloud Run injeta esse valor automaticamente quando o worker chama o
+# metadata server com audience=<nosso URL>.
+TEST_ENV_AUDIENCE = os.getenv("TEST_ENV_AUDIENCE", "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app")
+
+
+class InternalStatusUpdate(BaseModel):
+    status: str  # processing | transcrevendo | analisando | concluido | erro
+    transcript: str | None = None
+    qa_score: int | None = None
+    qa_details: dict | None = None  # {nota_qualidade_operador, nota_sentimento_cliente, ...}
+    error: str | None = None
+
+
+def _verify_cloud_run_identity(auth_header: str, request_url: str) -> dict:
+    """Valida identity token do Cloud Run.
+
+    Retorna o dict do token decodificado se valido (com 'sub', 'email', etc.).
+    Levanta HTTPException 401 caso contrario.
+    """
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = auth_header.split(" ", 1)[1].strip()
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            token,
+            google_requests.Request(),
+            audience=TEST_ENV_AUDIENCE,
+        )
+        # Verifica que o emissor e o Google (nao terceiros)
+        if idinfo.get("iss") not in ("https://accounts.google.com", "accounts.google.com"):
+            raise HTTPException(status_code=401, detail="Invalid issuer")
+        return idinfo
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid identity token: {e}")
+
+
+@app.post("/api/internal/calls/{call_id}/status")
+async def internal_update_call_status(
+    call_id: str,
+    body: InternalStatusUpdate,
+    request: Request,
+):
+    """Callback do worker dedicado para atualizar status de uma chamada.
+
+    Autenticado via Google Cloud identity token (OIDC). O worker obtem seu
+    proprio token do metadata server e envia como Authorization: Bearer.
+
+    Body:
+      {
+        "status": "transcrevendo",
+        "transcript": "...",
+        "qa_score": 85,
+        "qa_details": {...},
+        "error": null
+      }
+
+    Substitui o padrao anterior (worker escreve em SQLite GCS, test-env le
+    local) que resultava em UI sempre mostrando 'Na Fila de Processamento...'.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    _verify_cloud_run_identity(auth_header, str(request.base_url))
+
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # Verifica que chamada existe
+    cursor.execute("SELECT id, user_id, status FROM chamadas WHERE id = ?", (call_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Chamada {call_id} nao encontrada")
+
+    # Monta UPDATE dinamico baseado nos campos fornecidos
+    fields_to_update = ["status = ?", "nota = COALESCE(?, nota)"]
+    params = [body.status, body.qa_score]
+
+    if body.transcript is not None:
+        fields_to_update.append("transcricao = ?")
+        params.append(body.transcript)
+
+    if body.qa_details:
+        if "nota_qualidade_operador" in body.qa_details:
+            fields_to_update.append("nota_qualidade_operador = ?")
+            params.append(body.qa_details["nota_qualidade_operador"])
+        if "nota_sentimento_cliente" in body.qa_details:
+            fields_to_update.append("nota_sentimento_cliente = ?")
+            params.append(body.qa_details["nota_sentimento_cliente"])
+        if "raw_evaluation" in body.qa_details:
+            fields_to_update.append("raw_evaluation = ?")
+            params.append(body.qa_details["raw_evaluation"])
+
+    params.append(call_id)
+    cursor.execute(
+        f"UPDATE chamadas SET {', '.join(fields_to_update)} WHERE id = ?",
+        params,
+    )
+    conn.commit()
+    conn.close()
+
+    print(f"[InternalCallback] call_id={call_id} status={body.status} qa_score={body.qa_score}", flush=True)
+    return {"updated": True, "call_id": call_id, "status": body.status}
+
+
+# ============================================================================
 # Queue Manager (Admin-only): visualizar e gerenciar fila Pub/Sub
 # Implementa as Tasks 2.1-2.5 do backlog docs/goals/queue-manager.md
 # ============================================================================

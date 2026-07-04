@@ -21,6 +21,7 @@ import time
 import sqlite3
 import tempfile
 import shutil
+import urllib.request
 from datetime import datetime
 from concurrent.futures import TimeoutError
 
@@ -83,7 +84,8 @@ def get_evaluator():
 
 
 def update_status(call_id: str, status_text: str):
-    """Atualiza status da chamada no SQLite."""
+    """Atualiza status da chamada no SQLite E notifica test-env via callback."""
+    # 1. Escreve no SQLite local (worker tem volume mount, GCS compartilhado)
     try:
         conn = sqlite3.connect(DB_PATH, timeout=10)
         cursor = conn.cursor()
@@ -92,6 +94,62 @@ def update_status(call_id: str, status_text: str):
         conn.close()
     except sqlite3.OperationalError as e:
         print(f"[Worker {WORKER_ID}] Falha ao atualizar status: {e}", flush=True)
+
+    # 2. Notifica test-env via callback OIDC (para UI dashboard)
+    _notify_test_env_callback(call_id, {"status": status_text})
+
+
+def _notify_test_env_callback(call_id: str, payload: dict):
+    """Envia update de status para test-env via HTTP + OIDC identity token.
+
+    Necessario porque test-env NAO tem volume mount GCS, entao nao le o
+    SQLite compartilhado do worker. Sem este callback, a UI do test-env
+    sempre mostra 'Na Fila de Processamento...'.
+    """
+    callback_url = os.getenv("WORKER_CALLBACK_URL")
+    if not callback_url:
+        # Callback desabilitado (worker legado ou config minima)
+        return
+
+    try:
+        # Obtem identity token do Cloud Run metadata server
+        # audience = URL do test-env (o token so vale para esse servico)
+        token = _get_cloud_run_identity_token(callback_url)
+        if not token:
+            return  # rodando fora do Cloud Run
+
+        import requests as _requests
+        resp = _requests.post(
+            f"{callback_url.rstrip('/')}/api/internal/calls/{call_id}/status",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            print(f"[Worker {WORKER_ID}] callback falhou: HTTP {resp.status_code} - {resp.text[:200]}", flush=True)
+    except Exception as e:
+        # Falha no callback NAO bloqueia processamento (ja escrevemos no SQLite)
+        print(f"[Worker {WORKER_ID}] callback falhou (continuando): {e}", flush=True)
+
+
+def _get_cloud_run_identity_token(audience: str) -> str | None:
+    """Obtem identity token do Cloud Run metadata server para o audience dado.
+
+    Retorna None se rodando fora do Cloud Run (metadata server nao disponivel).
+    """
+    try:
+        metadata_url = (
+            "http://metadata/computeMetadata/v1/"
+            f"instance/service-accounts/default/identity?audience={audience}"
+        )
+        req = urllib.request.Request(metadata_url, headers={"Metadata-Flavor": "Google"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.read().decode("utf-8")
+    except Exception:
+        return None
 
 
 def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str):
@@ -217,6 +275,18 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str):
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Falha ao salvar resultado: {e}", flush=True)
 
+    # 7b. Callback final com resultado completo (transcript + qa)
+    _notify_test_env_callback(call_id, {
+        "status": "Concluido",
+        "transcript": "\n".join(seg.get("text", "") for seg in segments),
+        "qa_score": nota,
+        "qa_details": {
+            "nota_qualidade_operador": nota_qualidade_operador,
+            "nota_sentimento_cliente": nota_sentimento_cliente,
+            "raw_evaluation": evaluation,
+        },
+    })
+
     # 8. Cleanup
     shutil.rmtree(tmp_dir, ignore_errors=True)
     try:
@@ -255,8 +325,50 @@ def callback(message):
         print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
         # Nack (vai ser reentregue)
         message.nack()
-        with HEALTHZ_LOCK:
-            WORKER_STATE["consecutive_errors"] += 1
+with HEALTHZ_LOCK:
+    WORKER_STATE["consecutive_errors"] += 1
+
+
+# ============================================================================
+# Auto-restart do streaming_pull (quando trava)
+# ============================================================================
+# O watchdog_loop() monitora estado e, se detectar travamento, chama
+# _restart_streaming_pull() para cancelar e recriar a conexao Pub/Sub.
+# Variaveis globais (mutaveis pelo watchdog):
+#   _subscriber_client: cliente Pub/Sub (reusado entre restarts)
+#   _streaming_pull_future: future ativo (cancelado + recriado pelo watchdog)
+# ============================================================================
+_subscriber_client = None
+_streaming_pull_future = None
+_STREAMING_LOCK = __import__("threading").Lock()
+
+
+def _restart_streaming_pull():
+    """Cancela streaming_pull atual e recria. Usado pelo watchdog quando trava."""
+    global _streaming_pull_future
+    with _STREAMING_LOCK:
+        if _streaming_pull_future is not None:
+            try:
+                _streaming_pull_future.cancel()
+            except Exception:
+                pass
+        if _subscriber_client is None:
+            return  # nao inicializado ainda, nao pode recriar
+        try:
+            subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
+            flow_control = pubsub_v1.types.FlowControl(max_messages=1)
+            new_future = _subscriber_client.subscribe(
+                subscription_path,
+                callback=callback,
+                flow_control=flow_control,
+            )
+            _streaming_pull_future = new_future
+            with HEALTHZ_LOCK:
+                WORKER_STATE["consecutive_errors"] = 0
+                WORKER_STATE["current_state"] = "ready"
+            print(f"[WATCHDOG] streaming_pull recriado com sucesso", flush=True)
+        except Exception as e:
+            print(f"[WATCHDOG] FALHA ao recriar streaming_pull: {e}", flush=True)
 
 
 def health_check_server():
@@ -358,6 +470,35 @@ def watchdog_loop():
                 flush=True,
             )
 
+        # Auto-restart: detecta trava do streaming_pull.
+        # Criterios para considerar travado:
+        #  - Worker esta em estado "ready" (nao processando)
+        #  - Ja passou do startup (uptime > 3min)
+        #  - Subscription tem mensagens pendentes (message_count > 0)
+        #  - Ha mais de 5min sem receber mensagem
+        if (
+            state == "ready"
+            and uptime > 180
+            and last_msg_age is not None
+            and last_msg_age > 300
+        ):
+            try:
+                if _subscriber_client is not None:
+                    sub_info = _subscriber_client.get_subscription(
+                        request={"subscription": _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)}
+                    )
+                    pending = sub_info.message_count or 0
+                    if pending > 0:
+                        print(
+                            f"[WATCHDOG] STUCK detectado: state=ready, "
+                            f"last_msg_age={last_msg_age:.0f}s, pending={pending} msgs. "
+                            f"Reiniciando streaming_pull...",
+                            flush=True,
+                        )
+                        _restart_streaming_pull()
+            except Exception as e:
+                print(f"[WATCHDOG] Falha ao checar subscription: {e}", flush=True)
+
 
 def main():
     """Loop principal: pull de Pub/Sub e processa."""
@@ -381,7 +522,9 @@ def main():
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", flush=True)
 
-    subscriber = pubsub_v1.SubscriberClient()
+    global _subscriber_client, _streaming_pull_future
+    _subscriber_client = pubsub_v1.SubscriberClient()
+    subscriber = _subscriber_client
     subscription_path = subscriber.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
 
     # Ensure subscription existe (criacao simples, sem DLQ por enquanto)
@@ -407,7 +550,7 @@ def main():
 
     # Pull em streaming (bloqueante)
     flow_control = pubsub_v1.types.FlowControl(max_messages=1)  # 1 msg por vez por instancia
-    streaming_pull_future = subscriber.subscribe(
+    _streaming_pull_future = subscriber.subscribe(
         subscription_path,
         callback=callback,
         flow_control=flow_control,
@@ -419,13 +562,13 @@ def main():
     print(f"[Worker {WORKER_ID}] Aguardando mensagens... (Ctrl+C para parar)", flush=True)
 
     try:
-        streaming_pull_future.result(timeout=None)  # bloqueia
+        _streaming_pull_future.result(timeout=None)  # bloqueia
     except KeyboardInterrupt:
-        streaming_pull_future.cancel()
+        _streaming_pull_future.cancel()
         print(f"[Worker {WORKER_ID}] Parando worker...", flush=True)
     except Exception as e:
         print(f"[Worker {WORKER_ID}] ERRO fatal: {e}", flush=True)
-        streaming_pull_future.cancel()
+        _streaming_pull_future.cancel()
 
 
 if __name__ == "__main__":
