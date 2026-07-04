@@ -2,6 +2,55 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 03/07/2026 - Migração para `/api/auth/me` (Fase 8 — handshake Portal ↔ Monitoria consolidado)
+
+- **Contexto:** o `docs/conexao_modulo.json` JÁ DOCUMENTAVA o novo contrato canônico (`GET /api/auth/me` com Bearer token), mas o `core/portal_auth.py` ainda usava os 3 endpoints legados:
+  - `GET /api/me/permissions?email=` (sem auth, fragil)
+  - `GET /api/me/role?email=` (sem auth, fragil)
+  - `POST /api/admin/audit-logs/log-access-denied` (audit log manual separado)
+- O usuário escolheu (via question) **migrar Monitoria para `/api/auth/me`** — 1 chamada autenticada em vez de 2-3 sem auth.
+
+- **Mudanças aplicadas (`commit a8bc446`):**
+  - `core/portal_auth.py`: reescrito.
+    - `is_authorized_for_module(email, module_id, firebase_id_token)` agora recebe o token explicitamente e faz 1 chamada `httpx.get(f"{PORTAL_API_URL}/api/auth/me", params={"module_id": ...}, headers={"Authorization": f"Bearer {token}"})`.
+    - `get_user_role_and_admin(email, firebase_id_token)` chama `/api/auth/me` sem `module_id`.
+    - `require_admin_user(authorization)` extrai token do header, valida localmente, chama `/api/auth/me` para verificar `is_super_admin`.
+    - Cache: chave `(token_hash, module_id)` em vez de `email` — isolado por usuário.
+  - `api.py` (`get_current_user` + `/api/auth/portal-sso`): passam o token extraído do `Authorization: Bearer` para os helpers.
+  - **`log_access_denied` removido das chamadas redundantes** em `get_current_user` e `portal_sso` — o `/api/auth/me?module_id=X` já grava `ACCESS_DENIED` automaticamente no Portal (auditado). Reduz chamadas HTTP desnecessárias.
+  - `tests/test_portal_auth.py`: 12 testes novos cobrindo o novo contrato (1 chamada, Bearer header, module_id query, 403 do Portal → False, 503 fail-closed, cache por token).
+
+- **Deploy:**
+  - Build Cloud Build do Monitoria (commit `a8bc446`) → SUCCESS.
+  - Revisão ativa: `monitoria-test-env-00027-fdj` (100% tráfego).
+  - Imagem: `gcr.io/coherence-ominichannel-fs/monitoria-test-env:a8bc446`.
+
+- **Validação:**
+  - Suite Monitoria: 23/23 tests passed.
+  - Portal (deploy anterior `ee292b5`, revisão `00015-zzj` → `00017-rf2`): 95/95 tests passed + 11 novos em `test_auth_me.py`.
+  - Smoke E2E bilateral (revisões ativas em produção):
+    - Portal `/api/health` → 200 OK
+    - Portal `/api/auth/me` (sem auth) → 401 ✓
+    - Monitoria `/` (SPA React) → 200 OK
+
+- **Contrato FINAL (não mudar!):**
+  ```http
+  GET https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/api/auth/me?module_id=monitoria-chamadas
+  Authorization: Bearer <firebase_id_token_do_user>
+  ```
+  - 200: `{email, is_super_admin, client_id, role, modules{monitoria-chamadas: {is_active, role, client_id}}}`
+  - 403: `{"detail": "Acesso negado: ... nao tem permissao para 'monitoria-chamadas'"}` + audit log automático no Portal
+  - 401/503: tratar como falha transitória
+
+- **Decisões arquiteturais:**
+  - **Por que 1 chamada em vez de 2-3?** Cache compartilhado (uma resposta já traz `modules{}` + `role` + `client_id` + `is_super_admin`).
+  - **Por que `token_hash` em vez de `email` no cache?** Privacidade (não vazar email em logs/memória) + isolamento entre sessões de usuários diferentes.
+  - **Por que remover `log_access_denied`?** O Portal agora registra `ACCESS_DENIED` automaticamente quando retorna 403 — chamada separada era ruído.
+
+- **Compatibilidade:** os 3 endpoints legados do Portal (`/api/me/permissions`, `/api/me/role`, `/api/admin/audit-logs/log-access-denied`) AINDA EXISTEM mas marcados como DEPRECATED (header `Deprecation: true`, `Sunset: 2026-10-01`). Serão removidos em 01/10/2026.
+
+- **Próximo passo:** validar E2E real no browser (login Portal → abrir Monitoria → callback SSO completo). Feito pelo usuário em Chrome DevTools.
+
 ## 04/07/2026 - Fix callback OIDC + auto-restart worker (test-env funcional)
 
 ### Contexto

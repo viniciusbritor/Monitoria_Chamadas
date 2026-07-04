@@ -16,6 +16,42 @@
 ## 🔑 Autenticação e Segredos
 - O projeto consome segredos utilizando o arquivo global `secrets_manager.py` (banco cofre). A variável `GEMINI_API_KEY` é extraída de maneira segura para inferência, evitando credenciais hardcoded.
 
+## 🤝 SSO com Portal Coherence (Fase 8 — 03/07/2026)
+
+O Monitoria **consome o endpoint canônico de SSO** do Portal para validar sessão + permissões:
+
+```http
+GET {PORTAL_API_URL}/api/auth/me[?module_id=<id>]
+Authorization: Bearer <firebase_id_token>
+```
+
+- **200** → payload `{email, is_super_admin, client_id, role, modules{}}`. User tem permissão.
+- **403** → Portal gravou `ACCESS_DENIED` automaticamente. User sem permissão.
+- **401/503** → falha transitória.
+
+**Helpers em `core/portal_auth.py`:**
+- `is_authorized_for_module(email, module_id, firebase_id_token) → bool`
+- `get_user_role_and_admin(email, firebase_id_token) → dict`
+- `require_admin_user(authorization: str = Header(None)) → dict` (FastAPI dependency)
+
+**Cache:** TTL 300s in-memory, chave `(token_hash, module_id)`. Isolamento por usuário (token).
+
+**Uso típico em `api.py`:**
+```python
+def get_current_user(authorization: str = Header(None)):
+    token = authorization.split("Bearer ", 1)[1]
+    decoded = fb_auth.verify_id_token(token)  # valida localmente
+    email = decoded["email"]
+    if not is_authorized_for_module(email, MODULE_ID, token):
+        raise HTTPException(403, f"Acesso negado: {email} sem permissao para '{MODULE_ID}'")
+    role_info = get_user_role_and_admin(email, token)
+    return decoded
+```
+
+> **ATENÇÃO:** desde a Fase 8, NÃO chamar `log_access_denied()` manualmente após `is_authorized_for_module()` retornar False. O Portal grava `ACCESS_DENIED` automaticamente no 403 — chamada extra é ruído. (Audit log removido de `api.py` linhas 152 e 181 na commit `a8bc446`.)
+
+**Procedimento de rotação de URL do Portal:** ver `docs/HARNESS.md` do Portal (seção "Rotação de URL de Módulo"). Resumo: atualizar `PORTAL_API_URL` no `cloudbuild-test.yaml` do Monitoria → commit + push → redeploy. Cache TTL 300s garante que a próxima chamada HTTP pega a URL nova.
+
 ## 🏗️ Build do Frontend (Vite) — Variáveis de Ambiente
 - **REGRA CRÍTICA:** A variável `VITE_API_URL` **DEVE** ser injetada via Cloud Build substitutions (`cloudbuild-test.yaml` ou `cloudbuild.yaml`) ANTES do `npm run build`. Nunca deixar `VITE_API_URL` cair no fallback hard-coded.
 - **NÃO criar `frontend/.env.local`** — esse arquivo é ignorado pelo git mas seu conteúdo é embutido no bundle JS compilado, podendo causar bugs sutis de URL (vide DIARIO_BORDO 03/07/2026).

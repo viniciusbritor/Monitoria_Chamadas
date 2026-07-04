@@ -24,7 +24,6 @@ except Exception as _e:
 from core.transcriber import Transcriber, preload_model
 from core.evaluator import Evaluator
 from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, require_admin_user
-from core.portal_audit import log_access_denied
 from core import pubsub_admin
 
 MODULE_ID = "monitoria-chamadas"
@@ -143,14 +142,15 @@ def get_current_user(authorization: str = Header(None)):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
 
-    # Valida permissao no Portal via /api/auth/me?module_id=... (1 chamada)
-    # is_authorized_for_module ja levanta 403 quando Portal bloqueia.
+    # Valida permissao no Portal via /api/auth/me?module_id=... (1 chamada).
+    # O Portal grava ACCESS_DENIED automaticamente no audit log quando retorna 403,
+    # entao NAO precisamos chamar log_access_denied aqui (era redundante ate a Fase 8).
+    # is_authorized_for_module retorna False quando Portal retorna 403; nunca re-raise.
     if not is_authorized_for_module(email, MODULE_ID, token):
-        # 403 ja foi levantado por is_authorized_for_module via Portal.
-        # Chegamos aqui so se is_authorized_for_module retornou False sem HTTPException,
-        # o que nao acontece mais (helper propaga 403). Defesa em profundidade:
-        log_access_denied(MODULE_ID, token, f"Tentativa de acesso ao modulo '{MODULE_ID}' negada")
-        raise HTTPException(status_code=403, detail=f"Acesso negado: {email} nao tem permissao para '{MODULE_ID}'")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Acesso negado: {email} nao tem permissao para '{MODULE_ID}'",
+        )
 
     # Decora user com role info vinda do payload /api/auth/me
     role_info = get_user_role_and_admin(email, token)
@@ -176,9 +176,9 @@ def portal_sso(token: str = Form(...)):
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid Firebase token: {e}")
 
-    # Verifica permissao via /api/auth/me?module_id=... (1 chamada, Portal ja grava ACCESS_DENIED)
+    # Verifica permissao via /api/auth/me?module_id=... (1 chamada, Portal ja grava ACCESS_DENIED).
+    # Nao chamamos log_access_denied aqui - Portal ja fez isso no 403.
     if not is_authorized_for_module(email, MODULE_ID, token):
-        log_access_denied(MODULE_ID, token, "Tentativa de SSO Portal sem permissao")
         raise HTTPException(status_code=403, detail=f"Acesso negado: {email} sem permissao para '{MODULE_ID}'")
 
     role_info = get_user_role_and_admin(email, token)
