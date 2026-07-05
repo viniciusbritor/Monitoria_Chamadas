@@ -2,6 +2,49 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 05/07/2026 - Barra de progresso DETERMINADA (Fase D — % real na fase Whisper)
+
+### Contexto
+Apos deploy da Fase C+, owner fez upload valido (`04df3867` 23:05:54) que foi pelo path Pub/Sub correto. Worker processou ativamente (segmentos sendo emitidos), mas UI mostrava apenas shimmer indeterminada. Owner reportou: "barra resetando semrpe que chega o meio" — comportamento esperado de CSS animation, nao de progresso real.
+
+### Mudancas aplicadas (commit `cc2911e`)
+
+1. **`api.py` schema** — Novas colunas `audio_duration_sec REAL` e `progress_pct REAL` (com `ALTER TABLE` migration).
+
+2. **`api.py` `_probe_audio_duration()` (NOVO helper):**
+   - Wrapper de ffprobe com timeout 10s. Retorna `None` em falha (fallback seguro para barra indeterminada).
+
+3. **`api.py` upload** — Apos upload para GCS, ffprobe extrai duracao. INSERT inicial inclui `audio_duration_sec` e `progress_pct=0`. Payload Pub/Sub propaga `audio_duration_sec` (worker nao re-probe).
+
+4. **`api.py` `InternalStatusUpdate`** — Aceita `progress_pct: float | None`. Callback clampa 0-100.
+
+5. **`api.py` `process_call_task` (in-process fallback):** Le `audio_duration_sec` do DB, passa para `transcriber.transcribe(on_progress=...)`. Throttle 2s. Marca 100% ao terminar.
+
+6. **`core/transcriber.py` `transcribe()`** — Novos parametros `on_progress`, `audio_duration_sec`. Callback `(segment_end, audio_total)` chamado por segmento. Caller faz throttling.
+
+7. **`worker.py` `process_call()`** — Aceita `audio_duration_sec` do payload Pub/Sub. `on_whisper_progress()` throttled 2s. `_notify_test_env_callback` com `progress_pct`. 100% ao terminar Whisper.
+
+8. **`worker.py` `callback(message)`** — Extrai `audio_duration_sec` do payload.
+
+9. **`frontend Dashboard.jsx`:**
+   - Barra DETERMINADA: `width: ${progress_pct}%` quando `pct > 0` AND status contem 'whisper'.
+   - Texto `${pct}%` ao lado (com `tabular-nums` para evitar jitter).
+   - Transition `width 600ms ease-out` para suavizar updates.
+   - Fallback indeterminada (shimmer) em fases sem `progress_pct`.
+   - `aria-valuenow/aria-valuemin/aria-valuemax` para acessibilidade.
+
+### Validacao
+- Build + deploy test-env `00042-7bq` + worker `00022-rsf` (com `MINIMAX_API_KEY` re-injetada).
+- Worker antigo `00021-tlf` drenou chamada em voo (`04df3867`, 23:05:54) — audio transcrito ate ~50s de 240s (~21%) no momento do deploy.
+- **Novos uploads** terao progress_pct real (0% → 100%) na fase Whisper, depois shimmer nas fases seguintes.
+
+### Limitacoes conhecidas
+- **Apenas fase Whisper** tem progresso real. Diarizacao e avaliacao LLM sao chamadas unicas (sem % granular) — fallback para shimmer.
+- **Transcricoes em voo no momento do deploy** nao terao progress_pct (audio_duration_sec era NULL quando foram uploaded). Owner precisa re-upload para ver barra funcionando.
+- **CPU Whisper e' lento**: audio de 4min leva ~30-50min em Cloud Run CPU-only (sem GPU). Barra de progresso ajuda gestao de expectativa.
+
+---
+
 ## 05/07/2026 - Fix BackgroundTask SIGTERM (Fase C+ — fallback durável + recover-stale + watchdog)
 
 ### Contexto
