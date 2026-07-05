@@ -177,17 +177,27 @@ export default function Dashboard({ onInspectCall }) {
                     {new Date(call.uploaded_at).toLocaleString('pt-BR')}
                   </td>
                   <td className="p-4">
-                    <div className="flex flex-col">
+                    <div className="flex flex-col gap-1.5">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-background border border-black/10 text-textMain w-fit">
-                        {call.status === 'Concluído' ? <CheckCircle size={12} className="text-green-500" /> : 
+                        {call.status === 'Concluído' ? <CheckCircle size={12} className="text-green-500" /> :
                          call.status.startsWith('Erro') ? <XCircle size={12} className="text-red-500" /> :
                          <Loader2 size={12} className="text-primary animate-spin" />}
                         {call.status}
                       </span>
                       {call.status !== 'Concluído' && !call.status.startsWith('Erro') && (
-                        <span className="text-[10px] text-textMuted mt-1 ml-1 animate-pulse">
-                          Tempo estimado: ~3-5 min (audio curto) / ate 25 min (audio longo)
-                        </span>
+                        <>
+                          <div
+                            className="w-[180px] h-[3px] bg-black/5 rounded-full overflow-hidden"
+                            role="progressbar"
+                            aria-label="Processando chamada"
+                            aria-valuetext={call.status}
+                          >
+                            <div className="h-full w-1/3 bg-primary rounded-full animate-progress" />
+                          </div>
+                          <span className="text-[10px] text-textMuted ml-1 animate-pulse">
+                            Tempo estimado: ~3-5 min (audio curto) / ate 25 min (audio longo)
+                          </span>
+                        </>
                       )}
                     </div>
                   </td>
