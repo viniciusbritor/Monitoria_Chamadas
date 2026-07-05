@@ -105,7 +105,12 @@ def _notify_test_env_callback(call_id: str, payload: dict):
     Necessario porque test-env NAO tem volume mount GCS, entao nao le o
     SQLite compartilhado do worker. Sem este callback, a UI do test-env
     sempre mostra 'Na Fila de Processamento...'.
+
+    NEW (05/07/2026): detecta orphan (callback 404 = call_id nao existe no DB
+    test-env). Marca flag global; o callback() do Pub/Sub checa essa flag e
+    faz ack forcado (poison message) em vez de nack.
     """
+    global _ORPHAN_DETECTED
     callback_url = os.getenv("WORKER_CALLBACK_URL")
     if not callback_url:
         # Callback desabilitado (worker legado ou config minima)
@@ -130,9 +135,23 @@ def _notify_test_env_callback(call_id: str, payload: dict):
         )
         if resp.status_code != 200:
             print(f"[Worker {WORKER_ID}] callback falhou: HTTP {resp.status_code} - {resp.text[:200]}", flush=True)
+            # 404 = chamada nao existe no DB do test-env = orphan. Sinaliza
+            # para o callback() do Pub/Sub fazer ack forcado (poison message).
+            if resp.status_code == 404:
+                with HEALTHZ_LOCK:
+                    _ORPHAN_DETECTED = True
+                print(
+                    f"[Worker {WORKER_ID}] ORPHAN detectado: call_id={call_id} "
+                    f"ausente no DB do test-env. Marcando para poison-ack.",
+                    flush=True,
+                )
     except Exception as e:
         # Falha no callback NAO bloqueia processamento (ja escrevemos no SQLite)
         print(f"[Worker {WORKER_ID}] callback falhou (continuando): {e}", flush=True)
+
+
+# Flag global: quando True, a proxima mensagem sera ack'ada sem reprocessar.
+_ORPHAN_DETECTED = False
 
 
 def _get_cloud_run_identity_token(audience: str) -> str | None:
@@ -331,6 +350,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
 
 def callback(message):
     """Callback para mensagens do Pub/Sub."""
+    global _ORPHAN_DETECTED
     try:
         data = json.loads(message.data.decode("utf-8"))
         call_id = data["call_id"]
@@ -338,6 +358,26 @@ def callback(message):
         user_id = data["user_id"]
         diretrizes = data.get("diretrizes", "")
         audio_duration_sec = data.get("audio_duration_sec")
+
+        # NEW (05/07/2026): poison message fast-path.
+        # Se o callback do Pub/Sub anterior detectou orfao (call_id sem
+        # registro no DB test-env), esta mensagem e' a mesma orfa em
+        # redelivery. Ack sem reprocessar para liberar a subscription.
+        with HEALTHZ_LOCK:
+            if _ORPHAN_DETECTED:
+                _ORPHAN_DETECTED = False  # reset para proxima mensagem
+                WORKER_STATE["messages_processed"] += 1
+                WORKER_STATE["consecutive_errors"] = 0
+                WORKER_STATE["current_state"] = "ready"
+                WORKER_STATE["last_msg_received_at"] = time.time()
+                orphan_call_id = call_id
+                print(
+                    f"[Worker {WORKER_ID}] POISON-ACK: call_id={orphan_call_id} "
+                    f"message_id={message.message_id} descartado (orfao).",
+                    flush=True,
+                )
+                message.ack()
+                return
 
         with HEALTHZ_LOCK:
             WORKER_STATE["last_msg_received_at"] = time.time()
@@ -357,10 +397,29 @@ def callback(message):
             WORKER_STATE["current_state"] = "ready"
     except Exception as e:
         print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
-        # Nack (vai ser reentregue)
+        with HEALTHZ_LOCK:
+            WORKER_STATE["consecutive_errors"] += 1
+            consec_errors = WORKER_STATE["consecutive_errors"]
+        # NEW (05/07/2026): poison message detection.
+        # Se a mesma mensagem (ou cadeia de mensagens com mesmo call_id orfao)
+        # falha 3x seguidas, ack (descarta) em vez de nack para evitar loop infinito.
+        # Caso real: orfaos de sessoes anteriores (call_id nao existe no DB)
+        # sao redelivered eternamente e bloqueiam a subscription.
+        POISON_THRESHOLD = 3
+        if consec_errors >= POISON_THRESHOLD:
+            print(
+                f"[Worker {WORKER_ID}] POISON MESSAGE detectado "
+                f"({consec_errors} erros consecutivos). Ack forcado "
+                f"para message_id={message.message_id}.",
+                flush=True,
+            )
+            message.ack()
+            with HEALTHZ_LOCK:
+                WORKER_STATE["consecutive_errors"] = 0
+                WORKER_STATE["current_state"] = "ready"
+            return
+        # Nack normal: Pub/Sub fara redelivery
         message.nack()
-with HEALTHZ_LOCK:
-    WORKER_STATE["consecutive_errors"] += 1
 
 
 # ============================================================================
