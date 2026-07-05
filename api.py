@@ -145,9 +145,14 @@ def init_db():
             diretrizes_qualidade TEXT,
             nota_sentimento_cliente INTEGER,
             nota_qualidade_operador INTEGER,
-            transcricao_diarizada TEXT
+            transcricao_diarizada TEXT,
+            gcs_uri TEXT
         )
     ''')
+    try:
+        cursor.execute("ALTER TABLE chamadas ADD COLUMN gcs_uri TEXT")
+    except sqlite3.OperationalError:
+        pass
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id TEXT PRIMARY KEY,
@@ -437,56 +442,34 @@ async def upload_audio(
     user = Depends(get_current_user)
 ):
     """
-    Fase B+C (05/07/2026): Hibrido Pub/Sub + BackgroundTasks in-process.
+    Fase C+ (05/07/2026): Hibrido Pub/Primary, fallback BackgroundTasks.
 
-    Decisao por upload:
-      - Se worker dedicado estiver saudavel E audio <= 50MB: Pub/Sub (preserva
-        observabilidade do Queue Manager + escala independente).
-      - Caso contrario (worker cold/unhealthy OU audio > 50MB OU GCS falha):
-        fallback para BackgroundTasks in-process (mesmo path da producao,
-        latencia ~3-5 min, zero dependencia externa).
+    SEMPRE salva audio no GCS primeiro (durabilidade). Decide o worker:
+      - Worker saudavel E audio <= 50MB: Pub/Sub (worker dedicado).
+      - Caso contrario: BackgroundTasks in-process como degradacao
+        imediata (latencia de producao, zero espera de fila).
 
-    Vantagens:
-      - Arquivos grandes ou worker indisponivel nao deixam a UI travada em
-        'Na Fila de Processamento...'.
-      - Latencia percebida similar a producao para o caso comum.
+    In-process fallback agora tambem:
+      - Mantem arquivo em GCS (ja' salvo no passo 1).
+      - Persiste gcs_uri no DB.
+      - BackgroundTask processa localmente MAS, se morrer (SIGTERM),
+        o endpoint /api/internal/recover-stale detecta e re-enfileira
+        no Pub/Sub para o worker retomar.
     """
     call_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{call_id}_{file.filename}")
 
-    # 0. Salva audio local (sera usado tanto no path Pub/Sub quanto no fallback)
+    # 1. Salva audio local temporariamente
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
     print(f"[Upload] call_id={call_id} arquivo={file.filename} tamanho={file_size_mb:.2f}MB", flush=True)
 
-    # 1. Decide qual caminho seguir (hibrido)
-    # Regra: worker saudavel + audio pequeno (<=50MB) -> Pub/Sub.
-    # Caso contrario -> BackgroundTasks local (sem GCS, sem worker).
-    worker_ok = _worker_healthy()
-    use_pubsub = worker_ok and file_size_mb <= 50.0
-
-    if not use_pubsub:
-        reason = "worker unhealthy" if not worker_ok else f"audio grande ({file_size_mb:.1f}MB > 50MB)"
-        print(f"[Upload] {reason} -> fallback BackgroundTasks in-process", flush=True)
-
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        now = datetime.now().isoformat()
-        cursor.execute('''
-            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (call_id, file.filename, now, "Transcrevendo Audio (Whisper)...", user.get("sub"), diretrizes))
-        conn.commit()
-        conn.close()
-
-        background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
-        return {"message": "Processamento iniciado (in-process)", "id": call_id, "mode": "local", "reason": reason}
-
-    # 2. Path Pub/Sub: upload para GCS + publica job
+    # 2. Upload para GCS (SEMPRE - garante durabilidade)
     gcs_bucket = os.getenv("AUDIO_BUCKET", "coherence-monitoria-audios-tmp")
     gcs_path = f"{call_id}_{file.filename}"
-
+    gcs_uri = None
+    gcs_ok = False
     try:
         from google.cloud import storage as gcs_storage
         gcs_client = gcs_storage.Client()
@@ -494,35 +477,59 @@ async def upload_audio(
         blob = bucket.blob(gcs_path)
         blob.upload_from_filename(file_path)
         gcs_uri = f"gs://{gcs_bucket}/{gcs_path}"
+        gcs_ok = True
         print(f"[Upload] Audio salvo em {gcs_uri}", flush=True)
     except Exception as e:
-        # Se GCS falhar, fallback para BackgroundTasks local
-        print(f"[Upload] FALHA ao subir para GCS: {e}. Fallback: BackgroundTasks local.", flush=True)
+        print(f"[Upload] FALHA ao subir para GCS: {e}. Fallback total.", flush=True)
+
+    # 3. Decide path (hibrido)
+    worker_ok = _worker_healthy()
+    use_pubsub = worker_ok and file_size_mb <= 50.0 and gcs_ok
+
+    if not use_pubsub:
+        if not gcs_ok:
+            reason = "gcs_fail"
+            initial_status = "Erro: falha no upload GCS - reenvie"
+        elif not worker_ok:
+            reason = "worker_unhealthy"
+            initial_status = "Transcrevendo Audio (Whisper)..."
+        else:
+            reason = f"audio_grande ({file_size_mb:.1f}MB > 50MB)"
+            initial_status = "Transcrevendo Audio (Whisper)..."
+        print(f"[Upload] fallback in-process: reason={reason}", flush=True)
+
+        # Persiste com gcs_uri (se disponivel) para permitir recover posterior
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         cursor.execute('''
-            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (call_id, file.filename, now, "Transcrevendo Audio (Whisper)...", user.get("sub"), diretrizes))
+            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (call_id, file.filename, now, initial_status, user.get("sub"), diretrizes, gcs_uri))
         conn.commit()
         conn.close()
 
-        background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
-        return {"message": "Processamento iniciado (fallback GCS)", "id": call_id, "mode": "local", "reason": "gcs_fail"}
+        if not gcs_ok:
+            # Sem GCS, nao ha como recuperar. Retorna erro.
+            return {"message": "Falha no upload do audio", "id": call_id, "mode": "error", "reason": reason}
 
-    # 3. INSERT no SQLite
+        # BackgroundTask processa localmente. Se morrer (SIGTERM),
+        # o endpoint recover-stale re-enfileira no Pub/Sub.
+        background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
+        return {"message": "Processamento iniciado (in-process)", "id": call_id, "mode": "local", "reason": reason}
+
+    # 4. Path Pub/Sub (primario)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes))
+        INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes, gcs_uri))
     conn.commit()
     conn.close()
 
-    # 4. Publica job no Pub/Sub para o worker dedicado processar
+    # 5. Publica job no Pub/Sub
     try:
         from google.cloud import pubsub_v1
         publisher = pubsub_v1.PublisherClient()
@@ -542,9 +549,9 @@ async def upload_audio(
         message_id = future.result(timeout=10)
         print(f"[Upload] Job publicado no Pub/Sub: {message_id}", flush=True)
     except Exception as e:
-        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}", flush=True)
+        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}. Marcando para recover.", flush=True)
 
-    # 5. Cleanup arquivo local (foi copiado para GCS)
+    # 6. Cleanup arquivo local
     try:
         os.remove(file_path)
     except OSError:
@@ -671,6 +678,86 @@ async def internal_update_call_status(
 
 
 # ============================================================================
+# Recovery: detecta jobs orfaos (BackgroundTask morto por SIGTERM/deploy)
+# ============================================================================
+# Chamadas em status inicial (Transcrevendo/Na Fila) ha mais de STALE_MIN
+# minutos E com gcs_uri presente = SIGTERM matou o BackgroundTask.
+# Solucao: republicar job no Pub/Sub para o worker retomar do GCS.
+STALE_MINUTES = int(os.getenv("STALE_RECOVERY_MIN", "12"))
+
+
+@app.post("/api/internal/recover-stale")
+async def recover_stale_jobs(request: Request):
+    """Detecta jobs orfaos (in-process SIGTERM) e re-enfileira no Pub/Sub.
+
+    Autenticado via OIDC (mesmo padrao do callback do worker). Chamado
+    por cron externo ou manualmente quando o owner detecta travamento.
+
+    Criterio: status comeca com 'Transcrevendo' OU 'Na Fila' E
+    uploaded_at < now() - STALE_MINUTES E gcs_uri IS NOT NULL.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    _verify_cloud_run_identity(auth_header, str(request.base_url))
+
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(minutes=STALE_MINUTES)).isoformat()
+
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, filename, user_id, diretrizes_qualidade, gcs_uri, status, uploaded_at
+        FROM chamadas
+        WHERE uploaded_at < ?
+          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
+          AND gcs_uri IS NOT NULL
+        ORDER BY uploaded_at ASC
+        LIMIT 20
+    ''', (cutoff,))
+    stale_jobs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    if not stale_jobs:
+        return {"recovered": 0, "stale_jobs": []}
+
+    recovered = []
+    for job in stale_jobs:
+        try:
+            from google.cloud import pubsub_v1
+            publisher = pubsub_v1.PublisherClient()
+            topic_path = publisher.topic_path(
+                os.getenv("GCP_PROJECT", "coherence-ominichannel-fs"),
+                os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs"),
+            )
+            message_data = json.dumps({
+                "call_id": job["id"],
+                "gcs_uri": job["gcs_uri"],
+                "filename": job["filename"],
+                "user_id": job["user_id"],
+                "diretrizes": job.get("diretrizes_qualidade") or "",
+                "uploaded_at": job["uploaded_at"],
+                "recovered": True,
+            }).encode("utf-8")
+            future = publisher.publish(topic_path, message_data)
+            message_id = future.result(timeout=10)
+            recovered.append({
+                "call_id": job["id"],
+                "gcs_uri": job["gcs_uri"],
+                "pubsub_message_id": message_id,
+                "stale_status": job["status"],
+            })
+            print(
+                f"[Recover] call_id={job['id']} re-enfileirado (msg={message_id}) "
+                f"stale_status={job['status']!r}",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[Recover] FALHA call_id={job['id']}: {e}", flush=True)
+
+    return {"recovered": len(recovered), "stale_jobs": recovered}
+
+
+# ============================================================================
 # Queue Manager (Admin-only): visualizar e gerenciar fila Pub/Sub
 # Implementa as Tasks 2.1-2.5 do backlog docs/goals/queue-manager.md
 # ============================================================================
@@ -679,11 +766,34 @@ WORKER_URL = os.getenv("WORKER_URL", "https://monitoria-whisper-worker-c5nbfc5me
 
 
 def _worker_healthy() -> bool:
-    """Checa saude do worker via GET /health. 403 (sem auth) tambem indica vivo."""
+    """Checa saude do worker via GET /healthz.
+
+    Worker responde:
+      - 200 = saudavel (ready ou processing < 15min)
+      - 503 = travado (stuck: ready+sem msg >5min OU processing >15min)
+      - 403 = no-auth (worker requer IAM, mas servidor esta' vivo)
+
+    200 e 403 = saudavel. 503 = unhealthy (fallback in-process).
+    """
     try:
         import httpx
-        r = httpx.get(WORKER_URL.rstrip("/") + "/health", timeout=3.0)
-        return r.status_code in (200, 403, 404)  # 404 = rota nao existe mas server up
+        # Worker so' expoe /healthz (nao /health). Mas helper historico usa /health.
+        # /health retorna 404 (Cloud Run quando no-auth) ou 200/403 quando auth.
+        # Estrategia: tentar /healthz primeiro; fallback /health.
+        for path in ("/healthz", "/health"):
+            try:
+                r = httpx.get(WORKER_URL.rstrip("/") + path, timeout=3.0)
+                if r.status_code in (200, 403):
+                    # 200 = saudavel, 403 = autenticado requer IAM mas servidor up
+                    return True
+                if r.status_code == 503:
+                    # Worker explicitamente reporta stuck
+                    return False
+                # 404 ou outros: tentar proximo path
+            except httpx.HTTPError:
+                continue
+        # Todos paths retornaram 404 (Cloud Run com no-auth) -> servidor up
+        return True
     except Exception:
         return False
 

@@ -386,6 +386,7 @@ def health_check_server():
     import threading
 
     STUCK_THRESHOLD_SEC = 300  # 5min sem mensagem = travado
+    PROCESSING_STUCK_SEC = 900  # 15min processando = claramente travado (05/07/2026)
 
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -398,6 +399,12 @@ def health_check_server():
 
                     # Detecta travamento: ready + sem mensagem ha muito tempo
                     if last_msg_age is not None and last_msg_age > STUCK_THRESHOLD_SEC and WORKER_STATE["current_state"] != "processing":
+                        WORKER_STATE["current_state"] = "stuck"
+                        status_code = 503
+                    # NEW (05/07/2026): detecta processing travado (msg recebida
+                    # mas process_call nunca retornou). Reporta 503 para que o
+                    # helper _worker_healthy() faca fallback in-process no upload.
+                    elif WORKER_STATE["current_state"] == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
                         WORKER_STATE["current_state"] = "stuck"
                         status_code = 503
                     elif WORKER_STATE["current_state"] == "processing":
@@ -498,6 +505,24 @@ def watchdog_loop():
                         _restart_streaming_pull()
             except Exception as e:
                 print(f"[WATCHDOG] Falha ao checar subscription: {e}", flush=True)
+
+        # NEW (05/07/2026): detecta processing travado (msg recebida mas
+        # process_call() nunca retornou). Cancela streaming_pull para que o
+        # Pub/Sub reentregue a mensagem para outra instancia.
+        # Critério: state=processing ha mais de 15min sem conclusao.
+        PROCESSING_STUCK_SEC = 900  # 15min processando = claramente travado
+        if state == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
+            print(
+                f"[WATCHDOG] STUCK-PROCESSING detectado: state=processing ha "
+                f"{last_msg_age:.0f}s sem conclusao. Reiniciando streaming_pull "
+                f"para forcar redelivery da mensagem...",
+                flush=True,
+            )
+            # Reset estado para forcar nova puxada
+            with HEALTHZ_LOCK:
+                WORKER_STATE["current_state"] = "ready"
+                WORKER_STATE["consecutive_errors"] += 1
+            _restart_streaming_pull()
 
 
 def main():
