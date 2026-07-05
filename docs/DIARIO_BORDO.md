@@ -2,6 +2,46 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 05/07/2026 - Guardrail Portal-Only Access (Regra #0 do GUARDRAILS)
+
+### Contexto
+A URL `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/` estava sendo compartilhada informalmente como "endereço do módulo". Decisão do owner: registrar formalmente que essa URL **NÃO É endpoint público** — o único caminho válido é via Portal Coherence.
+
+### Mudanças aplicadas (commit `0e1c3d6`)
+
+1. **`docs/GUARDRAILS.md`** — Nova seção no topo: **REGRA #0 — Acesso EXCLUSIVO via Portal Coherence**. Lista as 6 sub-regras:
+   - Único caminho válido: Portal → card do módulo → `window.open(url + '?token=' + firebase_jwt)`.
+   - Acesso direto à URL do módulo é PROIBIDO. UI exibe "Acesso via Portal Coherence".
+   - Não reintroduzir formulário de Login próprio (Google/email/magic-link).
+   - Não compartilhar URL em e-mails, README, ou comentários de código.
+   - `VITE_API_URL` em frontend público embutido no bundle é aceitável APENAS porque backend rejeita chamadas sem Bearer token.
+   - Backend deve logar tentativas de acesso direto.
+
+2. **`docs/HARNESS.md`** — Nova seção no topo: **"Acesso ao Módulo — SEMPRE via Portal Coherence"**. Documenta:
+   - Fluxo legítimo em 5 passos (Portal → login → card → `?token=` → dashboard).
+   - Comportamento esperado para acesso direto (página "Acesso via Portal").
+   - Nota para testes locais (`.env.local` com `localhost:8001`).
+
+3. **`api.py`** — Middleware `enforce_portal_only_access()`:
+   - Carrega `ALLOWED_PORTAL_REFERERS` do env (default: test + prod Portal URLs + localhost dev).
+   - Para requests ao SPA entry point (`/` ou `/index.html`):
+     - Se `Referer` ausente → loga `[Security] direct-access attempt (no-referer)`.
+     - Se `Referer` não bate com whitelist → loga `[Security] direct-access attempt`.
+     - NÃO bloqueia (preserva health checks / QA / load balancer probe).
+   - Endpoints internos (`/api/internal/*`, `/api/auth/portal-sso`) isentos — validação própria.
+
+### Validação
+- Teste via PowerShell `Invoke-WebRequest`: detectou corretamente como acesso direto.
+- Log gerado: `[Security] direct-access attempt (no-referer): path=/ ua='Mozilla/5.0...WindowsPowerShell/5.1...' ip=169.254.169.126`
+- Build + deploy OK: revisão `monitoria-test-env-00037-4hp`.
+
+### Decisões
+- **Por que soft-block em vez de hard-block?** Hard-block quebraria health probes do Cloud Run / load balancer. O frontend já exibe a página correta para usuários; o middleware adiciona telemetria para auditoria.
+- **Por que confiar em `Referer`?** É header padrão enviado por browsers; bots/curl normalmente não enviam. Para hardening futuro, considerar checar `Origin` + CSP enforcement.
+- **Por que não usar Cloud Run ingress "internal"?** Quebraria acesso do worker (que é Cloud Run separado mas mesmo projeto). Ingress internal+load balancer é overkill para test-env.
+
+---
+
 ## 05/07/2026 - Híbrido Pub/Sub + BackgroundTasks (Fase C — velocidade de produção no test-env)
 
 ### Contexto
