@@ -2,6 +2,87 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 05/07/2026 - Híbrido Pub/Sub + BackgroundTasks (Fase C — velocidade de produção no test-env)
+
+### Contexto
+Após deploy do callback OIDC (04/07), o test-env FUNCIONAVA mas era perceptivelmente mais lento que a produção (`monitoria.coherenceai.com.br`). Causa raiz: a complexidade do test-env (Pub/Sub + GCS + Worker + OIDC callback) adiciona latência desnecessária para áudios pequenos e quando o worker está em cold-start.
+
+Objetivo: igualar a velocidade percebida da produção SEM perder a observabilidade do Queue Manager.
+
+### Decisão arquitetural: Híbrido por-decisão
+
+Em vez de remover o Pub/Sub (regressão) ou forçar BackgroundTasks (perde observabilidade), o `POST /api/upload` agora DECIDE por upload qual caminho seguir:
+
+```
+1. Salva audio localmente
+2. Consulta saude do worker via _worker_healthy() (httpx GET /health)
+3. Se worker saudavel E audio <= 50MB -> Pub/Sub (observabilidade preservada)
+4. Caso contrario -> BackgroundTasks in-process (latencia de producao)
+   - Worker cold/unhealthy
+   - Audio > 50MB (evita custo de upload GCS para arquivo grande)
+   - GCS upload falha (fallback secundario)
+```
+
+`process_call_task` (in-process) ja existia desde a migracao original — reuso zero duplicacao.
+
+### Mudancas aplicadas (commits `9ff90e3` + `e05308e`)
+
+1. **`api.py` — fallback inteligente no upload:**
+   - INSERT inicial agora usa status `"Transcrevendo Audio (Whisper)..."` em vez de `"Na Fila de Processamento..."` no path in-process (feedback imediato ao user).
+   - Path Pub/Sub mantem `"Na Fila de Processamento..."` (worker atualizara via callback).
+   - Retorna `mode: "local" | "pubsub"` + `reason` para observabilidade.
+
+2. **`core/transcriber.py` — skip ffmpeg para WAV nativo:**
+   - Novo `_is_native_whisper_format()` via ffprobe: detecta `codec_name=pcm_s16le, sample_rate=16000, channels=1, sample_fmt=s16`.
+   - Se sim, pula ffmpeg (~5-30s economizados por arquivo).
+   - Fallback seguro: se ffprobe nao disponivel ou erro, faz ffmpeg normalmente.
+
+3. **`Dashboard.jsx` — polling adaptativo:**
+   - `POLL_ACTIVE_MS = 2000` quando ha chamada com `status !== 'Concluido' && !startsWith('Erro')`.
+   - `POLL_IDLE_MS = 10000` quando todas concluidas (idle).
+   - `useRef` para cleanup limpo do interval anterior ao trocar.
+
+4. **`cloudbuild-worker.yaml` — deploy automatico + probes:**
+   - Adicionado step de `gcloud run deploy` automatico (antes era manual).
+   - `startup-probe=httpGet.path=/healthz,initialDelaySeconds=15,periodSeconds=5,timeoutSeconds=3,failureThreshold=18` (~90s tolerancia para Whisper init).
+   - `liveness-probe=httpGet.path=/healthz,periodSeconds=30,timeoutSeconds=3,failureThreshold=3` (mantem instancia warm entre jobs, sem custo de min-instances=1).
+   - Worker agora `--no-allow-unauthenticated` (helper `_worker_healthy()` ja trata 403 como saudavel).
+   - Env vars individuais (`--update-env-vars=K=V` repetido) conforme licao de 03/07 (PowerShell bug).
+   - `MINIMAX_API_KEY` preservada da revisao anterior (nao recriada pelo YAML).
+
+### Bug encontrado durante deploy
+
+**Sintoma:** primeiro build do worker falhou com `Key [path] not recognized for startup probe.`
+
+**Causa raiz:** sintaxe errada. `--startup-probe=path=/healthz,...` foi rejeitada pelo gcloud.
+
+**Fix (commit `e05308e`):** trocar para camelCase canonico `--startup-probe=httpGet.path=/healthz,initialDelaySeconds=15,...`. Reiniciado build.
+
+### Resultado esperado
+
+| Cenario | Antes | Depois |
+|---|---|---|
+| Worker quente + audio 30s | 3-5 min | 3-5 min (igual, Pub/Sub path) |
+| Worker cold-start + audio 30s | 5-7 min | 3-5 min (BackgroundTasks fallback) |
+| Audio ja WAV 16kHz mono | +5-30s ffmpeg | 0s (skip) |
+| UI percebida (refresh) | 5s fixo | 2s durante processing, 10s idle |
+
+### Estado pos-deploy
+
+| Servico | Imagem | Revisao | Mudancas |
+|---|---|---|---|
+| `monitoria-test-env` | `:9ff90e3` | `00034-r6n` + `00035-kkg` (re-injecao MINIMAX_API_KEY + WHISPER_DOWNLOAD_ROOT) | Fallback hibrido, status inicial ajustado |
+| `monitoria-whisper-worker` | `:e05308e` | `00019-flq` | Probes, deploy automatico, no-auth |
+
+### Proximos passos
+
+- Smoke test E2E real: upload de audio curto (WAV nativo) -> confirmar conclusao em ~3-5 min.
+- Smoke test E2E audio grande: upload >50MB -> confirmar fallback BackgroundTasks.
+- Monitorar logs: `[Upload]` deve mostrar qual path foi escolhido e por que.
+- Migrar `MINIMAX_API_KEY` e `WHISPER_DOWNLOAD_ROOT` para Secret Manager (backlog antigo, elimina re-injecao manual).
+
+---
+
 ## 03/07/2026 - Migração para `/api/auth/me` (Fase 8 — handshake Portal ↔ Monitoria consolidado)
 
 - **Contexto:** o `docs/conexao_modulo.json` JÁ DOCUMENTAVA o novo contrato canônico (`GET /api/auth/me` com Bearer token), mas o `core/portal_auth.py` ainda usava os 3 endpoints legados:
