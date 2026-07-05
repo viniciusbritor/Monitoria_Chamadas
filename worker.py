@@ -152,10 +152,15 @@ def _get_cloud_run_identity_token(audience: str) -> str | None:
         return None
 
 
-def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str):
+def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audio_duration_sec: float = None):
     """
     Processa uma chamada: baixa do GCS, transcreve, diariza, avalia.
     Atualiza SQLite com progresso e resultado final.
+
+    Args:
+        audio_duration_sec: duracao do audio (segundos). Usada para calcular
+            progress_pct durante transcricao Whisper. Se None, usa info.duration
+            retornado pelo Whisper (fallback).
     """
     print(f"[Worker {WORKER_ID}] Processando {call_id} de {gcs_uri}", flush=True)
     start_time = time.time()
@@ -190,10 +195,32 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str):
     except Exception:
         user_settings = {}
 
-    # 3. Transcricao
+    # 3. Transcricao com callback de progresso throttled
     update_status(call_id, "Transcrevendo Audio (Whisper)...")
+    last_progress_ts = [0.0]  # list para mutabilidade dentro do closure
+    PROGRESS_THROTTLE_SEC = 2.0
+
+    def on_whisper_progress(segment_end: float, audio_total: float):
+        """Callback por segmento. Envia progress_pct ao test-env no maximo a cada 2s."""
+        now = time.time()
+        if now - last_progress_ts[0] < PROGRESS_THROTTLE_SEC:
+            return
+        if audio_total <= 0:
+            return
+        pct = max(0.0, min(99.0, (segment_end / audio_total) * 100.0))
+        last_progress_ts[0] = now
+        # Atualiza apenas progress_pct (mantem status atual)
+        _notify_test_env_callback(call_id, {
+            "status": "Transcrevendo Audio (Whisper)...",
+            "progress_pct": pct,
+        })
+
     try:
-        raw_transcript, segments = get_transcriber().transcribe(local_audio_path)
+        raw_transcript, segments = get_transcriber().transcribe(
+            local_audio_path,
+            on_progress=on_whisper_progress,
+            audio_duration_sec=audio_duration_sec,
+        )
         print(f"[Worker {WORKER_ID}] Transcricao OK: {len(segments)} segmentos", flush=True)
     except Exception as e:
         update_status(call_id, f"Erro: transcricao falhou: {e}")
@@ -204,6 +231,12 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str):
         except Exception:
             pass
         return
+
+    # Marca Whisper como 100% ao terminar
+    _notify_test_env_callback(call_id, {
+        "status": "Transcrevendo Audio (Whisper)...",
+        "progress_pct": 100.0,
+    })
 
     # 4. Diarizacao
     update_status(call_id, "Separando falas (Diarizacao MiniMax)...")
@@ -304,6 +337,7 @@ def callback(message):
         gcs_uri = data["gcs_uri"]
         user_id = data["user_id"]
         diretrizes = data.get("diretrizes", "")
+        audio_duration_sec = data.get("audio_duration_sec")
 
         with HEALTHZ_LOCK:
             WORKER_STATE["last_msg_received_at"] = time.time()
@@ -311,7 +345,7 @@ def callback(message):
             WORKER_STATE["last_msg_call_id"] = call_id
             WORKER_STATE["current_state"] = "processing"
 
-        process_call(call_id, gcs_uri, user_id, diretrizes)
+        process_call(call_id, gcs_uri, user_id, diretrizes, audio_duration_sec)
 
         # Ack message (sucesso)
         message.ack()

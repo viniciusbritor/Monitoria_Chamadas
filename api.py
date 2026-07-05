@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -146,11 +147,21 @@ def init_db():
             nota_sentimento_cliente INTEGER,
             nota_qualidade_operador INTEGER,
             transcricao_diarizada TEXT,
-            gcs_uri TEXT
+            gcs_uri TEXT,
+            audio_duration_sec REAL,
+            progress_pct REAL
         )
     ''')
     try:
         cursor.execute("ALTER TABLE chamadas ADD COLUMN gcs_uri TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE chamadas ADD COLUMN audio_duration_sec REAL")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE chamadas ADD COLUMN progress_pct REAL")
     except sqlite3.OperationalError:
         pass
     cursor.execute('''
@@ -277,6 +288,26 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         conn.commit()
         conn.close()
 
+    def update_progress(pct: float):
+        """Atualiza apenas progress_pct (mantem status atual)."""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE chamadas SET progress_pct = ? WHERE id = ?", (pct, call_id))
+        conn.commit()
+        conn.close()
+
+    def read_audio_duration() -> float | None:
+        """Le audio_duration_sec salvo no INSERT inicial."""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute("SELECT audio_duration_sec FROM chamadas WHERE id = ?", (call_id,))
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row and row[0] else None
+        except Exception:
+            return None
+
     try:
         # Busca configurações do usuário
         conn = sqlite3.connect(DB_PATH)
@@ -285,20 +316,42 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
         settings_row = cursor.fetchone()
         conn.close()
-        
+
         user_settings = {}
         if settings_row:
             user_settings = dict(settings_row)
 
-        # Etapa 1: Transcrição Bruta
-        update_status("Transcrevendo Áudio (Whisper)...")
-        raw_transcript, segments = get_transcriber().transcribe(file_path)
-        
-        # Etapa 2: Diarização IA
-        update_status("Separando falas (Diarização MiniMax)...")
+        # Etapa 1: Transcricao Bruta com callback de progresso throttled
+        update_status("Transcrevendo Audio (Whisper)...")
+        last_progress_ts = [0.0]
+        PROGRESS_THROTTLE_SEC = 2.0
+        audio_duration_sec = read_audio_duration()
+
+        def on_progress(segment_end: float, audio_total: float):
+            now_ts = time.time()
+            if now_ts - last_progress_ts[0] < PROGRESS_THROTTLE_SEC:
+                return
+            if audio_total <= 0:
+                return
+            pct = max(0.0, min(99.0, (segment_end / audio_total) * 100.0))
+            last_progress_ts[0] = now_ts
+            try:
+                update_progress(pct)
+            except Exception as e:
+                print(f"[InProcess] update_progress falhou: {e}", flush=True)
+
+        raw_transcript, segments = get_transcriber().transcribe(
+            file_path,
+            on_progress=on_progress,
+            audio_duration_sec=audio_duration_sec,
+        )
+        update_progress(100.0)
+
+        # Etapa 2: Diarizacao IA
+        update_status("Separando falas (Diarizacao MiniMax)...")
         diarized_transcript = get_evaluator().diarize(raw_transcript)
-        
-        # Etapa 3: Avaliação IA
+
+        # Etapa 3: Avaliacao IA
         update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
         evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
         
@@ -409,7 +462,7 @@ def get_calls(user = Depends(get_current_user)):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, filename, uploaded_at, status, nota, nota_sentimento_cliente, nota_qualidade_operador, raw_evaluation FROM chamadas WHERE user_id = ? ORDER BY uploaded_at DESC", (user.get("sub"),))
+    cursor.execute("SELECT id, filename, uploaded_at, status, nota, nota_sentimento_cliente, nota_qualidade_operador, raw_evaluation, audio_duration_sec, progress_pct FROM chamadas WHERE user_id = ? ORDER BY uploaded_at DESC", (user.get("sub"),))
     calls = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return calls
@@ -498,14 +551,17 @@ async def upload_audio(
             initial_status = "Transcrevendo Audio (Whisper)..."
         print(f"[Upload] fallback in-process: reason={reason}", flush=True)
 
+        # Probe duracao do audio via ffprobe para UI mostrar progresso real
+        audio_duration_sec = _probe_audio_duration(file_path)
+
         # Persiste com gcs_uri (se disponivel) para permitir recover posterior
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         cursor.execute('''
-            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (call_id, file.filename, now, initial_status, user.get("sub"), diretrizes, gcs_uri))
+            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri, audio_duration_sec, progress_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (call_id, file.filename, now, initial_status, user.get("sub"), diretrizes, gcs_uri, audio_duration_sec, 0.0))
         conn.commit()
         conn.close()
 
@@ -519,13 +575,16 @@ async def upload_audio(
         return {"message": "Processamento iniciado (in-process)", "id": call_id, "mode": "local", "reason": reason}
 
     # 4. Path Pub/Sub (primario)
+    # Probe duracao do audio via ffprobe para UI mostrar progresso real
+    audio_duration_sec = _probe_audio_duration(file_path)
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes, gcs_uri))
+        INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri, audio_duration_sec, progress_pct)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes, gcs_uri, audio_duration_sec, 0.0))
     conn.commit()
     conn.close()
 
@@ -544,6 +603,7 @@ async def upload_audio(
             "user_id": user.get("sub"),
             "diretrizes": diretrizes,
             "uploaded_at": now,
+            "audio_duration_sec": audio_duration_sec,
         }).encode("utf-8")
         future = publisher.publish(topic_path, message_data)
         message_id = future.result(timeout=10)
@@ -582,6 +642,7 @@ class InternalStatusUpdate(BaseModel):
     qa_score: int | None = None
     qa_details: dict | None = None  # {nota_qualidade_operador, nota_sentimento_cliente, ...}
     error: str | None = None
+    progress_pct: float | None = None  # 0-100, usado na fase Whisper (audio processado / total)
 
 
 def _verify_cloud_run_identity(auth_header: str, request_url: str) -> dict:
@@ -664,6 +725,12 @@ async def internal_update_call_status(
         if "raw_evaluation" in body.qa_details:
             fields_to_update.append("raw_evaluation = ?")
             params.append(body.qa_details["raw_evaluation"])
+
+    if body.progress_pct is not None:
+        # Clamp 0-100; COALESCE preserva valor existente se caller envia None
+        pct = max(0.0, min(100.0, float(body.progress_pct)))
+        fields_to_update.append("progress_pct = ?")
+        params.append(pct)
 
     params.append(call_id)
     cursor.execute(
@@ -763,6 +830,22 @@ async def recover_stale_jobs(request: Request):
 # ============================================================================
 
 WORKER_URL = os.getenv("WORKER_URL", "https://monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app")
+
+
+def _probe_audio_duration(file_path: str) -> float | None:
+    """Extrai duracao do audio em segundos via ffprobe. Retorna None se falhar."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", file_path],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return float(result.stdout.strip())
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, Exception):
+        pass
+    return None
 
 
 def _worker_healthy() -> bool:

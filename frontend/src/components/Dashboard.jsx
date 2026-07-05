@@ -184,21 +184,43 @@ export default function Dashboard({ onInspectCall }) {
                          <Loader2 size={12} className="text-primary animate-spin" />}
                         {call.status}
                       </span>
-                      {call.status !== 'Concluído' && !call.status.startsWith('Erro') && (
-                        <>
-                          <div
-                            className="w-[180px] h-[3px] bg-black/5 rounded-full overflow-hidden"
-                            role="progressbar"
-                            aria-label="Processando chamada"
-                            aria-valuetext={call.status}
-                          >
-                            <div className="h-full w-1/3 bg-primary rounded-full animate-progress" />
-                          </div>
-                          <span className="text-[10px] text-textMuted ml-1 animate-pulse">
-                            Tempo estimado: ~3-5 min (audio curto) / ate 25 min (audio longo)
-                          </span>
-                        </>
-                      )}
+                      {call.status !== 'Concluído' && !call.status.startsWith('Erro') && (() => {
+                        // Progresso real: backend retorna progress_pct (0-100) na fase Whisper.
+                        // Fases Diarizacao/Analise nao tem % -> fallback indeterminada.
+                        const pct = typeof call.progress_pct === 'number' ? call.progress_pct : 0
+                        const hasRealProgress = pct > 0 && String(call.status).toLowerCase().includes('whisper')
+                        const widthStyle = hasRealProgress
+                          ? { width: `${Math.min(100, pct)}%`, transition: 'width 600ms ease-out' }
+                          : undefined
+                        return (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-[180px] h-[3px] bg-black/5 rounded-full overflow-hidden"
+                                role="progressbar"
+                                aria-label="Progresso do processamento"
+                                aria-valuemin={0}
+                                aria-valuemax={100}
+                                aria-valuenow={hasRealProgress ? Math.round(pct) : undefined}
+                                aria-valuetext={call.status}
+                              >
+                                <div
+                                  className={`h-full bg-primary rounded-full ${hasRealProgress ? '' : 'w-1/3 animate-progress'}`}
+                                  style={widthStyle}
+                                />
+                              </div>
+                              {hasRealProgress && (
+                                <span className="text-[10px] text-textMuted font-medium tabular-nums">
+                                  {Math.round(pct)}%
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-textMuted ml-1 animate-pulse">
+                              Tempo estimado: ~3-5 min (audio curto) / ate 25 min (audio longo)
+                            </span>
+                          </>
+                        )
+                      })()}
                     </div>
                   </td>
                   <td className="p-4">
