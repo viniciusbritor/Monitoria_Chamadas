@@ -38,6 +38,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================================
+# GUARDRAIL: Acesso exclusivo via Portal Coherence (Regra #0 do GUARDRAILS.md)
+# ============================================================================
+# A URL do modulo NAO e' publica. O unico caminho de acesso legitimo e' via
+# Portal: window.open(module.url + '?token=' + firebase_id_token).
+# Requests ao SPA root (/) sem Referer do Portal sao logadas como alerta
+# de seguranca. O frontend ja exibe a pagina "Acesso via Portal Coherence"
+# nesses casos; este middleware adiciona telemetria para auditoria.
+ALLOWED_PORTAL_REFERERS = frozenset([
+    u.strip().lower().rstrip("/")
+    for u in os.getenv(
+        "ALLOWED_PORTAL_REFERERS",
+        "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,"
+        "https://monitoria.coherenceai.com.br,"
+        "https://coherence-portal-prod-c5nbfc5meq-uc.a.run.app,"
+        "http://localhost:5173,"  # dev local (Vite)
+        "http://localhost:8001,"  # dev local (FastAPI)
+    ).split(",")
+    if u.strip()
+])
+
+
+@app.middleware("http")
+async def enforce_portal_only_access(request, call_next):
+    """Telemetria para tentativas de acesso direto a URL do modulo.
+
+    Comportamento:
+      - SPA entry point (/, /index.html): se Referer NAO for do Portal OU
+        ausente (acesso direto/curl), loga alerta de seguranca. NAO bloqueia
+        para nao quebrar testes de QA / load balancer health probe.
+      - API calls seguem auth normal via Depends(get_current_user).
+      - Endpoints publicos intencionais (/api/auth/portal-sso, /api/internal/*)
+        sao isentos pois o fluxo legitimo exige token de qualquer forma.
+    """
+    path = request.url.path
+    referer = (request.headers.get("referer") or "").lower().rstrip("/")
+    user_agent = request.headers.get("user-agent", "")
+    client_ip = request.client.host if request.client else "?"
+
+    # SPA entry point: checa Referer contra lista de Portals permitidos
+    if path in ("/", "/index.html"):
+        if referer and not any(referer.startswith(p) for p in ALLOWED_PORTAL_REFERERS):
+            print(
+                f"[Security] direct-access attempt: path={path} "
+                f"referer={referer!r} ua={user_agent[:80]!r} ip={client_ip}",
+                flush=True,
+            )
+        elif not referer and user_agent:
+            print(
+                f"[Security] direct-access attempt (no-referer): path={path} "
+                f"ua={user_agent[:80]!r} ip={client_ip}",
+                flush=True,
+            )
+
+    return await call_next(request)
+
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

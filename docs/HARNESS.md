@@ -2,6 +2,25 @@
 
 > **Objetivo Principal:** Sistema de "Monitoria de Chamadas" baseado em IA. Transcreve áudios de atendimento ao cliente usando Whisper (local ou Cloud Run) e os avalia contra critérios de qualidade utilizando Gemini (Google), fornecendo notas (QA Score) e feedback através de um Dashboard web interativo.
 
+## 🔐 Acesso ao Módulo — SEMPRE via Portal Coherence
+
+> **IMPORTANTE:** A URL do Cloud Run `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/` **NÃO é endpoint público para usuários finais**. É detalhe de implementação interno do ecossistema Coherence.
+
+**Único fluxo válido:**
+1. Usuário acessa `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`
+2. Faz login (Firebase SSO via Google ou email/senha)
+3. No Dashboard do Portal, clica no card **"Monitoria de Chamadas"**
+4. O Portal abre o módulo em nova aba: `window.open(${module.url}?token=${firebase_id_token}, '_blank')`
+5. O módulo valida o token via `GET /api/auth/me` no Portal e renderiza o dashboard autenticado
+
+**Acesso direto (colar a URL no navegador):**
+- Exibe a página "Acesso via Portal Coherence" com botão de redirect.
+- Backend loga como `[Security] direct-access attempt from <IP>` para auditoria.
+
+**Para testes/desenvolvimento local:**
+- Use `frontend/.env.example` → `frontend/.env.local` apontando para `VITE_API_URL=http://127.0.0.1:8001`.
+- **Não compartilhe** a URL pública do Cloud Run como ponto de entrada para demos ou testes com usuários reais.
+
 ## 🧪 Ambiente de Teste vs Produção
 - **REGRA ESTABELECIDA:** A primeira implementação de qualquer nova funcionalidade ou alteração **SEMPRE** deve ser feita no ambiente de Teste/Homologação (`Monitoria_Chamadas_Teste`). Nenhuma alteração deve ser feita diretamente no ambiente de produção.
 - Após a implementação no ambiente de teste, o usuário avaliará e decidirá se as alterações devem ser "viradas" para Produção.
