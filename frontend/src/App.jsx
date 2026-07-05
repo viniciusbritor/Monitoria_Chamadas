@@ -4,7 +4,42 @@ import CallInspector from './components/CallInspector'
 import SettingsPanel from './components/SettingsPanel'
 import QueueManager from './components/QueueManager'
 import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
-import { auth, signInWithPopup, googleProvider, signInWithEmailAndPassword } from './firebase'
+import { auth } from './firebase'
+
+// NEW (05/07/2026): loader brandado compartilhado.
+// Usado durante o bootstrap (validacao do ?token=) e durante a validacao inicial.
+// Da' uma transicao visual suave do Portal -> Monitoria (sem flash de tela em branco).
+function BrandedLoader({ message = 'Conectando ao Portal Coherence...' }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-surface transition-page">
+      <div className="flex flex-col items-center gap-6 max-w-md px-6">
+        <div className="flex items-center gap-3 animate-logo-in">
+          <img
+            src="/logo-top-v2.png"
+            alt="Coherence"
+            className="h-[28px] w-auto object-contain"
+            onError={(e) => { e.target.src = '/logo-v2.png' }}
+          />
+          <div className="h-7 w-[1px] bg-black/10"></div>
+          <div className="flex items-center space-x-1.5 text-xs font-semibold tracking-[0.2em] uppercase whitespace-nowrap">
+            <span className="text-[#3b82f6] font-medium">MONITORIA DE</span>
+            <span className="text-slate-700 font-bold">CHAMADA</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center gap-3 animate-fadeInUp">
+          <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+            <Headphones size={20} />
+          </div>
+          <p className="text-sm text-black/60 animate-pulse-soft">{message}</p>
+          <div className="w-48 h-[2px] bg-black/5 rounded-full overflow-hidden mt-1">
+            <div className="h-full w-1/3 bg-primary rounded-full animate-progress"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function App() {
   const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'settings' | 'queue'
@@ -17,11 +52,8 @@ function App() {
   const [userRole, setUserRole] = useState(null)
   const [accessDenied, setAccessDenied] = useState(false)
   const [validating, setValidating] = useState(false)
-  const [loginError, setLoginError] = useState(null)
-  const [emailLogin, setEmailLogin] = useState('')
-  const [passwordLogin, setPasswordLogin] = useState('')
-  // NEW (Sprint 2 - 03/07/2026): estado de bootstrap para evitar o flash da tela de login
-  // no primeiro render quando ha ?token= na URL. Permanece true ate o primeiro useEffect rodar.
+  // NEW (05/07/2026): modulo e' acessivel APENAS via Portal Coherence (?token= na URL).
+  // Nao ha mais Login proprio: acesso direto redireciona para o Portal.
   const [bootstrapping, setBootstrapping] = useState(true)
 
   const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env.coherenceai.com.br"
@@ -74,66 +106,6 @@ function App() {
     window.location.href = PORTAL_URL + '/dashboard'
   }
 
-  const handleGoogleLogin = async () => {
-    setLoginError(null)
-    try {
-      const result = await signInWithPopup(auth, googleProvider)
-      const token = await result.user.getIdToken()
-      const resp = await fetch(`${API_URL}/api/auth/portal-sso`, {
-        method: 'POST',
-        body: new URLSearchParams({ token }),
-      })
-      if (!resp.ok) {
-        if (resp.status === 403) {
-          setAccessDenied(true)
-          return
-        }
-        throw new Error(`HTTP ${resp.status}`)
-      }
-      const data = await resp.json()
-      localStorage.setItem('auth_token', data.token)
-      localStorage.setItem('user_role', data.role)
-      setUserToken(data.token)
-      setUserRole(data.role)
-    } catch (err) {
-      console.error(err)
-      setLoginError(err.message || 'Erro no login com Google')
-    }
-  }
-
-  const handleEmailLogin = async (e) => {
-    e.preventDefault()
-    setLoginError(null)
-    try {
-      const result = await signInWithEmailAndPassword(auth, emailLogin, passwordLogin)
-      const token = await result.user.getIdToken()
-      const resp = await fetch(`${API_URL}/api/auth/portal-sso`, {
-        method: 'POST',
-        body: new URLSearchParams({ token }),
-      })
-      if (!resp.ok) {
-        if (resp.status === 403) {
-          setAccessDenied(true)
-          return
-        }
-        throw new Error(`HTTP ${resp.status}`)
-      }
-      const data = await resp.json()
-      localStorage.setItem('auth_token', data.token)
-      localStorage.setItem('user_role', data.role)
-      setUserToken(data.token)
-      setUserRole(data.role)
-    } catch (err) {
-      console.error(err)
-      const code = err.code || ''
-      if (code.includes('invalid-credential') || code.includes('user-not-found') || code.includes('wrong-password')) {
-        setLoginError('E-mail ou senha incorretos.')
-      } else {
-        setLoginError(err.message || 'Erro no login')
-      }
-    }
-  }
-
   useEffect(() => {
     const validateTokenOnMount = async () => {
       if (!userToken) {
@@ -177,49 +149,42 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userToken])
 
-  // NEW (Sprint 2 - 03/07/2026): spinner NEUTRO durante bootstrap.
-  // Sem branding da Monitoria para nao confundir com a tela de login
-  // nem comprometer a transicao Portal -> Monitoria.
+  // NEW (05/07/2026): loader brandado compartilhado (definido em escopo de modulo acima).
+
   if (bootstrapping) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-black/40">Carregando...</p>
-        </div>
-      </div>
-    )
+    return <BrandedLoader message="Conectando ao Portal Coherence..." />
   }
 
   if (accessDenied) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-surface">
-        <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center text-red-500 mb-6">
-          <LogOut size={32} />
+      <div className="min-h-screen flex flex-col items-center justify-center bg-surface transition-page">
+        <div className="flex flex-col items-center gap-5 animate-fadeInUp">
+          <div className="w-16 h-16 rounded-2xl bg-red-100 flex items-center justify-center text-red-500">
+            <LogOut size={32} />
+          </div>
+          <h1 className="text-3xl font-bold text-red-600">Acesso Restrito</h1>
+          <p className="text-black/60 text-center max-w-md leading-relaxed">
+            Você não possui permissão para acessar o módulo Monitoria de Chamadas.
+            Solicite acesso ao administrador no Portal Coherence.
+          </p>
+          <button
+            onClick={() => window.location.href = PORTAL_URL + '/dashboard'}
+            className="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-xl transition-all shadow-sm"
+          >
+            Voltar ao Portal
+          </button>
         </div>
-        <h1 className="text-3xl font-bold mb-2 text-red-600">Acesso Restrito</h1>
-        <p className="text-black/60 mb-6 text-center max-w-md">
-          Você não possui permissão para acessar o módulo Monitoria de Chamadas.
-          Solicite acesso ao administrador no Portal Coherence.
-        </p>
-        <button
-          onClick={() => window.location.href = PORTAL_URL + '/dashboard'}
-          className="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-xl transition-all shadow-sm"
-        >
-          Voltar ao Portal
-        </button>
       </div>
     )
   }
 
   if (!userToken) {
+    // Acesso direto (sem ?token= vindo do Portal): modulo NAO expoe Login proprio.
+    // Usuario deve passar pelo Portal Coherence.
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-surface relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-96 h-96 bg-primary/5 rounded-full blur-[120px] pointer-events-none"></div>
-        <div className="absolute bottom-[-20%] right-[-10%] w-96 h-96 bg-blue-50/10 rounded-full blur-[120px] pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="flex items-center gap-3 mb-8">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-surface px-4 transition-page">
+        <div className="flex flex-col items-center gap-5 max-w-md animate-fadeInUp">
+          <div className="flex items-center gap-3 mb-1">
             <img
               src="/logo-top-v2.png"
               alt="Coherence"
@@ -233,83 +198,32 @@ function App() {
             </div>
           </div>
 
-          <div className="glass-panel bg-white/70 backdrop-blur-xl p-8 rounded-3xl border border-black/5 shadow-2xl flex flex-col items-center w-[400px] max-w-[90vw]">
-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary mb-5 border border-primary/5">
-              <Headphones size={28} />
-            </div>
-            <h1 className="text-2xl font-bold mb-2 tracking-tight">Login</h1>
-            <p className="text-black/60 mb-6 text-center text-sm leading-relaxed">
-              Acesse com sua conta do Portal Coherence.
-            </p>
-
-            {loginError && (
-              <div className="w-full bg-red-50 border border-red-200 text-red-700 text-xs p-2 rounded-lg mb-4 text-center">
-                {loginError}
-              </div>
-            )}
-
-            <form onSubmit={handleEmailLogin} className="w-full flex flex-col gap-2 mb-4">
-              <input
-                type="email"
-                placeholder="Seu e-mail"
-                value={emailLogin}
-                onChange={(e) => setEmailLogin(e.target.value)}
-                required
-                className="w-full bg-white/80 border border-black/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-              <input
-                type="password"
-                placeholder="Sua senha"
-                value={passwordLogin}
-                onChange={(e) => setPasswordLogin(e.target.value)}
-                required
-                className="w-full bg-white/80 border border-black/10 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-              <button
-                type="submit"
-                className="w-full bg-primary hover:bg-primary/90 text-white font-semibold py-2.5 rounded-lg transition-all"
-              >
-                Entrar
-              </button>
-            </form>
-
-            <div className="flex items-center gap-3 w-full my-1 opacity-30">
-              <div className="h-[1px] flex-1 bg-black" />
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-black">ou</span>
-              <div className="h-[1px] flex-1 bg-black" />
-            </div>
-
-            <button
-              onClick={handleGoogleLogin}
-              className="w-full flex items-center justify-center gap-3 border border-black/10 py-2.5 px-4 rounded-lg bg-white hover:bg-black/5 transition-all shadow-sm font-semibold mt-2"
-            >
-              <img src="https://www.svgrepo.com/show/475656/google-color.svg" alt="Google" className="w-5 h-5" />
-              Continuar com Google
-            </button>
-
-            <button
-              onClick={() => window.location.href = PORTAL_URL + '/dashboard'}
-              className="mt-5 text-xs text-black/40 hover:text-black/70"
-            >
-              Voltar ao Portal
-            </button>
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+            <Headphones size={32} />
           </div>
+          <h1 className="text-2xl font-bold tracking-tight">Acesso via Portal Coherence</h1>
+          <p className="text-black/60 text-center text-sm leading-relaxed">
+            A Monitoria de Chamadas é um módulo do ecossistema Coherence e pode ser acessada
+            exclusivamente pelo Portal. Faça login no Portal e abra o card "Monitoria de Chamadas".
+          </p>
+          <button
+            onClick={() => window.location.href = PORTAL_URL + '/dashboard'}
+            className="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-xl transition-all shadow-sm mt-2"
+          >
+            Ir para o Portal Coherence
+          </button>
         </div>
       </div>
     )
   }
 
   if (validating) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface">
-        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
+    return <BrandedLoader message="Validando sessão no Portal Coherence..." />
   }
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50">
+    <div className="min-h-screen flex flex-col transition-page">
+      <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50 transition-content">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div 
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
@@ -376,19 +290,21 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
-        {currentView === 'dashboard' && (
-          <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
-        )}
-        {currentView === 'inspector' && selectedCallId && (
-          <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
-        )}
-        {currentView === 'settings' && (
-          <SettingsPanel />
-        )}
-        {currentView === 'queue' && (
-          <QueueManager userToken={userToken} onBack={() => navigateTo('dashboard')} />
-        )}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 transition-content">
+        <div key={currentView + (selectedCallId || '')} className="transition-content">
+          {currentView === 'dashboard' && (
+            <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
+          )}
+          {currentView === 'inspector' && selectedCallId && (
+            <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
+          )}
+          {currentView === 'settings' && (
+            <SettingsPanel />
+          )}
+          {currentView === 'queue' && (
+            <QueueManager userToken={userToken} onBack={() => navigateTo('dashboard')} />
+          )}
+        </div>
       </main>
     </div>
   )
