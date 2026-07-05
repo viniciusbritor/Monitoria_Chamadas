@@ -381,20 +381,53 @@ async def upload_audio(
     user = Depends(get_current_user)
 ):
     """
-    Fase B: agora enfileira job no Pub/Sub em vez de processar via BackgroundTasks.
+    Fase B+C (05/07/2026): Hibrido Pub/Sub + BackgroundTasks in-process.
+
+    Decisao por upload:
+      - Se worker dedicado estiver saudavel E audio <= 50MB: Pub/Sub (preserva
+        observabilidade do Queue Manager + escala independente).
+      - Caso contrario (worker cold/unhealthy OU audio > 50MB OU GCS falha):
+        fallback para BackgroundTasks in-process (mesmo path da producao,
+        latencia ~3-5 min, zero dependencia externa).
+
     Vantagens:
-    - Backend principal nao trava durante transcricao
-    - Worker escala independentemente (0-10 instancias)
-    - Persistencia: audio no GCS, nao em disco local volatil
+      - Arquivos grandes ou worker indisponivel nao deixam a UI travada em
+        'Na Fila de Processamento...'.
+      - Latencia percebida similar a producao para o caso comum.
     """
     call_id = str(uuid.uuid4())
     file_path = os.path.join(UPLOAD_DIR, f"{call_id}_{file.filename}")
 
-    # 1. Salva audio local temporariamente (sera uploadado para GCS)
+    # 0. Salva audio local (sera usado tanto no path Pub/Sub quanto no fallback)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+    file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+    print(f"[Upload] call_id={call_id} arquivo={file.filename} tamanho={file_size_mb:.2f}MB", flush=True)
 
-    # 2. Upload para GCS (bucket dedicado para arquivos temporarios do worker)
+    # 1. Decide qual caminho seguir (hibrido)
+    # Regra: worker saudavel + audio pequeno (<=50MB) -> Pub/Sub.
+    # Caso contrario -> BackgroundTasks local (sem GCS, sem worker).
+    worker_ok = _worker_healthy()
+    use_pubsub = worker_ok and file_size_mb <= 50.0
+
+    if not use_pubsub:
+        reason = "worker unhealthy" if not worker_ok else f"audio grande ({file_size_mb:.1f}MB > 50MB)"
+        print(f"[Upload] {reason} -> fallback BackgroundTasks in-process", flush=True)
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute('''
+            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (call_id, file.filename, now, "Transcrevendo Audio (Whisper)...", user.get("sub"), diretrizes))
+        conn.commit()
+        conn.close()
+
+        background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
+        return {"message": "Processamento iniciado (in-process)", "id": call_id, "mode": "local", "reason": reason}
+
+    # 2. Path Pub/Sub: upload para GCS + publica job
     gcs_bucket = os.getenv("AUDIO_BUCKET", "coherence-monitoria-audios-tmp")
     gcs_path = f"{call_id}_{file.filename}"
 
@@ -407,24 +440,22 @@ async def upload_audio(
         gcs_uri = f"gs://{gcs_bucket}/{gcs_path}"
         print(f"[Upload] Audio salvo em {gcs_uri}", flush=True)
     except Exception as e:
-        # Se GCS falhar, faz fallback para BackgroundTasks local (modo degradado)
+        # Se GCS falhar, fallback para BackgroundTasks local
         print(f"[Upload] FALHA ao subir para GCS: {e}. Fallback: BackgroundTasks local.", flush=True)
-        gcs_uri = None
-
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         now = datetime.now().isoformat()
         cursor.execute('''
             INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes))
+        ''', (call_id, file.filename, now, "Transcrevendo Audio (Whisper)...", user.get("sub"), diretrizes))
         conn.commit()
         conn.close()
 
         background_tasks_fallback.add_task(process_call_task, call_id, file_path, user.get("sub"), diretrizes)
-        return {"message": "Processamento iniciado (modo degradado)", "id": call_id, "mode": "local"}
+        return {"message": "Processamento iniciado (fallback GCS)", "id": call_id, "mode": "local", "reason": "gcs_fail"}
 
-    # 3. INSERT no SQLite com status "Na Fila de Processamento..."
+    # 3. INSERT no SQLite
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
@@ -456,8 +487,6 @@ async def upload_audio(
         print(f"[Upload] Job publicado no Pub/Sub: {message_id}", flush=True)
     except Exception as e:
         print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}", flush=True)
-        # Continua mesmo assim — o usuario vera "Na Fila de Processamento..." para sempre.
-        # Em prod, considere alerta admin aqui.
 
     # 5. Cleanup arquivo local (foi copiado para GCS)
     try:

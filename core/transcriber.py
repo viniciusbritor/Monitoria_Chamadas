@@ -35,15 +35,17 @@ class Transcriber:
 
     def _preprocess_audio(self, audio_path: str) -> str:
         """
-        Otimização B: Pré-processa áudio para mono 16kHz PCM (formato ideal para Whisper).
-        Reduz trabalho do decoder. Usa ffmpeg que já está instalado no Dockerfile.
-        Retorna o caminho do arquivo pré-processado (em /tmp).
+        Otimizacao B (05/07/2026): Pre-processa audio para mono 16kHz PCM
+        (formato ideal para Whisper) via ffmpeg. Pula se ja esta' no formato
+        alvo. Reduz trabalho do decoder e tempo total de transcricao.
 
-        Timeout aumentado para 180s (era 60s) após incidente 03/07/2026 com audio
-        WhatsApp .mpeg de 1MB que estourou mesmo sendo pequeno - causa raiz foi
-        contencao de CPU com Whisper ja carregado em paralelo. Ver DIARIO_BORDO.
+        Mudancas 05/07/2026:
+        - Detecta WAV PCM 16-bit @ 16kHz mono via ffprobe e pula ffmpeg
+          (economiza ~5-30s por arquivo no caso comum).
+        - Timeout mantido em 180s (DIARIO_BORDO 03/07 - contencao CPU).
+        - Skip para arquivos >100MB (memoria).
         """
-        # Pula pre-processamento para arquivos >100MB (codec exotico arrisca timeout
+        # Skip pre-processamento para arquivos >100MB (codec exotico arrisca timeout
         # OU problemas de memoria). Trade-off: audio bruto fica mais lento pro Whisper.
         try:
             size_mb = os.path.getsize(audio_path) / (1024 * 1024)
@@ -53,8 +55,16 @@ class Transcriber:
         except OSError:
             pass
 
+        # NOVO (05/07/2026): detecta se ja' esta' no formato alvo via ffprobe.
+        # WAV PCM s16 16kHz mono == formato nativo do Whisper, ffmpeg seria puro overhead.
+        if audio_path.lower().endswith(".wav"):
+            if self._is_native_whisper_format(audio_path):
+                print(f"[Transcriber] WAV ja' em PCM s16 16kHz mono - pulando ffmpeg", flush=True)
+                return audio_path
+
+        # Para MP3/M4A/AAC/MPEG/Opus, mantem ffmpeg (codecs comprimidos precisam decode)
         if not audio_path.endswith((".wav", ".mp3", ".m4a", ".flac", ".ogg")):
-            # Arquivos como .mpeg, .mp4, .aac precisam de conversão
+            # Arquivos como .mpeg, .mp4, .aac precisam de conversao
             try:
                 tmp_dir = tempfile.mkdtemp(prefix="audio_pre_")
                 output_path = os.path.join(tmp_dir, "preprocessed.wav")
@@ -86,6 +96,40 @@ class Transcriber:
                 print(f"[Transcriber] ffmpeg nao encontrado ({e}), usando original", flush=True)
                 return audio_path
         return audio_path
+
+    @staticmethod
+    def _is_native_whisper_format(audio_path: str) -> bool:
+        """Detecta se WAV ja' esta' em PCM s16 16kHz mono (formato nativo Whisper).
+
+        Usa ffprobe. Retorna True se for nativo, False caso contrario
+        (ou se ffprobe nao disponivel - fallback seguro = False, faz ffmpeg).
+        """
+        try:
+            cmd = [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=sample_rate,channels,sample_fmt,codec_name",
+                "-of", "default=noprint_wrappers=1",
+                audio_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode != 0:
+                return False
+            out = result.stdout
+            # Parse simples (key=value por linha)
+            kv = {}
+            for line in out.strip().splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    kv[k.strip()] = v.strip()
+            return (
+                kv.get("codec_name") == "pcm_s16le"
+                and kv.get("sample_rate") == "16000"
+                and kv.get("channels") == "1"
+                and kv.get("sample_fmt") == "s16"
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            return False
 
     def transcribe(self, audio_path):
         """

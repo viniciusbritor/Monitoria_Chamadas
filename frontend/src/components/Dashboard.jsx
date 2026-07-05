@@ -1,19 +1,19 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search } from 'lucide-react'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
 
+// Polling adaptativo: 2s quando ha chamada processando, 10s quando idle.
+// Reduz latencia percebida sem sobrecarregar API quando nao ha atividade.
+const POLL_ACTIVE_MS = 2000
+const POLL_IDLE_MS = 10000
+
 export default function Dashboard({ onInspectCall }) {
   const [calls, setCalls] = useState([])
   const [uploading, setUploading] = useState(false)
   const [diretrizes, setDiretrizes] = useState("")
-
-  useEffect(() => {
-    fetchCalls()
-    const interval = setInterval(fetchCalls, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  const intervalRef = useRef(null)
 
   const fetchCalls = async () => {
     try {
@@ -26,6 +26,20 @@ export default function Dashboard({ onInspectCall }) {
       console.error(err)
     }
   }
+
+  // NEW (05/07/2026): polling adaptativo.
+  // Detecta se ha chamada em processamento e ajusta o intervalo.
+  const hasActiveCall = calls.some(
+    (c) => c.status !== 'Concluído' && !String(c.status || '').startsWith('Erro')
+  )
+  const pollMs = hasActiveCall ? POLL_ACTIVE_MS : POLL_IDLE_MS
+
+  useEffect(() => {
+    fetchCalls()
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    intervalRef.current = setInterval(fetchCalls, pollMs)
+    return () => clearInterval(intervalRef.current)
+  }, [pollMs])
 
   const calculateRetentionStats = () => {
     let opportunities = 0;
