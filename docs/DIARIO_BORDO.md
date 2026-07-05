@@ -2,6 +2,71 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 05/07/2026 - Fix BackgroundTask SIGTERM (Fase C+ — fallback durável + recover-stale + watchdog)
+
+### Contexto
+Após deploy do fallback in-process (Fase C), o owner tentou monitoria real do audio `5_Cancelamento.mp3`. Resultado: status ficou travado em "Transcrevendo Audio (Whisper)..." para sempre. Investigacao revelou bugs compostos:
+
+1. **Upload 22:20:45** — `_worker_healthy()` retornou False (worker em cold-start, respondeu 503). Meu codigo fez fallback para BackgroundTasks in-process.
+2. **22:20:45 → 22:28:54** — Whisper transcreveu 94% do audio (segmentos ate 225s de ~240s) **com sucesso**. Conteudo: cancelamento de servico com operador "Marcio" e cliente em Portugal.
+3. **22:22:17** — Meu deploy do `cc8cb38` (barra de progresso) **matou o container do test-env no meio da transcricao**. BackgroundTask perdida. Audio em disco volatil. SIGTERM do Cloud Run.
+4. **DB ficou travado** em "Transcrevendo Audio (Whisper)..." porque o UPDATE final nunca rodou.
+5. **Worker tinha bug adicional**: processou 1 mensagem com erro, ficou em `state=processing` para sempre. Health check retornava 200 (bug na deteccao de stuck) → helper `_worker_healthy()` achava que estava saudavel → novos uploads iam para Pub/Sub → worker travado nunca processava → loop.
+
+### Causa raiz
+- **BackgroundTasks em Cloud Run NAO sao confiaveis**. Qualquer deploy/scale-down mata o processo, perdendo trabalho.
+- **Disco local do container e' volatil**. Audio nao sobrevive a morte do container.
+- **Worker stuck detection tinha loophole**: `state=processing` mascarava travamento.
+
+### Mudancas aplicadas (commit `9e7cfa9`)
+
+1. **`api.py` upload (durabilidade total):**
+   - Upload para GCS acontece **SEMPRE** (mesmo no fallback), garantindo que audio nao se perde.
+   - Fallback in-process agora **persiste `gcs_uri`** no DB. Se BackgroundTask morrer, o recover-stale retoma do GCS.
+   - Schema: nova coluna `gcs_uri` em `chamadas` (com `ALTER TABLE` migration para bancos existentes).
+
+2. **`api.py` `/api/internal/recover-stale` (NOVO endpoint):**
+   - Detecta chamadas com `uploaded_at < now() - 12min` em status inicial (`Transcrevendo/Na Fila/Separando/Analisando`) COM `gcs_uri` preenchido.
+   - Re-publica job no Pub/Sub com flag `recovered=True`.
+   - Autenticado via OIDC (mesmo padrao do worker callback).
+   - Pode ser chamado manualmente pelo owner ou via cron externo (Cloud Scheduler).
+
+3. **`api.py` `_worker_healthy()` (fix helper):**
+   - Tenta `/healthz` primeiro (rota real do worker), fallback `/health`.
+   - **503 agora retorna False** (antes: era tratado como saudavel).
+   - Aceita 200 e 403 como saudavel; rejeita 503 e timeout.
+
+4. **`worker.py` health check (fix stuck detection):**
+   - Detecta `state=processing ha >15min` → marca como `stuck` + retorna 503.
+   - Antes: processing travado nunca era reportado.
+
+5. **`worker.py` watchdog (fix recovery):**
+   - Detecta `processing >15min` → reseta `current_state=ready` e chama `_restart_streaming_pull()`.
+   - Pub/Sub faz redelivery para instancia recem-restartada.
+
+### Validacao
+- Build + deploy test-env (`00040-z4h`) e worker (`00020-4kg`) OK.
+- Test-env `MINIMAX_API_KEY` + `WHISPER_DOWNLOAD_ROOT` re-injetados.
+- Worker conseguiu reprocessar mensagem antiga (`0b6228fc` orphan de sessao anterior) baixando do GCS com sucesso — confirmou integridade do bucket.
+
+### Chamada orfa do owner (d9e98b2c)
+- Upload original 22:20:42 foi em fase pre-durability (gcs_uri NULL).
+- Audio perdido (disco volatil). **Nao ha como recuperar**. Owner precisa re-upload.
+- Sugestao: ignorar/deletar a linha da UI (status travado permanente).
+
+### Licoes
+- **Nunca confie em BackgroundTasks in-process para trabalho demorado em Cloud Run**. Sempre use Pub/Sub + worker dedicado, OU garanta que o trabalho sobrevive a morte do container (snapshot em GCS).
+- **Health checks devem distinguir "ready" vs "stuck" vs "hung"**. Implementacao anterior aceitava 503 como saudavel — mascarou problema por horas.
+- **Deploys sao inimigos de BackgroundTasks**. Toda vez que deployar, jobs em andamento morrem. Mitigacao: idempotencia + persistencia externa (GCS).
+
+### Estado pos-deploy
+| Servico | Imagem | Revisao | Mudancas |
+|---|---|---|---|
+| `monitoria-test-env` | `:9e7cfa9` | `00040-z4h` | Upload duravel + recover-stale + helper fix |
+| `monitoria-whisper-worker` | `:9e7cfa9` | `00020-4kg` | Watchdog stuck + 503 honesto |
+
+---
+
 ## 05/07/2026 - Guardrail Portal-Only Access (Regra #0 do GUARDRAILS)
 
 ### Contexto
