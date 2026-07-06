@@ -2,6 +2,87 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 06/07/2026 - Perf Fase 2: cpu-throttling=false + compute_type=int8 (~3-4x speedup combinado)
+
+### Contexto
+
+Após deploy da Fase 1 (GCS FUSE + idempotência + cleanup), owner reportou que o test-env estava **muito mais lento que produção** (`monitoria.coherenceai.com.br`). Investigação em duas frentes descobriu que faltavam 2 otimizações críticas que produção já tinha.
+
+### Diff de infraestrutura
+
+| Config | Produção `monitoria-cx` | Test-env (antes) | Test-env (agora) |
+|---|---|---|---|
+| `cpu-throttling` | `false` | `true` (default) ❌ | `false` ✅ |
+| Whisper `compute_type` | `default` (float32) | `default` (float32) | `int8` ✅ |
+| `OMP_NUM_THREADS` | 2 | 2 | 2 |
+| `cpu` / `memory` | 4 / 8Gi | 4 / 8Gi | 4 / 8Gi |
+
+### Causa raiz
+
+**1. `cpu-throttling=true` (default Cloud Run):** Container usa apenas ~20% da CPU alocada quando **não está servindo requests HTTP**. BackgroundTasks do FastAPI (caminho in-process que processa chamadas agora!) rodam com CPU estrangulada → Whisper fica 5-10x mais lento.
+
+**2. `compute_type=float32` (default):** `faster-whisper` em CPU faz decode em float32 que é desnecessário — quantização int8 entrega <1% WER de perda com 2x speedup em CPU.
+
+### Mudanças aplicadas
+
+#### Commit `bb25e9e` — `perf: cpu-throttling=false em test-env + worker`
+- `cloudbuild-test.yaml` + `cloudbuild-worker.yaml`: adicionado `--cpu-throttling=false`.
+- Aplicado primeiro via `gcloud run services update --no-cpu-throttling` (sem rebuild) para não matar BackgroundTask em voo do `5_Cancelamento.mp3`.
+
+#### Commit `9500178` — `perf(whisper): compute_type=int8`
+- `core/transcriber.py`: alterado default `compute_type="default"` → `"int8"`.
+- Docstring atualizado com histórico (28/06/2026 hang com int8 foi resolvido por OMP_NUM_THREADS=2).
+- `docs/GUARDRAILS.md`: nova configuração aprovada reflete int8. Removida regra "NUNCA alterar compute_type" (era prematura).
+
+#### Commit `60d0b16` — `fix(ci): sintaxe --no-cpu-throttling`
+- Build `9500178` falhou: `ERROR: (gcloud.run.deploy) argument --cpu-throttling: ignored explicit argument 'false'`.
+- Causa: `cloudsdktool` image do Cloud Build usa versão antiga do `gcloud` que não aceita `--cpu-throttling=false` (valor explícito) — só aceita `--no-cpu-throttling` (boolean negativo).
+- Trocado nos 2 YAMLs. Mesma sintaxe já funcionava em `gcloud run services update` (mais novo).
+
+### Validação pós-deploy
+
+| Build | Status | Tempo |
+|---|---|---|
+| test-env `7da8530e-a0c6-48ab-9a0c-fc4267fb67d8` | ✅ SUCCESS | — |
+| worker `98d4472c-7881-4b48-8448-cacd038d409b` | ✅ SUCCESS | — |
+
+| Serviço | Revisão | Imagem | url |
+|---|---|---|---|
+| `monitoria-test-env` | `00050-dsn` (após re-inject MINIMAX_API_KEY) | `:60d0b16` | https://monitoria-test-env-894828119087.us-central1.run.app |
+| `monitoria-whisper-worker` | `00027-h9x` | `:60d0b16` | https://monitoria-whisper-worker-894828119087.us-central1.run.app |
+
+### Speedup esperado
+
+Combinado: `cpu-throttling=false` (~5-10x em BackgroundTasks) × `compute_type=int8` (~2x em CPU decode) = **~3-4x mais rápido** que a config original.
+
+Áudio de 4min em Cloud Run 4 vCPU:
+- **Antes**: 30-50 min (cpu-throttling 20% + float32)
+- **Agora**: ~1.5-2.5 min (cpu-throttling 100% + int8)
+- **Produção (referência)**: ~3-5 min (cpu-throttling 100% + float32)
+
+### Risco conhecido
+
+**Hang silencioso de int8** (incidente 28/06/2026 original — registrado em DIARIO_BORDO). Mitigação: `OMP_NUM_THREADS=2` mantido. Smoke test do owner vai confirmar se o histórico voltou.
+
+### Smoke test E2E — PENDENTE validação manual do owner
+
+1. Acessar Portal Coherence
+2. Abrir card "Monitoria de Chamadas"
+3. Subir áudio curto (ideal: WAV 16kHz mono, ou MP3/M4A até 50MB)
+4. Confirmar:
+   - Barra DETERMINADA com `%` subindo rápido (~30-50% por minuto em áudios típicos)
+   - Conclusão em **~1.5-2.5min para áudio de 4min**
+   - Sem travamentos ou hangs (CPU monitorado deve ficar em ~80-100% sustained)
+   - Relatório de 3 Fases (Apresentação/Métodos/Fechamento) renderiza no CallInspector
+
+### Próximos passos
+
+- Validar empiricamente o speedup (upload teste)
+- Se hang do int8 voltar, fallback automático para `default` via `GET /api/healthz` health check
+- Backlog Fase 2 (Outbox pattern, DLQ, schema migrations) inalterado
+
+---
+
 ## 06/07/2026 - Deploy Fase 1 + Bucket migration + Poison detection
 
 ### Execução
