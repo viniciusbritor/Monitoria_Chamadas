@@ -41,10 +41,11 @@
 Estas regras foram criadas após incidente crítico em que chamadas órfãs no Pub/Sub travaram o worker em loop infinito porque (a) test-env usava SQLite local volátil, perdendo INSERTs em deploys; (b) worker não checava idempotência antes de processar; (c) subscription não tinha DLQ.
 
 ### REGRA #6 — Volume mount obrigatório em todos os serviços que compartilham DB
-1. **Qualquer serviço que lê/escreve no SQLite compartilhado DEVE ter `--add-volume name=db-vol,type=cloud-storage,bucket=consultoria-bess-mme136-db-bucket`** no deploy.
+1. **Qualquer serviço que lê/escreve no SQLite compartilhado DEVE ter `--add-volume name=db-vol,type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket`** no deploy.
 2. Sem o mount, o serviço cai no fallback `monitoria_ia.db` LOCAL, que é VOLÁTIL — todas as escritas se perdem quando o container reinicia.
 3. Antes de cada deploy de serviço novo que toque no DB, validar com `gcloud run services describe <service> --format="value(spec.template.spec.volumes)"` que o volume está presente.
 4. **Por que:** Sem o mount, test-env inseria no SQLite local e publicava no Pub/Sub; deploy matava o container, INSERT sumia, worker processava mensagem órfã. **Esta foi a causa raiz dos loops infinitos**.
+5. **ATENÇÃO:** O bucket DEVE estar no **mesmo projeto GCP** do Cloud Run. Cloud Run rejeita `--add-volume type=cloud-storage` cross-project. O bucket histórico `consultoria-bess-mme136-db-bucket` (do projeto antigo) foi migrado em 06/07/2026 para `coherence-ominichannel-fs-db-bucket`.
 
 ### REGRA #7 — Idempotency do Worker
 1. **Worker DEVE consultar `SELECT status FROM chamadas WHERE id = ?` ANTES de processar qualquer mensagem Pub/Sub.**
