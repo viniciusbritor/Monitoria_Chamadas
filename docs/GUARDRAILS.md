@@ -36,6 +36,48 @@
 1. Nenhuma chave de API, credencial ou token deve ser escrito no código em hardcode (plaintext).
 2. Todo segredo precisa passar obrigatoriamente pelo `secrets_manager` (SQLite central).
 
+## 🛡️ Regras de Resiliência (Fase 1 — 05/07/2026)
+
+Estas regras foram criadas após incidente crítico em que chamadas órfãs no Pub/Sub travaram o worker em loop infinito porque (a) test-env usava SQLite local volátil, perdendo INSERTs em deploys; (b) worker não checava idempotência antes de processar; (c) subscription não tinha DLQ.
+
+### REGRA #6 — Volume mount obrigatório em todos os serviços que compartilham DB
+1. **Qualquer serviço que lê/escreve no SQLite compartilhado DEVE ter `--add-volume name=db-vol,type=cloud-storage,bucket=consultoria-bess-mme136-db-bucket`** no deploy.
+2. Sem o mount, o serviço cai no fallback `monitoria_ia.db` LOCAL, que é VOLÁTIL — todas as escritas se perdem quando o container reinicia.
+3. Antes de cada deploy de serviço novo que toque no DB, validar com `gcloud run services describe <service> --format="value(spec.template.spec.volumes)"` que o volume está presente.
+4. **Por que:** Sem o mount, test-env inseria no SQLite local e publicava no Pub/Sub; deploy matava o container, INSERT sumia, worker processava mensagem órfã. **Esta foi a causa raiz dos loops infinitos**.
+
+### REGRA #7 — Idempotency do Worker
+1. **Worker DEVE consultar `SELECT status FROM chamadas WHERE id = ?` ANTES de processar qualquer mensagem Pub/Sub.**
+2. Comportamento esperado:
+   - Linha **ausente** → ack + log `[Worker] ORPHAN: ...` (poison-ack, NÃO nack)
+   - Status `Concluído` ou `Erro:...` → ack + log `[Worker] JÁ PROCESSADO: ...` (idempotente)
+   - Status intermediário (`Transcrevendo/Separando/Analisando/Na Fila`) → continuar (retomada)
+3. **NUNCA** nack uma mensagem sem antes validar que a falha é transient. Nack causa redelivery infinito em poison messages.
+4. **Por que:** Pub/Sub garante at-least-once delivery. Sem idempotency, reprocessamento causa trabalho duplicado e loops em dados inválidos.
+
+### REGRA #8 — DLQ obrigatória em subscriptions Pub/Sub
+1. **Toda subscription DEVE ter DLQ topic associado + `max-delivery-attempts = 3`.**
+2. Comando obrigatório na criação:
+   ```
+   gcloud pubsub subscriptions create <sub> --topic=<topic> \
+     --dead-letter-topic=<dlq-topic> --max-delivery-attempts=3
+   ```
+3. Mensagens que falham 3x vão automaticamente para a DLQ. Admin inspeciona DLQ periodicamente.
+4. **Por que:** Sem DLQ, mensagens poison (inválidas, órfãs) ficam em loop infinito, bloqueando toda a subscription.
+
+### REGRA #9 — Schema migrations devem ser explícitas
+1. **Migrations DEVEM ser tracked em uma tabela `schema_version(version, applied_at, checksum)`.**
+2. **NUNCA** silenciar `sqlite3.OperationalError` em `ALTER TABLE` — log o erro explicitamente.
+3. Falha de migração = startup **recusa subir** (fail-fast). Não continuar com schema parcial.
+4. Cada migration incrementa a versão e registra checksum para evitar drift entre instâncias.
+5. **Por que:** Migrations silenciosas mascaram problemas de compatibilidade. Dois serviços com schemas diferentes = bugs sutis e órfãos (campos NULL inesperados).
+
+### REGRA #10 — fsync após DB write
+1. **Após `conn.commit()`, chamar `os.fsync()` no arquivo SQLite para garantir flush ao disco (GCS FUSE).**
+2. Configurar `PRAGMA journal_mode=WAL` em `init_db()` para concorrência segura.
+3. Configurar `PRAGMA synchronous=NORMAL` (ou FULL para paths críticos de upload).
+4. **Por que:** GCS FUSE tem write-back cache. Sem fsync, deploy/scale pode matar container ANTES do write ser flushed, perdendo o INSERT.
+
 ## Barreiras Limitantes
 - **Processamento em CPU (Whisper):** O Cloud Run operando com recursos de CPU (sem GPU dedicada) é a principal barreira arquitetural de performance. A transcrição via faster-whisper em arquivos de áudio leva em média cerca de 1 a 2 minutos, o que afeta a percepção do usuário (ansiedade gerando sensação de erro) já que o frontend não possui websockets para atualizar o status em tempo real. A barreira requer a gestão de expectativa do tempo de processamento.
 

@@ -98,6 +98,42 @@ function QueueManager({ userToken, onBack }) {
     }
   }
 
+  // NEW (05/07/2026 - Fase 1 / Fix #3): botao para limpar orfaos do DB.
+  // Chama /api/admin/stuck-calls (read-only) para preview e
+  // /api/admin/cleanup-orphans (admin-only) para marcar como erro.
+  const [stuckCalls, setStuckCalls] = useState([])
+  const [cleaningUp, setCleaningUp] = useState(false)
+
+  const fetchStuckCalls = async () => {
+    try {
+      const r = await axios.get(`${API_URL}/api/admin/stuck-calls`, authHeaders)
+      setStuckCalls(r.data.stuck_calls || [])
+    } catch (e) {
+      // silencia - endpoint pode nao estar disponivel em prod
+    }
+  }
+
+  const handleCleanupOrphans = async () => {
+    if (!confirm(`Marcar ${stuckCalls.length} chamada(s) orfa como erro?`)) return
+    setCleaningUp(true)
+    try {
+      await axios.post(`${API_URL}/api/admin/cleanup-orphans`, {}, authHeaders)
+      setRefreshTick(t => t + 1)
+      fetchAll()
+      fetchStuckCalls()
+    } catch (e) {
+      alert(`Falha: ${e.response?.data?.detail || e.message}`)
+    } finally {
+      setCleaningUp(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchStuckCalls()
+    const i = setInterval(fetchStuckCalls, 10000)
+    return () => clearInterval(i)
+  }, [refreshTick])
+
   const formatAge = (seconds) => {
     if (!seconds && seconds !== 0) return '-'
     if (seconds < 60) return `${seconds}s`
@@ -267,6 +303,37 @@ function QueueManager({ userToken, onBack }) {
             </table>
           </div>
         )}
+      </div>
+
+      {/* Stuck calls cleanup section - Fase 1 / Fix #3 */}
+      <div className="glass-panel p-4 border-l-4 border-amber-500">
+        <h3 className="font-semibold text-textMain flex items-center gap-2">
+          <AlertTriangle size={18} className="text-amber-600" />
+          Chamadas orfas no DB ({stuckCalls.length})
+        </h3>
+        <p className="text-sm text-textMuted mt-1">
+          Chamadas em estado inicial (Na Fila / Transcrevendo / Separando / Analisando) ha mais de 15min.
+          Marque como erro para liberar a UI sem reprocessar.
+        </p>
+        {stuckCalls.length > 0 && (
+          <div className="mt-2 max-h-40 overflow-y-auto text-xs">
+            {stuckCalls.slice(0, 10).map(c => (
+              <div key={c.id} className="py-1 px-2 border-b border-black/5 flex justify-between">
+                <span className="text-textMain truncate max-w-[200px]">{c.filename}</span>
+                <span className="text-textMuted">{c.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-3">
+          <button
+            onClick={handleCleanupOrphans}
+            disabled={stuckCalls.length === 0 || cleaningUp}
+            className="bg-amber-600 hover:bg-amber-700 text-white font-medium py-2 px-4 rounded-lg disabled:opacity-30 transition-all"
+          >
+            {cleaningUp ? 'Limpando...' : `Marcar ${stuckCalls.length} orfao(s) como erro`}
+          </button>
+        </div>
       </div>
 
       {/* Purge section */}

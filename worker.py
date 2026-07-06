@@ -150,8 +150,10 @@ def _notify_test_env_callback(call_id: str, payload: dict):
         print(f"[Worker {WORKER_ID}] callback falhou (continuando): {e}", flush=True)
 
 
-# Flag global: quando True, a proxima mensagem sera ack'ada sem reprocessar.
-_ORPHAN_DETECTED = False
+# Flag global: quando setado, a proxima mensagem COM O MESMO call_id
+# sera ack'ada sem reprocessar (poison message). Detecta-se orfao quando
+# callback do test-env retorna 404 (call_id nao existe no DB).
+_ORPHAN_CALL_ID = None
 
 
 def _get_cloud_run_identity_token(audience: str) -> str | None:
@@ -359,25 +361,53 @@ def callback(message):
         diretrizes = data.get("diretrizes", "")
         audio_duration_sec = data.get("audio_duration_sec")
 
-        # NEW (05/07/2026): poison message fast-path.
-        # Se o callback do Pub/Sub anterior detectou orfao (call_id sem
-        # registro no DB test-env), esta mensagem e' a mesma orfa em
-        # redelivery. Ack sem reprocessar para liberar a subscription.
-        with HEALTHZ_LOCK:
-            if _ORPHAN_DETECTED:
-                _ORPHAN_DETECTED = False  # reset para proxima mensagem
-                WORKER_STATE["messages_processed"] += 1
-                WORKER_STATE["consecutive_errors"] = 0
-                WORKER_STATE["current_state"] = "ready"
-                WORKER_STATE["last_msg_received_at"] = time.time()
-                orphan_call_id = call_id
+        # NEW (05/07/2026 - Fase 1 / Fix #2): idempotency check ANTES de processar.
+        # Worker consulta o DB compartilhado (GCS FUSE mount) para validar:
+        # 1. Call existe? Se nao -> orfao (call_id sem INSERT no DB), ack + descarta.
+        # 2. Call ja' concluida? -> idempotencia (redelivery apos sucesso), ack.
+        # 3. Call em estado intermediario? -> retomar de onde parou.
+        # Isso elimina loops infinitos em mensagens problematicas.
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=5)
+            cursor = conn.cursor()
+            cursor.execute("SELECT status FROM chamadas WHERE id = ?", (call_id,))
+            row = cursor.fetchone()
+            conn.close()
+            if row is None:
                 print(
-                    f"[Worker {WORKER_ID}] POISON-ACK: call_id={orphan_call_id} "
-                    f"message_id={message.message_id} descartado (orfao).",
+                    f"[Worker {WORKER_ID}] ORPHAN: call_id={call_id} "
+                    f"ausente no DB. Ack (poison-ack).",
                     flush=True,
                 )
                 message.ack()
+                with HEALTHZ_LOCK:
+                    WORKER_STATE["messages_processed"] += 1
+                    WORKER_STATE["consecutive_errors"] = 0
+                    WORKER_STATE["current_state"] = "ready"
                 return
+            if row[0] == "Concluído" or row[0].startswith("Erro"):
+                print(
+                    f"[Worker {WORKER_ID}] JÁ PROCESSADO: call_id={call_id} "
+                    f"status={row[0]!r}. Ack (idempotente).",
+                    flush=True,
+                )
+                message.ack()
+                with HEALTHZ_LOCK:
+                    WORKER_STATE["messages_processed"] += 1
+                    WORKER_STATE["consecutive_errors"] = 0
+                    WORKER_STATE["current_state"] = "ready"
+                return
+            # Status intermediario (Transcrevendo/Separando/Analisando/Na Fila):
+            # continuar processamento (retomada de estado anterior possivel).
+            print(
+                f"[Worker {WORKER_ID}] RETOMANDO: call_id={call_id} "
+                f"status_anterior={row[0]!r}",
+                flush=True,
+            )
+        except Exception as e:
+            # Falha ao consultar DB NAO bloqueia processamento - segue e confia
+            # no callback 404 path para detectar orfao.
+            print(f"[Worker {WORKER_ID}] idempotency check falhou: {e}", flush=True)
 
         with HEALTHZ_LOCK:
             WORKER_STATE["last_msg_received_at"] = time.time()

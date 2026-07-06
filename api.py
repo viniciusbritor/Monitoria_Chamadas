@@ -940,6 +940,80 @@ def queue_purge(confirm: bool = False, user: dict = Depends(require_admin_user))
     return {"purged": n}
 
 
+# ============================================================================
+# Cleanup de orfaos (Fase 1 / Fix #3)
+# ============================================================================
+# Marca como 'Erro' chamadas que ficaram presas em status inicial (Na Fila /
+# Transcrevendo / Separando / Analisando) ha mais de STALE_MIN minutos.
+# Libera a UI do owner (sai do loop "ficou travado").
+#
+# Autenticado via OIDC (mesmo padrao do callback do worker / recover-stale)
+# para que possa ser chamado por cron externo alem do admin UI.
+@app.post("/api/internal/cleanup-orphans")
+async def cleanup_orphans(request: Request):
+    auth_header = request.headers.get("Authorization", "")
+    _verify_cloud_run_identity(auth_header, str(request.base_url))
+
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
+
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, filename, user_id, status, uploaded_at
+        FROM chamadas
+        WHERE uploaded_at < ?
+          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
+        ORDER BY uploaded_at ASC
+    ''', (cutoff,))
+    orphans = [dict(row) for row in cursor.fetchall()]
+
+    if not orphans:
+        conn.close()
+        return {"cleaned": 0, "orphans": []}
+
+    cleaned_ids = []
+    for orphan in orphans:
+        new_status = f"Erro: processamento interrompido (orphaned >30min). Reenvie o audio."
+        cursor.execute(
+            "UPDATE chamadas SET status = ? WHERE id = ?",
+            (new_status, orphan["id"]),
+        )
+        cleaned_ids.append(orphan["id"])
+        print(
+            f"[Cleanup] call_id={orphan['id']} filename={orphan['filename']!r} "
+            f"status_anterior={orphan['status']!r} -> {new_status!r}",
+            flush=True,
+        )
+    conn.commit()
+    conn.close()
+
+    print(f"[Cleanup] {len(cleaned_ids)} orfaos marcados como erro", flush=True)
+    return {"cleaned": len(cleaned_ids), "orphans": cleaned_ids}
+
+
+# Listagem de chamadas "stuck" (read-only) para o admin UI
+@app.get("/api/admin/stuck-calls")
+def stuck_calls(user: dict = Depends(require_admin_user)):
+    """Lista chamadas em estado inicial >15min. Apenas visualizacao."""
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(minutes=15)).isoformat()
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, filename, user_id, status, uploaded_at, audio_duration_sec, progress_pct
+        FROM chamadas
+        WHERE uploaded_at < ?
+          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
+        ORDER BY uploaded_at ASC
+    ''', (cutoff,))
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return {"stuck_count": len(rows), "stuck_calls": rows}
+
+
 # Endpoints administrativos migrados para o Coherence Portal (SSO Global).
 
 # Frontend estático (Vite Build) - DEVE FICAR NO FINAL PARA NÃO SOBRESCREVER ROTAS /API

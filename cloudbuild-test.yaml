@@ -44,7 +44,12 @@ steps:
       - '--cpu=4'
       - '--memory=8Gi'
       - '--port=8080'
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      # NEW (05/07/2026 - Fase 1 / Fix #1): GCS FUSE mount compartilhado com worker.
+      # Sem isso, test-env usa SQLite LOCAL (volatil) -> INSERT some em deploys
+      # -> orfaos. Com o mount, ambos compartilham o mesmo arquivo.
+      - '--add-volume=name=db-vol,type=cloud-storage,bucket=consultoria-bess-mme136-db-bucket'
+      - '--add-volume-mount=volume=db-vol,mount-path=/mnt/db'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1,DB_PATH=/mnt/db/monitoria_ia.db'
       - '--quiet'
 
 substitutions:
