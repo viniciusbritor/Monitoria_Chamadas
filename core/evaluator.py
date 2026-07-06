@@ -128,7 +128,7 @@ Responda EXATAMENTE em formato JSON estruturado com os seguintes campos:
 - sentimentos_cliente (lista de strings) -> Sentimentos/emoções do cliente durante o contato (ex: ["Ansioso", "Frustrado", "Satisfeito"]).
 - sentimentos_operador (lista de strings) -> Posturas/sentimentos demonstrados pelo operador (ex: ["Empático", "Paciente", "Claro"]).
 - erros_fatais_identificados (lista de strings) -> Erros graves ou descumprimentos de regras críticas identificados (ex: ["Rudeza", "Informação incorreta"]).
-- checklist_conformidade (lista de objetos) -> Extraia um checklist baseado nas Diretrizes de Qualidade. Cada objeto deve ter: 'item' (string com o passo avaliado) e 'cumprido' (booleano). Ex: [{"item": "Saudação inicial", "cumprido": true}].
+- checklist_conformidade (lista de objetos) -> Extraia um checklist baseado nas Diretrizes de Qualidade. Cada objeto deve ter: 'item' (string com o passo avaliado) e 'cumprido' (booleano). Ex: [{{"item": "Saudacao inicial", "cumprido": true}}].
 - oportunidade_venda_retencao (booleano) -> Houve oportunidade óbvia para retenção de cliente (evitar cancelamento) ou realizar venda (cross-sell/up-sell)?
 - sucesso_venda_retencao (booleano) -> Se houve a oportunidade, o operador conseguiu concretizar a venda/retenção com sucesso?
 - tipo_oportunidade (string) -> Descreva o tipo, ex: "Retenção", "Cross-sell", "Up-sell", "Nenhuma".
