@@ -49,7 +49,10 @@ steps:
       # e' CPU-heavy e roda em BackgroundTasks in-process (Fase C) ->
       # sem isso, audio de 4min leva 30-50min. Producao ja tem esse
       # annotation e processa em ~3-5min.
-      - '--cpu-throttling=false'
+      # NOTA: --no-cpu-throttling e' a sintaxe aceita pelo gcloud no
+      # cloudsdktool image do Cloud Build (--cpu-throttling=false falha
+      # com 'ignored explicit argument').
+      - '--no-cpu-throttling'
       # NEW (05/07/2026 - Fase 1 / Fix #1): GCS FUSE mount compartilhado com worker.
       # Sem isso, test-env usa SQLite LOCAL (volatil) -> INSERT some em deploys
       # -> orfaos. Com o mount, ambos compartilham o mesmo arquivo.

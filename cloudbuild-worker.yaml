@@ -39,7 +39,8 @@ steps:
       # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
       # sem isso, default Cloud Run so libera ~20% CPU fora de requests,
       # fazendo transcricao ficar 5-10x mais lenta. Producao ja tem.
-      - '--cpu-throttling=false'
+      # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
+      - '--no-cpu-throttling'
       - '--concurrency=1'
       - '--min-instances=0'
       - '--max-instances=3'
