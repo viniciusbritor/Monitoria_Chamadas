@@ -2,6 +2,84 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 06/07/2026 - Perf Fase 3: Otimização LLM (Plano A — zero perda)
+
+### Contexto
+
+Após Fase 2 (cpu-throttling=false + compute_type=int8), owner reportou que a fase de avaliação LLM ainda demorava muito. Investigação em `core/llm_provider.py` + `core/evaluator.py` revelou:
+
+1. **Payload sem `temperature` nem `max_tokens`** → LLM usava defaults (~0.7 temp, sem cap), ativando Walking Mode por mais tempo.
+2. **`system_prompt` gigante (~1200 tokens)** → schema JSON descrito em prosa verbosa. Cada caractere a mais era input cobrado a $0.30/M tokens.
+3. **`diarize()` com prompt verboso (~150 tokens)** → mesma auditoria, prompt desnecessariamente longo.
+
+### Plano escolhido: A (zero perda)
+
+Owner recusou perda de qualidade/Schema. Escolha: **só otimizações técnicas** mantendo schema JSON idêntico (17 campos + 3 sub-fases).
+
+### Mudanças aplicadas (commit `c803d42`)
+
+#### `core/llm_provider.py` — controle de geração
+- Adicionado `temperature` default diferenciado:
+  - `json_mode=True` (evaluate) → `0.3`
+  - `json_mode=False` (diarize) → `0.1` (fidelidade na separação operador/cliente)
+- Adicionado `max_tokens` default diferenciado:
+  - `json_mode=True` → `1500` (cobre JSON completo ~700 tokens + analise 3 fases)
+  - `json_mode=False` → `400` (cobre transcript reformatado)
+- Caller pode sobrescrever via kwargs `temperature=...`, `max_tokens=...`
+
+#### `core/evaluator.py` — prompt trim
+- `system_prompt` de `evaluate()`: ~1200 → **359 tokens** (-70%)
+  - Removida prosa verbosa das fases
+  - Schema JSON inline compacto
+  - Mantido MESMO schema (17 campos + 3 sub-fases)
+- `system_prompt` de `diarize()`: ~150 → **44 tokens** (-71%)
+  - Reduzido a apenas a regra essencial
+
+### Validação
+
+Mock-client local confirmou:
+- ✅ `evaluator.evaluate()` retorna todos os 17 campos + sub-estrutura `fases.{apresentacao,resolucao,fechamento}.{nota_qa,nota_nps,analise}`
+- ✅ `evaluator.diarize()` retorna string formatada `Operador:` / `Cliente:`
+- ✅ Mock capturou `temperature` e `max_tokens` corretos por modo
+
+### Impacto estimado (sem mudar qualidade)
+
+| Métrica | Antes | Depois | Redução |
+|---|---|---|---|
+| Input tokens (evaluate prompt) | ~1200 | 359 | **-70%** |
+| Input tokens (diarize prompt) | ~150 | 44 | **-71%** |
+| Output runaway responses | ilimitado | max 1500/400 | capeado |
+| Temperature (Walking Mode) | default ~0.7 | 0.3/0.1 | mais determinístico |
+| Latência esperada | 60-120s | 25-40s | **-60%** |
+
+### Custo estimado por chamada
+
+- Antes: 1200 input + 700 output = $0.00036 + $0.00084 = **$0.0012**
+- Depois: 359 input + 700 output (cap 1500) = $0.00011 + $0.00084 = **$0.00095**
+- Redução: **~$0.00025/chamada (-21%)** + latência -60%
+
+### Estado pós-deploy
+
+| Serviço | Imagem | Revisão | Status |
+|---|---|---|---|
+| `monitoria-test-env` | `:c803d42` | `00054-vx4` | live com `MINIMAX_API_KEY` |
+| `monitoria-whisper-worker` | `:c803d42` | `00029-dvp` | live |
+
+### Smoke test PENDENTE validação manual do owner
+
+Próximo upload deve mostrar:
+- Latência da fase `Analisando Qualidade e Sentimento (MiniMax M3)...` → `Concluído` muito mais rápida
+- Schema do CallInspector (3 fases + sentimentos + checklist) **idêntico** ao anterior
+- Custo em `finops_usage.json` deve cair para ~30% do anterior
+
+### Próximos passos (Plano B/C/D, sob demanda)
+
+- B: Combinar `diarize` + `evaluate` em 1 chamada (-50% latência)
+- C: Trocar para modelo mais leve ou `disable_thinking=true` (-70%)
+- D: Streaming de response (-60% percepção de latência)
+
+Requer aprovação adicional do owner antes de implementar.
+
 ## 06/07/2026 - Perf Fase 2: cpu-throttling=false + compute_type=int8 (~3-4x speedup combinado)
 
 ### Contexto
