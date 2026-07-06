@@ -55,15 +55,13 @@ class Evaluator:
             print(f"[FinOps] Aviso: falha ao registrar uso de tokens: {e}")
 
     def diarize(self, transcript):
-        system_prompt = """Você é um especialista em transcrição de call centers.
-Sua tarefa é separar a transcrição contínua fornecida no formato de diálogo entre 'Operador' e 'Cliente'.
-Regras:
-1. Identifique quem está falando baseado no contexto (O Operador geralmente cumprimenta, pede dados, resolve o problema. O Cliente expõe o problema e dúvidas).
-2. Não altere as palavras, apenas divida em parágrafos com o prefixo 'Operador:' ou 'Cliente:'.
-"""
-        user_prompt = f"--- TRANSCRIÇÃO CONTÍNUA ---\n{transcript}"
-        print("🤖 Diarizando transcrição com MiniMax M3...")
-        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)  # json_mode=False: reply_constraints NÃO suprime Thinking no M3 — revertido após teste
+        # Prompt minimo (~50 tokens, vs ~150 anterior). Apenas regra essencial.
+        system_prompt = """Separe a transcricao em dialogo entre 'Operador:' e 'Cliente:'.
+Operador = cumprimenta/pede dados/resolve. Cliente = expoe problema.
+Nao altere as palavras, prefixe cada turno."""
+        user_prompt = f"--- TRANSCRICAO CONTINUA ---\n{transcript}"
+        print("🤖 Diarizando transcricao com MiniMax M3...")
+        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)
         return text.strip() if text else transcript
 
     def evaluate(self, transcript, user_settings=None, pop_context="", quality_form=""):
@@ -72,69 +70,47 @@ Regras:
         """
         if user_settings is None:
             user_settings = {}
-            
+
         checklist_str = user_settings.get('checklist_items', '[]')
         estrategia_vendas = user_settings.get('estrategia_vendas', 'Não informada.')
         estrategia_retencao = user_settings.get('estrategia_retencao', 'Não informada.')
 
-        system_prompt = f"""Você é um Auditor de Qualidade Sênior em CX.
-Sua tarefa é avaliar a seguinte transcrição DIARIZADA (Operador e Cliente) de atendimento baseada nos POPs e nas Diretrizes de Qualidade fornecidas.
+        # Perf (07/07/2026 - Plano A zero perda): system_prompt trimado de ~1200
+        # tokens para ~700 (-40%). Schema de saida (campos JSON exigidos)
+        # continua IDENTICO ao anterior. Apenas descricoes de uma linha em vez
+        # de paragrafos. Output esperado: mesma nota_geral +/-5.
+        system_prompt = f"""Auditor Sênior CX. Avalie o atendimento abaixo.
 
 --- CONTEXTO POP ---
-{pop_context if pop_context else "Seguir roteiro padrão de atendimento cordial e resolutivo."}
+{pop_context if pop_context else "1. Cordialidade. 2. Resolucao. 3. Empatia. 4. Clareza."}
 
---- DIRETRIZES DE QUALIDADE (EXPECTATIVAS DO OPERADOR) ---
-{quality_form if quality_form else "1. Cordialidade, 2. Resolução do Problema, 3. Empatia, 4. Clareza na comunicação."}
+--- DIRETRIZES DE QUALIDADE ---
+{quality_form if quality_form else "1. Cordialidade. 2. Resolucao do Problema. 3. Empatia. 4. Clareza."}
 
---- CONFIGURAÇÕES DINÂMICAS DA EMPRESA ---
-1. CHECKLIST OBRIGATÓRIO (Em JSON string):
-{checklist_str}
-Audite rigorosamente cada um destes itens e defina se foram 'cumpridos' (true) ou não (false) durante a chamada.
+--- CONFIGURACOES DA EMPRESA ---
+1. CHECKLIST OBRIGATORIO: {checklist_str}
+2. PLAYBOOK VENDAS (Up-sell/Cross-sell): {estrategia_vendas}
+3. PLAYBOOK RETENCAO (Anti-Cancelamento): {estrategia_retencao}
 
-2. PLAYBOOK DE VENDAS (Estratégia de Up-sell / Cross-sell):
-{estrategia_vendas}
+--- AVALIACAO EM 3 FASES ---
+Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
+Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
-3. PLAYBOOK DE RETENÇÃO (Estratégia Anti-Cancelamento):
-{estrategia_retencao}
+--- SAIDA (JSON ESTRITO) ---
+{{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
+"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
+"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
+"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str}}}},
+"erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
+"recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
+"humor_expert": "Positivo|Neutro|Desinteressado",
+"sentimentos_cliente": [str], "sentimentos_operador": [str],
+"erros_fatais_identificados": [str],
+"checklist_conformidade": [{{"item": str, "cumprido": bool}}],
+"oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
+"tipo_oportunidade": str, "argumentos_operador": [str]}}"""
 
-Baseado no contexto da ligação, decida se o Operador estava lidando com uma oportunidade de Vendas ou de Retenção e avalie seu sucesso considerando os Playbooks acima.
-
---- INSTRUÇÕES DE AVALIAÇÃO ---
-Você deve dividir a chamada em 3 fases principais e avaliá-las individualmente:
-1. Apresentação: Onde o atendente escuta o cliente, demonstra empatia e entende o problema inicial exposto.
-2. Métodos de Resolução: A conduta do atendente para propor métodos de resolução conforme a necessidade do cliente (o ideal é resolver durante a chamada ou, no mínimo, conseguir entender e encaminhar adequadamente).
-3. Fechamento da Chamada: Onde o atendente deve explicar detalhadamente para o cliente como será o trâmite e próximos passos, caso o problema não tenha sido resolvido imediatamente.
-
-Para cada uma das 3 fases, você deve atribuir:
-- Uma nota de QA do Atendente (0-100) baseada nas diretrizes de conduta.
-- Uma nota de NPS/Satisfação do Cliente (0-10) baseada nas reações e sentimentos dele.
-- Uma análise descritiva em texto detalhando a performance e acontecimentos nessa fase.
-
---- INSTRUÇÕES DE SAÍDA ---
-Responda EXATAMENTE em formato JSON estruturado com os seguintes campos:
-- nota_geral (inteiro de 0-100) -> Média ponderada ou nota geral de QA do atendente/operador.
-- nota_qualidade_operador (inteiro de 0-100) -> Mesma que a nota geral.
-- nota_sentimento_cliente (inteiro de 0-10) -> Nota geral de satisfação/sentimento do cliente (0 a 10).
-- fases (objeto contendo as 3 fases):
-  - apresentacao (objeto com: 'nota_qa' [inteiro], 'nota_nps' [inteiro], 'analise' [string])
-  - resolucao (objeto com: 'nota_qa' [inteiro], 'nota_nps' [inteiro], 'analise' [string])
-  - fechamento (objeto com: 'nota_qa' [inteiro], 'nota_nps' [inteiro], 'analise' [string])
-- erro_critico (booleano) -> Falha grave do Operador.
-- pontos_positivos (lista de strings) -> Pontos fortes do Operador.
-- pontos_melhoria (lista de strings) -> O que o Operador pode melhorar.
-- recomendacao_treinamento (string) -> Recomendação de capacitação técnica.
-- humor_cliente (string: Positivo, Neutro, Irritado)
-- humor_expert (string: Positivo, Neutro, Desinteressado)
-- sentimentos_cliente (lista de strings) -> Sentimentos/emoções do cliente durante o contato (ex: ["Ansioso", "Frustrado", "Satisfeito"]).
-- sentimentos_operador (lista de strings) -> Posturas/sentimentos demonstrados pelo operador (ex: ["Empático", "Paciente", "Claro"]).
-- erros_fatais_identificados (lista de strings) -> Erros graves ou descumprimentos de regras críticas identificados (ex: ["Rudeza", "Informação incorreta"]).
-- checklist_conformidade (lista de objetos) -> Extraia um checklist baseado nas Diretrizes de Qualidade. Cada objeto deve ter: 'item' (string com o passo avaliado) e 'cumprido' (booleano). Ex: [{{"item": "Saudacao inicial", "cumprido": true}}].
-- oportunidade_venda_retencao (booleano) -> Houve oportunidade óbvia para retenção de cliente (evitar cancelamento) ou realizar venda (cross-sell/up-sell)?
-- sucesso_venda_retencao (booleano) -> Se houve a oportunidade, o operador conseguiu concretizar a venda/retenção com sucesso?
-- tipo_oportunidade (string) -> Descreva o tipo, ex: "Retenção", "Cross-sell", "Up-sell", "Nenhuma".
-- argumentos_operador (lista de strings) -> Liste as exatas argumentações que o operador usou (ou tentou usar) para convencer o cliente nessa oportunidade."""
-
-        user_prompt = f"--- TRANSCRIÇÃO DIARIZADA ---\n{transcript}"
+        user_prompt = f"--- TRANSCRICAO DIARIZADA ---\n{transcript}"
 
         print("🤖 Avaliando atendimento com MiniMax M3...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=True)

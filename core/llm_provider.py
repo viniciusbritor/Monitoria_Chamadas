@@ -62,20 +62,40 @@ class LLMClient:
                 print(f"Erro {e}. Tentando novamente em {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
 
-    def cached_chat(self, system_prompt, user_prompt, json_mode=False, cache_key=None):
+    def cached_chat(self, system_prompt, user_prompt, json_mode=False, cache_key=None,
+                     temperature=None, max_tokens=None):
         """
-        No MiniMax, o prompt caching real v2 para abab6.5 usa tokens especificos, 
-        mas simulamos o comportamento basico. 
+        No MiniMax, o prompt caching real v2 para abab6.5 usa tokens especificos,
+        mas simulamos o comportamento basico.
         Desativamos o thinking passando json_mode se solicitado.
+
+        Perf (07/07/2026 - Plano A zero perda):
+        - temperature default 0.3 (vs ~0.7 default) = respostas mais deterministicas
+          e menos "caminhada" do thinking mode.
+        - max_tokens default diferenciado por modo:
+          * json_mode=True (evaluate) -> 1500: cobre JSON completo (~700 tokens
+            tipicos) sem deixar LLM divagar.
+          * json_mode=False (diarize) -> 400: cobre transcript reformatado.
+        - Caller pode sobrescrever via parametros explicitos (temperature/max_tokens).
         """
+        if temperature is None:
+            # json_mode usa 0.3 (precisao no schema); diarize usa 0.1 (fidelidade
+            # da separacao operador/cliente, sem criatividade)
+            temperature = 0.3 if json_mode else 0.1
+
+        if max_tokens is None:
+            max_tokens = 1500 if json_mode else 400
+
         payload = {
             "model": self.model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
         }
-        
+
         # O MiniMax desativa o thinking se definirmos reply_constraints
         if json_mode:
             payload["reply_constraints"] = {
@@ -83,9 +103,9 @@ class LLMClient:
                 "sender_name": "Assistente"
             }
             # Se a API suportasse json_schema diretamente, adicionariamos aqui.
-            
+
         data = self._execute_request_with_backoff(payload)
-        
+
         if data and 'choices' in data:
             return data['choices'][0]['message']['content']
         return None
