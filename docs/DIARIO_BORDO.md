@@ -2,6 +2,61 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 06/07/2026 - Fase 1: Resiliência contra órfãos e travamentos
+
+### Contexto crítico
+Após vários incidentes de órfãos no Pub/Sub (worker looping eternamente em mensagens sem registro correspondente no DB), foi feita re-avaliação arquitetural que descobriu a **causa raiz**: `test-env` usava SQLite LOCAL (volátil, perdido em deploys) enquanto worker usava GCS FUSE mount (durável, compartilhado). Toda INSERT feita por test-env era perdida quando o container reiniciava, deixando a mensagem Pub/Sub "órfã" (publicada mas sem DB row).
+
+### Mudanças aplicadas (commit `21c2daf`)
+
+#### Fix #1 — GCS FUSE mount no test-env (CAUSA RAIZ)
+- `cloudbuild-test.yaml`: adicionado `--add-volume name=db-vol,type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket` + `--add-volume-mount mount-path=/mnt/db`.
+- Bucket cross-project `consultoria-bess-mme136-db-bucket` foi migrado para `coherence-ominichannel-fs-db-bucket` (Cloud Run rejeita volume cross-project).
+- `DB_PATH=/mnt/db/monitoria_ia.db` explícito no env.
+- **Antes:** test-env usava `monitoria_ia.db` local (volátil) → INSERTs sumiam em deploys.
+- **Depois:** test-env e worker compartilham o MESMO arquivo SQLite via GCS FUSE → INSERTs persistem entre deploys.
+- IAM: `gcloud storage buckets add-iam-policy-binding` para conceder `roles/storage.objectUser` ao default compute SA do test-env.
+
+#### Fix #2 — Worker idempotency check (defesa em profundidade)
+- `worker.py callback()`: ANTES de processar, consulta `SELECT status FROM chamadas WHERE id = ?`:
+  - Linha ausente → ack + log `[Worker] ORPHAN: ...` (poison-ack, **não nack**)
+  - Status `Concluído`/`Erro:...` → ack + log `[Worker] JÁ PROCESSADO: ...` (idempotente)
+  - Status intermediário → continuar (retomada)
+- Elimina loops infinitos em mensagens problemáticas (órfãs, redeliveries, etc.).
+
+#### Fix #3 — Admin cleanup endpoint
+- `POST /api/internal/cleanup-orphans` (OIDC): marca chamadas em estado inicial >30min como `Erro: processamento interrompido (orphaned >30min). Reenvie o audio.`
+- `GET /api/admin/stuck-calls` (admin-only): lista chamadas stuck >15min para preview.
+- `QueueManager.jsx`: nova seção "Chamadas órfãs no DB" com botão de cleanup.
+- Permite liberar UI do owner sem reprocessar (decisão consciente vs. retry cego).
+
+#### Fix #10 — 5 novas regras no GUARDRAILS.md
+- **REGRA #6**: Volume mount GCS FUSE obrigatório em todos serviços que compartilham DB.
+- **REGRA #7**: Idempotency do worker (consulta DB antes de processar mensagem Pub/Sub).
+- **REGRA #8**: DLQ obrigatória em subscriptions Pub/Sub (max-delivery-attempts=3).
+- **REGRA #9**: Schema migrations explícitas (schema_version table, sem silent failures).
+- **REGRA #10**: fsync + WAL após DB write (GCS FUSE write-back cache).
+
+### Estado pós-deploy
+| Serviço | Imagem | Revisão | Mudança |
+|---|---|---|---|
+| `monitoria-test-env` | `:21c2daf` | `00045-2zk` | GCS FUSE mount + cleanup endpoints |
+| `monitoria-whisper-worker` | `:21c2daf` | `00025-szr` | Idempotency check |
+
+### Próximos passos (FASE 2 — a decidir com owner)
+- Outbox pattern para atomic INSERT + publish
+- DLQ tópico (`monitoria-whisper-jobs-dlq`) + subscription config
+- Migrations tracking em `schema_version` table
+- fsync + WAL journal mode
+- Cloud Monitoring alerts (worker stuck, queue backlog)
+
+### Lições aprendidas
+- **Sempre validar volume mount em serviços que compartilham DB** — não confiar em fallback para SQLite local.
+- **NUNCA confiar em "INSERT + publish" como 2 ops separadas** — sempre atomicidade via outbox ou volume mount compartilhado.
+- **Worker sem idempotency check é bomba-relógio** — Pub/Sub garante at-least-once, não exactly-once.
+
+---
+
 ## 05/07/2026 - Barra de progresso DETERMINADA (Fase D — % real na fase Whisper)
 
 ### Contexto
