@@ -57,14 +57,20 @@ Estas regras foram criadas após incidente crítico em que chamadas órfãs no P
 4. **Por que:** Pub/Sub garante at-least-once delivery. Sem idempotency, reprocessamento causa trabalho duplicado e loops em dados inválidos.
 
 ### REGRA #8 — DLQ obrigatória em subscriptions Pub/Sub
-1. **Toda subscription DEVE ter DLQ topic associado + `max-delivery-attempts = 3`.**
+1. **Toda subscription DEVE ter DLQ topic associado + `max-delivery-attempts >= 5`** (Cloud Run Pub/Sub exige mínimo 5; padrão da plataforma é 5).
 2. Comando obrigatório na criação:
    ```
    gcloud pubsub subscriptions create <sub> --topic=<topic> \
-     --dead-letter-topic=<dlq-topic> --max-delivery-attempts=3
+     --dead-letter-topic=<dlq-topic> --max-delivery-attempts=5
    ```
-3. Mensagens que falham 3x vão automaticamente para a DLQ. Admin inspeciona DLQ periodicamente.
-4. **Por que:** Sem DLQ, mensagens poison (inválidas, órfãs) ficam em loop infinito, bloqueando toda a subscription.
+3. Comando para anexar DLQ em subscription existente:
+   ```
+   gcloud pubsub subscriptions update <sub> \
+     --dead-letter-topic=projects/<proj>/topics/<dlq-topic> \
+     --max-delivery-attempts=5
+   ```
+4. Mensagens que falham 5x vão automaticamente para a DLQ. Admin inspeciona DLQ periodicamente.
+5. **Por que:** Sem DLQ, mensagens poison (inválidas, órfãs) ficam em loop infinito, bloqueando toda a subscription.
 
 ### REGRA #9 — Schema migrations devem ser explícitas
 1. **Migrations DEVEM ser tracked em uma tabela `schema_version(version, applied_at, checksum)`.**
