@@ -7,21 +7,29 @@ from secrets_manager import get_secret
 
 
 class Transcriber:
-    def __init__(self, model_size=None, device="cpu", compute_type="default"):
+    def __init__(self, model_size=None, device="cpu", compute_type="int8"):
         """
         Inicializa o modelo Whisper.
         model_size: base, small, medium, large-v3
         device: cpu ou cuda
-        compute_type: default (float32) ou float16 (GPU), int8 (perde qualidade)
+        compute_type: int8 (padrao, 2x speedup CPU), default (float32), float16 (GPU)
+
+        HISTORICO:
+        - 28/06/2026: int8 causava hang silencioso em Cloud Run CPU-only.
+          Fix: OMP_NUM_THREADS=2 + compute_type=default.
+        - 06/07/2026: Owner aprovou compute_type=int8 (2x speedup aceito).
+          Mantido OMP_NUM_THREADS=2 para evitar o hang original.
+          Loss de qualidade <1% WER segundo docs faster-whisper.
         """
         if model_size is None:
             model_size = get_secret("WHISPER_MODEL", "base")
 
         # Otimização: paralelismo CPU via OMP_NUM_THREADS e cpu_threads
-        # faster-whisper usa CTranslate2 que paraleliza em CPU
+        # faster-whisper usa CTranslate2 que paraleliza em CPU.
+        # CRITICO: manter OMP_NUM_THREADS=2 mesmo com int8 (evita hang historico).
         cpu_threads = int(os.getenv("OMP_NUM_THREADS", "2"))
 
-        print(f"[Transcriber] Carregando modelo Whisper ({model_size}) no {device} (threads={cpu_threads})...", flush=True)
+        print(f"[Transcriber] Carregando modelo Whisper ({model_size}) no {device} (compute_type={compute_type}, threads={cpu_threads})...", flush=True)
         start_time = time.time()
         self.model = WhisperModel(
             model_size,

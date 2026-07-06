@@ -84,14 +84,14 @@ Estas regras foram criadas após incidente crítico em que chamadas órfãs no P
 
 ## 🎙️ Configuração do Whisper (Performance vs Qualidade)
 
-### Regra de Ouro
-**Nunca alterar `compute_type` para `int8` ou reduzir tamanho do modelo sem aprovação do owner.** A qualidade da transcrição é crítica para o score de QA e análise de sentimentos. Mudanças nessas variáveis degradam detecção de nuances em PT-BR.
+### Regra de Ouro (atualizada 2026-07-06)
+**Owner aprovou `compute_type=int8`** em 06/07/2026 (speedup ~2x em CPU, perda de qualidade <1% WER segundo docs faster-whisper). **NÃO alterar tamanho do modelo (`base`)** nem remover `OMP_NUM_THREADS=2` sem nova aprovação — o int8 sem OMP_NUM_THREADS=2 causa hang silencioso em Cloud Run (ver incidente 28/06/2026 no DIARIO_BORDO).
 
-### Configuração aprovada (2026-07-03)
+### Configuração aprovada (2026-07-06)
 - **Modelo**: `base` (75M params, melhor custo/benefício)
-- **compute_type**: `default` (float32) — **NÃO** alterar
+- **compute_type**: `int8` (quantização, ~2x speedup CPU, perda de qualidade marginal)
 - **num_workers**: `2` (paralelismo CPU, sem perda de qualidade)
-- **OMP_NUM_THREADS**: `2` (evita contenção em CPUs do Cloud Run)
+- **OMP_NUM_THREADS**: `2` (CRÍTICO com int8 — evita hang silencioso em Cloud Run)
 - **vad_filter**: `True` (pula silêncios, não afeta qualidade)
 - **Pré-processamento**: `ffmpeg` → mono 16kHz PCM antes do Whisper (não afeta qualidade)
 - **Modelo pré-carregado** no `@app.on_event("startup")` — salva 33s no primeiro upload
