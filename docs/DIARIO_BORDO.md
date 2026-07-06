@@ -2,6 +2,78 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 06/07/2026 - Deploy Fase 1 + Bucket migration + Poison detection
+
+### Execução
+
+Após 3 commits de confiabilidade parados na branch `test` (commits `9c8ced8`, `21c2daf`, e `0c04e0a`), foi feito o primeiro deploy completo. Encontrado 1 blocker crítico durante o pre-deploy check + corrigido em commit adicional.
+
+### Contexto: o blocker do bucket cross-project
+
+`cloudbuild-test.yaml` referenciava `bucket=consultoria-bess-mme136-db-bucket` (commit `21c2daf`). **Cloud Run rejeita `--add-volume type=cloud-storage` cross-project** — o bucket precisa estar no MESMO projeto do Cloud Run service. Como `monitoria-test-env` e `monitoria-whisper-worker` vivem em `coherence-ominichannel-fs` (project number `894828119087`) e o bucket era de `consultoria-bess-mme136` (project number `4105010761`), o step de deploy quebraria.
+
+### Mudanças aplicadas (commit `0c04e0a`)
+
+1. **Criado** `gs://coherence-ominichannel-fs-db-bucket` em `coherence-ominichannel-fs` (us-central1, uniform-bucket-level-access).
+2. **Copiado** `monitoria_ia.db` (280KB) do bucket antigo para o novo. Conteúdo preservado (chamadas antigas, settings, audit logs).
+3. **`cloudbuild-test.yaml`**: bucket reference atualizada para `coherence-ominichannel-fs-db-bucket`. Comentário explicando o porquê.
+4. **`cloudbuild-worker.yaml`**: ADICIONADO `--add-volume` + `--add-volume-mount` (worker.py também precisa do mount, senão cai no SQLite LOCAL volátil no próximo deploy — geraria novos órfãos e o loop recomeçaria).
+5. **`docs/GUARDRAILS.md` REGRA #6**: nota sobre restrição cross-project + bucket name atualizado.
+
+### Commit `9c8ced8` — Poison message detection (não documentado até agora)
+
+**Sintoma:** Worker ficava em loop infinito em mensagem órfã `0b6228fc-...` (de sessão anterior, sem registro no DB test-env). A cada watchdog restart, Pub/Sub redeliverava a mesma mensagem, callback retornava 404, nack, redelivery — loop bloqueando toda a subscription.
+
+**Fix em 2 camadas:**
+
+1. **`_notify_test_env_callback`**: detecta 404 (call não existe no DB test-env) e seta flag global `_ORPHAN_DETECTED`.
+2. **`callback()` (Pub/Sub)**: antes de processar próxima mensagem, checa a flag. Se `True`, faz **ack imediato** (poison-ack) e reseta a flag. Também detecta exceptions consecutivas ≥3 (`POISON_THRESHOLD`) e ack forçado.
+
+**Resultado:** mensagens órfãs serão descartadas na próxima redelivery. Worker pode processar a fila normalmente.
+
+### Estado pós-deploy (real, após build + re-inject de `MINIMAX_API_KEY`)
+
+Builds:
+- `cloudbuild-test.yaml` → build `43d336a9-f7e4-45b7-bc06-a2e5cb018407` (SUCCESS)
+- `cloudbuild-worker.yaml` → build `8dd4b82f-d4a0-432f-aba2-e36f08a7fad5` (SUCCESS)
+
+| Serviço | Imagem | Revisão final | Mudanças |
+|---|---|---|---|
+| `monitoria-test-env` | `:0c04e0a` | `00047-62t` (após re-inject MINIMAX_API_KEY) | GCS FUSE mount novo bucket + cleanup endpoints |
+| `monitoria-whisper-worker` | `:0c04e0a` | `00025-szr` | Idempotency + poison-ack + GCS FUSE mount novo bucket |
+
+**Re-inject necessário:** `MINIMAX_API_KEY` não está em `cloudbuild-test.yaml` (segredo, segue guardrail). Script Python (`inject_minimax.py`) lê do `secrets_manager` (`C:\Users\vinic\brasil_ai.db`) e aplica via `gcloud run services update --update-env-vars=MINIMAX_API_KEY=...`.
+
+### Verificações pós-deploy
+
+- ✅ `monitoria-test-env-00047-62t` Ready=True, GET `/` retorna SPA 200 OK.
+- ✅ `monitoria-whisper-worker-00025-szr` Ready=True, GET `/` retorna JSON de saúde (`{status: ok, state: ready, uptime_sec: 250.3, ...}`).
+- ✅ GCS FUSE mount confirmado nos logs de ambos serviços: `File system has been successfully mounted. mount-id=coherence-ominichannel-fs-db-bucket-*`.
+- ✅ STARTUP + LIVENESS probes succeeded no worker (path `/healthz`).
+- ⚠️ `GET /healthz` direto retorna **404** — provável comportamento do Cloud Run para paths que coincidem com probe paths em serviço `--no-allow-unauthenticated` (probes autenticados via metadata server, requests externos não-autenticados recebem 404 ao invés de 403). Não é regressão do worker — `/` responde 200 com JSON correto.
+
+### Smoke test E2E — PENDENTE validação manual do owner
+
+Requer token Firebase (caminho legítimo: Portal → card → `?token=`). O usuário deve:
+1. Acessar Portal Coherence
+2. Abrir card "Monitoria de Chamadas"
+3. Subir áudio curto (WAV 16kHz mono ideal, ou MP3/M4A até 50MB)
+4. Confirmar:
+   - Status muda para "Na Fila de Processamento..." rapidamente
+   - Barra de progresso DETERMINADA (% real) na fase Whisper
+   - Conclusão em ~3-5 min
+   - Relatório de 3 Fases (Apresentação/Métodos/Fechamento) renderiza no CallInspector
+
+### Próximos passos (Fase 2 — backlog)
+
+- Outbox pattern para atomic INSERT + publish
+- DLQ tópico (`monitoria-whisper-jobs-dlq`) + subscription config
+- Migrations tracking em `schema_version` table
+- fsync + WAL journal mode
+- Migrar `MINIMAX_API_KEY` + `WHISPER_DOWNLOAD_ROOT` para Secret Manager (elimina re-inject manual)
+
+---
+
 ## 06/07/2026 - Fase 1: Resiliência contra órfãos e travamentos
 
 ### Contexto crítico
