@@ -17,13 +17,22 @@ export default function CallInspector({ callId, onBack }) {
         const res = await axios.get(`${API_URL}/api/calls/${callId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
-        
+
         let analysisData = res.data.raw_evaluation
         if (typeof analysisData === 'string') analysisData = JSON.parse(analysisData)
-          
+
         setCall({ ...res.data, analysis: analysisData })
       } catch (err) {
-        setError('Erro ao carregar detalhes')
+        // Mensagens especificas por status HTTP para melhor UX
+        if (err.response?.status === 403) {
+          setError('Sem permissao para visualizar esta chamada. Foi feito upload por outro usuario.')
+        } else if (err.response?.status === 404) {
+          setError('Chamada nao encontrada no banco de dados.')
+        } else if (err.response?.status === 401) {
+          setError('Sessao expirada. Faca logout e login novamente.')
+        } else {
+          setError(`Erro ao carregar detalhes: ${err.message}`)
+        }
       } finally {
         setLoading(false)
       }
@@ -32,7 +41,30 @@ export default function CallInspector({ callId, onBack }) {
   }, [callId])
 
   if (loading) return <div className="text-center py-12 text-textMuted">Carregando análise...</div>
-  if (error || !call) return <div className="text-center py-12 text-red-400">{error}</div>
+  if (error || !call) return (
+    <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors">
+          <ArrowLeft size={20} />
+        </button>
+        <div>
+          <h2 className="text-xl font-bold text-textMain">Erro ao carregar</h2>
+        </div>
+      </div>
+      <div className="glass-panel p-8 text-center space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center text-red-500">
+          <AlertTriangle size={32} />
+        </div>
+        <p className="text-red-600 font-medium">{error}</p>
+        <button
+          onClick={onBack}
+          className="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-6 rounded-xl transition-all"
+        >
+          Voltar ao Dashboard
+        </button>
+      </div>
+    </div>
+  )
 
   const qaScore = call.nota_qualidade_operador || call.nota || 0
   const clientScore = call.nota_sentimento_cliente || 0

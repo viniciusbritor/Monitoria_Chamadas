@@ -386,13 +386,28 @@ def get_calls(user = Depends(get_current_user)):
 
 @app.get("/api/calls/{call_id}")
 def get_call_endpoint(call_id: str, user = Depends(get_current_user)):
-    """Retorna detalhes de 1 chamada (Firestore get)."""
+    """Retorna detalhes de 1 chamada (Firestore get).
+
+    Ownership:
+    - User normal so ve suas proprias chamadas (user_id == sub).
+    - Super-admin (is_super_admin=True) pode ver qualquer chamada.
+      Util para investigar orfaos, debug de upload, etc.
+    """
     call_data = get_call(call_id)
     if not call_data:
         raise HTTPException(status_code=404, detail="Chamada não encontrada")
-    # Validar ownership: user so ve suas proprias chamadas
+    # Validar ownership: user so ve suas proprias chamadas, EXCETO super-admin
     if call_data.get("user_id") != user.get("sub"):
-        raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
+        is_super = user.get("is_super_admin", False)
+        if not is_super:
+            raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
+        # Super-admin override: log para auditoria
+        print(
+            f"[AdminBypass] super-admin={user.get('email')} sub={user.get('sub')} "
+            f"acessando chamada {call_id[:8]}... de outro user "
+            f"(owner_sub={call_data.get('user_id')})",
+            flush=True,
+        )
     # Firestore ja serializa dicts/lists via _sanitize; campos JSON ja vem como dict/list.
     # Mantem shape original (Firestore retorna datetime objects para timestamps — converter pra ISO).
     for ts_field in ("uploaded_at", "created_at", "updated_at"):
