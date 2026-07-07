@@ -127,6 +127,148 @@ Próximo teste deve ser:
 
 ---
 
+## 07/07/2026 06:00 BRT — Fix OIDC audience mismatch + revisão completa de docs
+
+### Contexto
+Owner reportou que a chamada `230e22e4-...` (5_Cancelamento.mp3) ficara presa em "Na Fila de Processamento..." por >50min. Investigacao revelou regressao introduzida pelo commit `07d94de` (refactor de URL hash → project number).
+
+### Causa raiz
+Apos commit `07d94de` trocar `WORKER_CALLBACK_URL` para URL com project number (`894828119087`), o `TEST_ENV_AUDIENCE` em `api.py:568` ficou desatualizado (continuava com URL hash `c5nbfc5meq`).
+
+Fluxo OIDC quebrado:
+1. Worker gera identity token do Cloud Run metadata server com `audience=894828119087` (correto)
+2. Worker envia POST para `/api/internal/calls/{id}/status` com Bearer token
+3. test-env valida via `google.oauth2.id_token.verify_oauth2_token(token, audience=TEST_ENV_AUDIENCE)` onde `TEST_ENV_AUDIENCE = c5nbfc5meq` (DESATUALIZADO)
+4. Audience mismatch → **401 Unauthorized**
+5. Worker nao consegue atualizar status → chamada fica presa em "Na Fila..."
+
+Evidencia nos logs (15+ 401s consecutivos em 05:38:15-05:39:05):
+```
+POST /api/internal/calls/230e22e4-ca6a-4ede-8e04-a2b81f675f81/status  401
+POST /api/internal/calls/230e22e4-ca6a-4ede-8e04-a2b81f675f81/status  401
+... (15 mais)
+```
+
+### Fix aplicado (commit `25db426`)
+
+**3 lugares DEVEM estar alinhados (audience consistency):**
+
+| Local | Variavel | Valor correto |
+|---|---|---|
+| `cloudbuild-worker.yaml:55` | `WORKER_CALLBACK_URL` | `https://monitoria-test-env-894828119087.us-central1.run.app` |
+| `api.py:568` (default) | `TEST_ENV_AUDIENCE` | `https://monitoria-test-env-894828119087.us-central1.run.app` |
+| `cloudbuild-test.yaml:60` (env var) | `TEST_ENV_AUDIENCE` | `https://monitoria-test-env-894828119087.us-central1.run.app` |
+
+### Estado pos-deploy
+- test-env: rev `00065-gpt` (imagem `:25db426`)
+- worker: rev `00041-qt4` (imagem `:25db426`)
+- HTTP 200 OK em GET /
+- Chamada presa `230e22e4-...` marcada como erro: `Erro: OIDC audience mismatch (07/07/2026). Reenvie o audio.`
+
+### Revisao completa de docs
+Aproveitando o momento, revisei e reescrevi 2 documentos:
+
+**`docs/HARNESS.md`** (re-escrito do zero):
+- Corrigido "Gemini" → "MiniMax M3" (L3)
+- Expandido estrutura de diretorios (incluindo `core/db.py`, `worker.py`, etc)
+- Adicionada secao "**OIDC Audience — Worker → Test-env**" (com 3-lugar check)
+- Adicionada secao "**Firestore como Fonte de Verdade**" (Plano A++)
+- Adicionada secao "**Worker Dedicado + Pub/Sub**"
+- Adicionada secao "**Workflow de Deploy**" (cloudbuild-test/worker/loadtest)
+- Adicionada secao "**Rotacao de URL canonica do modulo**" (procedimento completo)
+- Adicionadas 4 entradas no "Historico de Erros e Resolucoes":
+  - Loop infinito "Concluido" sem acento (07/07/2026)
+  - 403 de ownership (07/07/2026)
+  - **OIDC audience mismatch (07/07/2026)** ← este fix
+  - Bundle JS desatualizado (07/07/2026)
+
+**`docs/ARQUITETURA.md`** (re-escrito do zero):
+- Atualizado header (data: 07/07/2026)
+- Adicionado **diagrama Mermaid sequenceDiagram** do fluxo completo
+- Adicionada tabela "Variáveis de Ambiente" (test-env + worker)
+- Adicionada tabela "Status String Canonicas" (com mapeamento de cada status)
+- Adicionada secao "**Plano A++**" (motivacao dos 4 bugs SQLite)
+- Adicionada secao "**Fix de Acentuacao**" (07/07/2026)
+- Adicionada secao "**Super-Admin Bypass**" (07/07/2026)
+- Adicionada secao "**OIDC Audience**" (07/07/2026)
+- Adicionada secao "Capability Check" expandida
+
+### Licoes aprendidas
+1. **3 lugares DEVEM estar alinhados** ao trocar URL canonica. Esquecer 1 causa regressao silenciosa (worker silenciosamente gera tokens com audience errado, test-env rejeita silenciosamente, chamada fica presa por horas).
+2. **Auditar logs do Cloud Run** antes de assumir bug de Cloud Build. O 401 era a evidencia chave.
+3. **Adicionar migration retroativa automatica** para status normalization evitou trabalho manual. Mas o OIDC audience e' diferente — requer alinhamento de 3 lugares, nao tem script.
+4. **Documentar o procedimento de rotacao de URL** explicitamente reduz chance de esquecer passos. HARNESS.md agora tem checklist de 10 passos.
+
+---
+
+## 07/07/2026 02:10 BRT — Fix 403 de ownership (super-admin bypass) + UI de erro clara
+
+### Contexto
+Apos rebuild do frontend (entrada anterior), bundle novo deployado. Teste manual revelou que clicar 'Inspecionar' em uma chamada que o user atual NAO subiu retornava tela vazia (erro 403 silencioso).
+
+### Causa raiz
+- `GET /api/calls/{call_id}` validava ownership rigido: `call_data.get("user_id") != user.get("sub")` → 403
+- O documento `5_Cancelamento` tem `user_id = "o9ztuVhozgRIp3lGzyWdkw6G9JD3"` (UID Firebase do user que fez upload original, provavelmente o loadtest)
+- Quando vinicius (admin) abria a UI, seu `sub` era diferente → 403
+- CallInspector capturava o erro mas setava apenas `'Erro ao carregar detalhes'` (generico, sem contexto)
+
+### Fix aplicado (commit `de962e9`)
+
+#### Backend (api.py)
+- `get_call_endpoint()` agora permite bypass para `is_super_admin=True`
+- Log estruturado `[AdminBypass]` para auditoria quando admin acessa chamada de outro user
+- User normal NAO foi afetado (mesma validacao rigida)
+
+```python
+if call_data.get("user_id") != user.get("sub"):
+    is_super = user.get("is_super_admin", False)
+    if not is_super:
+        raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
+    # Super-admin override: log para auditoria
+    print(
+        f"[AdminBypass] super-admin={user.get('email')} sub={user.get('sub')} "
+        f"acessando chamada {call_id[:8]}... de outro user "
+        f"(owner_sub={call_data.get('user_id')})",
+        flush=True,
+    )
+```
+
+#### Frontend (CallInspector.jsx)
+- Mensagens especificas por status HTTP:
+  - `403` → "Sem permissao para visualizar esta chamada. Foi feito upload por outro usuario."
+  - `404` → "Chamada nao encontrada no banco de dados."
+  - `401` → "Sessao expirada. Faca logout e login novamente."
+- Estado de erro agora renderiza painel com:
+  - Icone AlertTriangle em vermelho
+  - Mensagem vermelha centralizada
+  - Botao "Voltar ao Dashboard" para sair do estado de erro
+- Botao de back (seta) presente mesmo no estado de erro
+
+### Estado pos-deploy
+| Servico | Revisao | Imagem | URL |
+|---|---|---|---|
+| `monitoria-test-env` | `00063-rdj` | `:de962e9` | https://monitoria-test-env-894828119087.us-central1.run.app |
+
+### Verificacoes
+- HTTP 200 em GET /
+- Bundle `index-DjZ5E9Db.js` (398KB) contem:
+  - `'Sem permiss'` (mensagem 403) - confirmado
+  - `'Chamada n'` (mensagem 404) - confirmado
+  - `'Sessao expi'` (mensagem 401) - confirmado
+
+### Security analysis
+- Bypass so para `is_super_admin=True` (validado via Portal `/api/auth/me`)
+- Audit log permite rastrear acessos cross-user
+- User normal NAO foi afetado (mesma validacao rigida)
+- Nao ha regressao: chamadas proprias continuam funcionando igual
+
+### Sincronizacao confirmada
+- Git: `origin/test @ de962e9` (push OK)
+- GCP test-env: rev `00063-rdj` / image `:de962e9` (match)
+- Local: working tree limpo (apenas arquivos modificados nao-relacionados: roteiros, docs, processed_tokens)
+
+---
+
 ## 07/07/2026 01:54 BRT — Rebuild frontend (CallInspector ausente no bundle deployed)
 
 ### Contexto
