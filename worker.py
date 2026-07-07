@@ -22,6 +22,7 @@ import tempfile
 import shutil
 import urllib.request
 from datetime import datetime
+import concurrent.futures
 from concurrent.futures import TimeoutError
 
 from google.cloud import pubsub_v1, storage as gcs_storage
@@ -390,7 +391,29 @@ def callback(message):
             WORKER_STATE["last_msg_call_id"] = call_id
             WORKER_STATE["current_state"] = "processing"
 
-        process_call(call_id, gcs_uri, user_id, diretrizes, audio_duration_sec)
+        # NEW (07/07/2026): timeout explicito em process_call para evitar
+        # status orfao quando audio corrompido trava Whisper. Margem de 60s
+        # abaixo do timeout de 900s do Cloud Run para permitir cleanup.
+        PROCESSING_TIMEOUT_SEC = int(os.getenv("PROCESSING_TIMEOUT_SEC", "840"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                process_call, call_id, gcs_uri, user_id, diretrizes, audio_duration_sec
+            )
+            try:
+                future.result(timeout=PROCESSING_TIMEOUT_SEC)
+            except concurrent.futures.TimeoutError:
+                # Whisper travado. Marca como erro no test-env via callback
+                # OIDC antes de fazer nack (forca redelivery para outra instancia).
+                _notify_test_env_callback(
+                    call_id,
+                    {"status": f"Erro: processamento excedeu {PROCESSING_TIMEOUT_SEC}s timeout"},
+                )
+                print(
+                    f"[Worker {WORKER_ID}] TIMEOUT em process_call "
+                    f"({PROCESSING_TIMEOUT_SEC}s). Nack para redelivery.",
+                    flush=True,
+                )
+                raise
 
         # Ack message (sucesso)
         message.ack()
@@ -689,6 +712,13 @@ def main():
         flow_control=flow_control,
     )
 
+    # NEW (07/07/2026): marca worker como "ready" apos subscribe OK.
+    # Antes, WORKER_STATE["current_state"] permanecia "initializing" ate a
+    # primeira mensagem, gerando logs WATCHDOG enganosos. Agora reflete
+    # corretamente: "ready" = subscrito e aguardando, "processing" = msg
+    # em maos, "stuck" = travado.
+    with HEALTHZ_LOCK:
+        WORKER_STATE["current_state"] = "ready"
     print(f"[Worker {WORKER_ID}] Aguardando mensagens... (Ctrl+C para parar)", flush=True)
 
     # FIX (06/07/2026 - v3): main thread agora LOOPA sobre o future global.
