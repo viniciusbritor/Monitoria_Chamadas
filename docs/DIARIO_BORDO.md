@@ -127,6 +127,96 @@ Próximo teste deve ser:
 
 ---
 
+## 07/07/2026 03:30 BRT — Fix bug de acentuação em "Concluído" (canonical)
+
+### Contexto
+Owner reportou que a chamada `5_Cancelamento` aparecia travada em loop na UI com status "Concluido" (sem acento). Investigação revelou bug composto de 2 partes.
+
+### Causa raiz
+Typo histórico em `worker.py:303`: callback final enviava `"Concluido"` (sem acento), mas `Dashboard.jsx` (5 comparações) usava `'Concluído'` (com acento).
+
+### Bug #1 — UI nunca saía do estado "processing"
+`call.status === 'Concluído'` (Dashboard.jsx:182, 227, 232, 238) era sempre `false`:
+- Ícone mostrava `Loader2` girando (não `CheckCircle`)
+- Barra de progresso ficava visível mesmo após conclusão
+- Botão "Inspecionar" ficava sempre `disabled`
+- `hasActiveCall` (L33) = `true` → polling em **2s infinito**
+
+### Bug #2 — Backend REPROCESSAVA a cada redelivery
+`worker.py:363`: `if existing_status == "Concluído" or existing_status.startswith("Erro")` — usava acento. Como Firestore tinha sem acento, match nunca acontecia. Toda vez que Pub/Sub redeliverava (timeout, scale, restart), worker reprocessava do zero.
+
+### Mudanças aplicadas (3 commits)
+
+| SHA | Arquivo | Mudança |
+|---|---|---|
+| `25b1ef2` | `worker.py:303` | `"Concluido"` → `"Concluído"` (canonical) |
+| `25b1ef2` | `loadtest.py:11` | Comment fix |
+| `25b1ef2` | `api.py` | Novo dict `STATUS_NORMALIZATION` no callback handler; normaliza variantes (Concluido/concluido/CONCLUIDO/etc) para "Concluído" antes de gravar no Firestore. Log explícito quando normalização ocorre. |
+| `25b1ef2` | `scripts/migrate_firestore_status_accent.py` | **NOVO** — one-shot para corrigir dados legados. Idempotente. |
+| `ad61496` | `api.py` | Endpoint admin `POST /api/admin/migrate-status-accent` (Firebase auth) |
+| `532bae3` | `api.py` | Endpoint OIDC `POST /api/internal/migrate-status-accent` (Cloud Scheduler / smoke test) |
+
+### STATUS_NORMALIZATION dict (defesa em profundidade)
+```python
+STATUS_NORMALIZATION = {
+    "Concluido": "Concluído",       # sem acento (typo histórico)
+    "concluido": "Concluído",       # lowercase
+    "concluído": "Concluído",       # lowercase com acento
+    "CONCLUIDO": "Concluído",       # uppercase
+    "CONCLUÍDO": "Concluído",       # uppercase com acento
+}
+```
+Aplicado em `internal_update_call_status()` antes do `get_db().update()`. Defensivo contra typos futuros.
+
+### Migração retroativa executada
+- 1 documento corrigido: `d1d38ada-...` (`5_Cancelamento.mp3`, status `Concluido` → `Concluído`)
+- Resultado: `[Migrate] Sucesso. 1 documentos normalizados.`
+- Sa key temporária criada e DELETADA após uso (segurança)
+
+### Estado pós-deploy
+
+| Serviço | Revisão | Imagem | URL |
+|---|---|---|---|
+| `monitoria-test-env` | `00061-hwv` | `:532bae3` | https://monitoria-test-env-894828119087.us-central1.run.app |
+| `monitoria-whisper-worker` | `00039-tnk` | `:25b1ef2` | https://monitoria-whisper-worker-894828119087.us-central1.run.app |
+
+### Verificações
+- ✅ `GET /` em ambos retorna 200 OK
+- ✅ Endpoint `/api/internal/migrate-status-accent` deployado
+- ✅ Migração retroativa: 1 doc corrigido no Firestore
+- ✅ Sintaxe Python validada em 4 arquivos
+
+### Pipeline completo (estado atual — Mermaid)
+
+```mermaid
+flowchart TD
+    A[Frontend: upload audio] -->|POST /api/upload| B[test-env: INSERT Firestore]
+    B -->|status='Na Fila de Processamento...'| C{path Pub/Sub}
+    C -->|publica| D[Pub/Sub topic]
+    D --> E[Worker callback]
+    E --> F{Firestore tem registro?}
+    F -->|NAO| G[ORPHAN: ack + descarta]
+    F -->|SIM| H{status == 'Concluído'?}
+    H -->|SIM, com acento| I[IDEMPOTENTE: ack]
+    H -->|NAO| J[Processa: Whisper + Diarize + Evaluate]
+    J --> K[Callback: status='Concluído' COM ACENTO]
+    K -->|POST /api/internal/calls/id/status| L[test-env: normaliza se variante + grava Firestore]
+    L --> M[Firestore: status='Concluído']
+    M -->|GET /api/calls poll 2s/10s| N[Dashboard.jsx]
+    N -->|compara 'Concluído' COM acento| O[UI: CheckCircle + sem barra + QA visivel]
+```
+
+### Próximos passos
+- [ ] **Remover** `/api/admin/migrate-status-accent` e `/api/internal/migrate-status-accent` em ~1 semana (após garantir que não há mais dados legados)
+- [ ] Considerar adicionar normalização também no `GET /api/calls` para defesa em profundidade (não urgente)
+
+### Lições aprendidas
+1. **Strings de status devem ser constantes** compartilhadas entre backend e frontend. Considerar extrair para um módulo `core/status.py` com constantes.
+2. **Idempotency checks devem ser tolerantes** — comparar com `.lower()` ou `normalize()` em vez de match exato.
+3. **Deploy atômico** (test-env + worker simultâneos) é importante para evitar janela de inconsistência. Mas o `STATUS_NORMALIZATION` no callback mitiga isso: workers antigos em produção continuam funcionando, dados novos sempre normalizados.
+
+---
+
 ## 07/07/2026 00:05 BRT — Reset + push limpo (5 commits consolidados)
 
 ### Contexto
