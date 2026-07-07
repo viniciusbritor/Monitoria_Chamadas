@@ -1,0 +1,31 @@
+# Garante que todos os arquivos de texto sejam tratados como UTF-8 pelo git,
+# SEM conversao automatica CRLF/LF. Isso evita o bug de mojibake no bundle
+# JS que acontecia quando cloudbuild pegava o source do git archive
+# (autocrlf=true global causava double-encoding de C3 AD -> C3 83 C2 AD).
+#
+# Cobre:
+# - .jsx, .js, .ts, .tsx: codigo-fonte
+# - .json: configuracoes e fixtures
+# - .md: documentacao
+# - .css, .html: assets estaticos processados pelo Vite
+# - .yml, .yaml: cloudbuilds
+#
+# Excluidos:
+# - *.png, *.jpg, *.svg, *.ico: binarios (ja nao passam por text)
+# - .gitattributes nao pode ter * text=unset nele mesmo (causa loop)
+* text=working-tree-encoding
+
+# Assegura que o git NAO converta LF/CRLF em nenhum arquivo de texto
+# (mantem os bytes exatos do working tree no git tree)
+# Isso garante que o cloudbuild receba UTF-8 puro
+*.jsx text working-tree-encoding
+*.js text working-tree-encoding
+*.ts text working-tree-encoding
+*.tsx text working-tree-encoding
+*.json text working-tree-encoding
+*.md text working-tree-encoding
+*.css text working-tree-encoding
+*.html text working-tree-encoding
+*.yml text working-tree-encoding
+*.yaml text working-tree-encoding
+*.txt text working-tree-encoding
