@@ -4,7 +4,7 @@
 
 ## 🚫 Acesso EXCLUSIVO via Portal Coherence (REGRA #0 — mais alta prioridade)
 
-**A URL `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/` NÃO É pública.**
+**A URL `https://monitoria-test-env-894828119087.us-central1.run.app/` NÃO É pública.** (Alias deprecated: `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/`)
 
 1. **Único caminho válido de acesso**: usuário loga no **Portal Coherence** (`https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`), clica no card do módulo **Monitoria de Chamadas**, e o Portal abre o módulo em nova aba via `window.open(${module.url}?token=${firebase_id_token}, '_blank')`.
 2. **Acesso direto à URL do módulo (colar no navegador, bookmark, link direto)** é PROIBIDO. O resultado esperado é a tela "Acesso via Portal Coherence" com botão de redirect para `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/dashboard`.

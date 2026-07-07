@@ -4,7 +4,7 @@
 
 ## 🔐 Acesso ao Módulo — SEMPRE via Portal Coherence
 
-> **IMPORTANTE:** A URL do Cloud Run `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/` **NÃO é endpoint público para usuários finais**. É detalhe de implementação interno do ecossistema Coherence.
+> **IMPORTANTE:** A URL do Cloud Run `https://monitoria-test-env-894828119087.us-central1.run.app/` **NÃO é endpoint público para usuários finais**. É detalhe de implementação interno do ecossistema Coherence. (Alias deprecated: `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/`)
 
 **Único fluxo válido:**
 1. Usuário acessa `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`

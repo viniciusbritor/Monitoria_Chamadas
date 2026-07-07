@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { AlertTriangle, RefreshCw, Trash2, RotateCw, Eye, Server, Activity, Inbox } from 'lucide-react'
 
-const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-894828119087.us-central1.run.app"
 
 function QueueManager({ userToken, onBack }) {
   const [stats, setStats] = useState(null)

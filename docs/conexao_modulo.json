@@ -5,16 +5,16 @@
   "description": "Transcricao e avaliacao QA de audios de atendimento ao cliente usando faster-whisper (PT-BR) e MiniMax M3.",
   "icon": "Headphones",
   "schema_version": "1.1.0",
-  "last_updated": "2026-07-03",
+  "last_updated": "2026-07-07",
   "owner": "viniciusbritor@gmail.com",
   "repository": "viniciusbritor/Monitoria_Chamadas",
   "_canonical_location": "Monitoria_Chamadas_Teste/docs/conexao_modulo.json (FONTE CANONICA)",
   "_portal_consumption": "Portal clona este arquivo via cloudbuild-test.yaml step 0 (git clone https://github.com/viniciusbritor/Monitoria_Chamadas.git)",
   "variants": {
     "test": {
-      "url": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app",
+      "url": "https://monitoria-test-env-894828119087.us-central1.run.app",
       "url_aliases": [
-        "https://monitoria-test-env-894828119087.us-central1.run.app"
+        "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
       ],
       "cloud_run_service": "monitoria-test-env",
       "gcp_project": "coherence-ominichannel-fs",
@@ -124,7 +124,7 @@
     },
     "source_of_truth": "Firestore runtime (NUNCA criado via seed ou init_db do Portal)",
     "created_via": "POST /api/admin/modules (quando implementado) ou manualmente via Firebase Console",
-    "current_state_url": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+    "current_state_url": "https://monitoria-test-env-894828119087.us-central1.run.app"
   },
   "ui_in_portal": {
     "icon_component": "lucide-react > Headphones",
@@ -144,7 +144,7 @@
   "env_vars": {
     "MONITORIA_URL": {
       "scope": "test only (fallback para scripts de teste)",
-      "value_test": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app",
+      "value_test": "https://monitoria-test-env-894828119087.us-central1.run.app",
       "value_prod": null,
       "where_defined": "backend/.env.runtime.yaml",
       "where_consumed": "backend/models.py:get_monitoria_url() (Firestore first, env var fallback)"

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft, User, Headphones, CheckCircle2, AlertTriangle, MessageSquare, ThumbsUp, HelpCircle, ShieldAlert } from 'lucide-react'
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-894828119087.us-central1.run.app"
 
 export default function CallInspector({ callId, onBack }) {
   const [call, setCall] = useState(null)

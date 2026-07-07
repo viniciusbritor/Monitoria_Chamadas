@@ -61,7 +61,7 @@ steps:
       - '--quiet'
 
 substitutions:
-  _VITE_API_URL: 'https://monitoria-test-env-c5nbfc5meq-uc.a.run.app'
+  _VITE_API_URL: 'https://monitoria-test-env-894828119087.us-central1.run.app'
   _VITE_FIREBASE_API_KEY: 'AIzaSyAIMGRNFUIBBueB8xk0jlTWA-EfpdjywDQ'
   _VITE_FIREBASE_AUTH_DOMAIN: 'coherence-ominichannel-fs.firebaseapp.com'
   _VITE_FIREBASE_PROJECT_ID: 'coherence-ominichannel-fs'

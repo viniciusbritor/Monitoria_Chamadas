@@ -11,7 +11,8 @@
 **module_id:** `monitoria-chamadas` (constante imutável)
 
 **Variante test ativa:**
-- URL: `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app`
+- URL: `https://monitoria-test-env-894828119087.us-central1.run.app`
+- URL alias (deprecated): `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app`
 - Cloud Run: `monitoria-test-env`
 - Branch: `test`
 - Build: `cloudbuild-test.yaml`
@@ -57,7 +58,7 @@ MONITORIA_MODULE_ID = "monitoria-chamadas"  # constante
 {
   "module_id": "monitoria-chamadas",
   "name": "Monitoria de Chamadas",
-  "url": "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+  "url": "https://monitoria-test-env-894828119087.us-central1.run.app"
 }
 ```
 
@@ -82,7 +83,7 @@ Para o schema JSON validável e a documentação humana detalhada (13 seções),
 
 ---
 
-**Última sincronização:** 2026-07-03
+**Última sincronização:** 2026-07-07
 **Mantido por:** viniciusbritor@gmail.com
 ## Mudancas em 03/07/2026 (sincronizado com Portal)
 
