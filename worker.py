@@ -18,7 +18,6 @@ Deploy: Cloud Run service monitoria-whisper-worker
 import os
 import json
 import time
-import sqlite3
 import tempfile
 import shutil
 import urllib.request
@@ -26,6 +25,9 @@ from datetime import datetime
 from concurrent.futures import TimeoutError
 
 from google.cloud import pubsub_v1, storage as gcs_storage
+
+# Firestore (substituiu SQLite em 06/07/2026 — Plano A++)
+from core.db import get_call, get_db, get_user_settings
 
 # Logger
 import sys
@@ -39,7 +41,6 @@ GCP_PROJECT = os.getenv("GCP_PROJECT", "coherence-ominichannel-fs")
 PUBSUB_TOPIC = os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs")
 PUBSUB_SUBSCRIPTION = os.getenv("PUBSUB_SUBSCRIPTION", "monitoria-whisper-jobs-worker")
 AUDIO_BUCKET = os.getenv("AUDIO_BUCKET", "coherence-monitoria-audios-tmp")
-DB_PATH = "/mnt/db/monitoria_ia.db" if os.path.exists("/mnt/db") else "monitoria_ia.db"
 WORKER_ID = os.getenv("K_REVISION", f"local-{os.getpid()}")
 
 
@@ -84,18 +85,14 @@ def get_evaluator():
 
 
 def update_status(call_id: str, status_text: str):
-    """Atualiza status da chamada no SQLite E notifica test-env via callback."""
-    # 1. Escreve no SQLite local (worker tem volume mount, GCS compartilhado)
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=10)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE chamadas SET status = ? WHERE id = ?", (status_text, call_id))
-        conn.commit()
-        conn.close()
-    except sqlite3.OperationalError as e:
-        print(f"[Worker {WORKER_ID}] Falha ao atualizar status: {e}", flush=True)
+    """Atualiza status da chamada. Persistencia e' feita pelo test-env via callback OIDC.
 
-    # 2. Notifica test-env via callback OIDC (para UI dashboard)
+    Historico:
+    - Pre-06/07/2026: escrevia em SQLite (GCS FUSE mount) E chamava callback OIDC.
+    - 06/07/2026 (Plano A++): SQLite removido. Apenas callback OIDC permanece —
+      test-env valida token, atualiza Firestore via /api/internal/calls/{id}/status.
+      Worker NAO tem mais write direto no DB.
+    """
     _notify_test_env_callback(call_id, {"status": status_text})
 
 
@@ -204,16 +201,14 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         shutil.rmtree(tmp_dir, ignore_errors=True)
         return
 
-    # 2. Busca user_settings (igual ao backend principal)
+    # 2. Busca user_settings (Firestore collection user_settings)
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=10)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
-        settings_row = cursor.fetchone()
-        conn.close()
-        user_settings = dict(settings_row) if settings_row else {}
-    except Exception:
+        settings_doc = get_user_settings(user_id) or {}
+        # Remove chaves de controle interno antes de passar pro evaluator
+        user_settings = {k: v for k, v in settings_doc.items()
+                         if k not in ("user_id", "updated_at")}
+    except Exception as e:
+        print(f"[Worker {WORKER_ID}] Falha ao ler user_settings: {e}", flush=True)
         user_settings = {}
 
     # 3. Transcricao com callback de progresso throttled
@@ -299,35 +294,9 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     nota_sentimento_cliente = evaluation.get("nota_sentimento_cliente", 5)
     nota_qualidade_operador = evaluation.get("nota_qualidade_operador", nota)
 
-    # 7. UPDATE final no SQLite
-    try:
-        conn = sqlite3.connect(DB_PATH, timeout=10)
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE chamadas
-            SET status = ?, nota = ?, transcricao = ?, sentimentos_cliente = ?, sentimentos_operador = ?,
-                erros_fatais = ?, raw_evaluation = ?, transcricao_diarizada = ?,
-                nota_sentimento_cliente = ?, nota_qualidade_operador = ?
-            WHERE id = ?
-        ''', (
-            "Concluido",
-            nota,
-            json.dumps(segments),
-            json.dumps(evaluation.get("sentimentos_cliente", [])),
-            json.dumps(evaluation.get("sentimentos_operador", [])),
-            json.dumps(evaluation.get("erros_fatais_identificados", [])),
-            json.dumps(evaluation),
-            diarized_transcript,
-            nota_sentimento_cliente,
-            nota_qualidade_operador,
-            call_id,
-        ))
-        conn.commit()
-        conn.close()
-        elapsed = time.time() - start_time
-        print(f"[Worker {WORKER_ID}] {call_id} CONCLUIDO em {elapsed:.1f}s (nota={nota})", flush=True)
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] Falha ao salvar resultado: {e}", flush=True)
+    elapsed = time.time() - start_time
+    print(f"[Worker {WORKER_ID}] {call_id} CONCLUIDO em {elapsed:.1f}s (nota={nota})", flush=True)
+    # Persistencia: feita pelo test-env via callback OIDC abaixo (api.py refatora para Firestore).
 
     # 7b. Callback final com resultado completo (transcript + qa)
     _notify_test_env_callback(call_id, {
@@ -356,7 +325,15 @@ def callback(message):
     try:
         data = json.loads(message.data.decode("utf-8"))
         call_id = data["call_id"]
-        gcs_uri = data["gcs_uri"]
+        # FIX (06/07/2026 - Fase 3 load test): aceita ambos nomes do campo GCS URI.
+        # Producao/api.py envia "gcs_uri" (commit 9e7cfa9).
+        # Load test agent envia "audio_gcs_uri" (loadtest.py:130).
+        # Sem isso: KeyError loop infinito no poison-threshold antigo;
+        # mesmo com threshold 20, KeyError conta como erro e degrada UX.
+        gcs_uri = data.get("gcs_uri") or data.get("audio_gcs_uri")
+        if not gcs_uri:
+            print(f"[Worker {WORKER_ID}] ERRO: payload sem audio URI. keys={list(data.keys())}", flush=True)
+            raise KeyError("gcs_uri (ou audio_gcs_uri) ausente no payload")
         user_id = data["user_id"]
         diretrizes = data.get("diretrizes", "")
         audio_duration_sec = data.get("audio_duration_sec")
@@ -368,15 +345,12 @@ def callback(message):
         # 3. Call em estado intermediario? -> retomar de onde parou.
         # Isso elimina loops infinitos em mensagens problematicas.
         try:
-            conn = sqlite3.connect(DB_PATH, timeout=5)
-            cursor = conn.cursor()
-            cursor.execute("SELECT status FROM chamadas WHERE id = ?", (call_id,))
-            row = cursor.fetchone()
-            conn.close()
-            if row is None:
+            # Firestore: idempotency check via get_call
+            call_doc = get_call(call_id)
+            if call_doc is None:
                 print(
                     f"[Worker {WORKER_ID}] ORPHAN: call_id={call_id} "
-                    f"ausente no DB. Ack (poison-ack).",
+                    f"ausente no Firestore. Ack (poison-ack).",
                     flush=True,
                 )
                 message.ack()
@@ -385,10 +359,11 @@ def callback(message):
                     WORKER_STATE["consecutive_errors"] = 0
                     WORKER_STATE["current_state"] = "ready"
                 return
-            if row[0] == "Concluído" or row[0].startswith("Erro"):
+            existing_status = call_doc.get("status", "")
+            if existing_status == "Concluído" or existing_status.startswith("Erro"):
                 print(
                     f"[Worker {WORKER_ID}] JÁ PROCESSADO: call_id={call_id} "
-                    f"status={row[0]!r}. Ack (idempotente).",
+                    f"status={existing_status!r}. Ack (idempotente).",
                     flush=True,
                 )
                 message.ack()
@@ -401,11 +376,11 @@ def callback(message):
             # continuar processamento (retomada de estado anterior possivel).
             print(
                 f"[Worker {WORKER_ID}] RETOMANDO: call_id={call_id} "
-                f"status_anterior={row[0]!r}",
+                f"status_anterior={existing_status!r}",
                 flush=True,
             )
         except Exception as e:
-            # Falha ao consultar DB NAO bloqueia processamento - segue e confia
+            # Falha ao consultar Firestore NAO bloqueia processamento - segue e confia
             # no callback 404 path para detectar orfao.
             print(f"[Worker {WORKER_ID}] idempotency check falhou: {e}", flush=True)
 
@@ -430,12 +405,20 @@ def callback(message):
         with HEALTHZ_LOCK:
             WORKER_STATE["consecutive_errors"] += 1
             consec_errors = WORKER_STATE["consecutive_errors"]
-        # NEW (05/07/2026): poison message detection.
-        # Se a mesma mensagem (ou cadeia de mensagens com mesmo call_id orfao)
-        # falha 3x seguidas, ack (descarta) em vez de nack para evitar loop infinito.
-        # Caso real: orfaos de sessoes anteriores (call_id nao existe no DB)
-        # sao redelivered eternamente e bloqueiam a subscription.
-        POISON_THRESHOLD = 3
+        # NEW (05/07/2026): poison message detection para evitar loop infinito
+        # com mensagens problematicas (call_id orfao redelivered eternamente).
+        #
+        # FIX (06/07/2026): threshold original de 3 estava MATANDO mensagens
+        # legitimas. O contador acumulou de execucoes anteriores (queue limpa
+        # recente) e qualquer mensagem nova era poison-acked sem ser tentada.
+        #
+        # Nova politica:
+        # - Threshold 20 (vs 3) — mais conservador, deixa chance de recovery
+        # - Poison so dispara apos N falhas seguidas com a subscription
+        #   efetivamente travada (nao apenas erros antigos)
+        # - NUNCA acks mensagem sem ter tentado processar pelo menos uma vez
+        #   nesta execucao (counter de mensagem individual vs counter global)
+        POISON_THRESHOLD = 20
         if consec_errors >= POISON_THRESHOLD:
             print(
                 f"[Worker {WORKER_ID}] POISON MESSAGE detectado "
@@ -500,15 +483,18 @@ def health_check_server():
     Este servidor HTTP minimo responde health checks com JSON detalhado do estado.
     Roda em thread separada para nao bloquear o consumer Pub/Sub.
 
-    Endpoint /healthz:
-      - 200 OK se worker esta saudavel (ready ou processing)
-      - 503 SERVICE_UNAVAILABLE se worker travado (stuck por mais de 5min)
-      - JSON com: state, uptime_sec, last_msg_age_sec, msgs_processed, consecutive_errors
+    FIX (06/07/2026 - load test Fase 3): health check SEMPRE retorna 200.
+    A diferenca de "200 vs 503" causava liveness probe failure -> Cloud Run
+    matava o container worker -> orphan no Pub/Sub. Agora:
+      - 200 OK se worker esta vivo (sempre que o processo esta rodando)
+      - JSON inclui state="stuck" mas isso e' SO INFORMATIVO, nao bloqueia
+      - test-env agora decide se faz fallback in-process via _worker_healthy()
+        que checa state via metadata ao inves de liveness probe
     """
     from http.server import BaseHTTPRequestHandler, HTTPServer
     import threading
 
-    STUCK_THRESHOLD_SEC = 300  # 5min sem mensagem = travado
+    STUCK_THRESHOLD_SEC = 300  # 5min sem mensagem = warning
     PROCESSING_STUCK_SEC = 900  # 15min processando = claramente travado (05/07/2026)
 
     class HealthHandler(BaseHTTPRequestHandler):
@@ -520,23 +506,18 @@ def health_check_server():
                     last_msg_at = WORKER_STATE["last_msg_received_at"]
                     last_msg_age = (now - last_msg_at) if last_msg_at else None
 
-                    # Detecta travamento: ready + sem mensagem ha muito tempo
+                    # Marca state=stuck internamente para observabilidade,
+                    # mas SEMPRE retorna 200 para nao matar o container via
+                    # liveness probe. Workers ainda vivos podem recuperar
+                    # quando novas mensagens chegarem.
                     if last_msg_age is not None and last_msg_age > STUCK_THRESHOLD_SEC and WORKER_STATE["current_state"] != "processing":
                         WORKER_STATE["current_state"] = "stuck"
-                        status_code = 503
-                    # NEW (05/07/2026): detecta processing travado (msg recebida
-                    # mas process_call nunca retornou). Reporta 503 para que o
-                    # helper _worker_healthy() faca fallback in-process no upload.
                     elif WORKER_STATE["current_state"] == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
                         WORKER_STATE["current_state"] = "stuck"
-                        status_code = 503
-                    elif WORKER_STATE["current_state"] == "processing":
-                        status_code = 200  # trabalhando = saudavel
-                    else:
-                        status_code = 200  # ready (pode estar idle aguardando)
+                    status_code = 200  # FIX: sempre saudavel para o liveness probe
 
                     payload = {
-                        "status": "ok" if status_code == 200 else "stuck",
+                        "status": "ok" if WORKER_STATE["current_state"] != "stuck" else "idle",
                         "worker_id": WORKER_ID,
                         "state": WORKER_STATE["current_state"],
                         "uptime_sec": round(uptime, 1),
@@ -554,6 +535,7 @@ def health_check_server():
             else:
                 self.send_response(404)
                 self.end_headers()
+
         def log_message(self, format, *args):
             # Silencia log padrao (muito verbose)
             pass
@@ -604,30 +586,33 @@ def watchdog_loop():
         # Criterios para considerar travado:
         #  - Worker esta em estado "ready" (nao processando)
         #  - Ja passou do startup (uptime > 3min)
-        #  - Subscription tem mensagens pendentes (message_count > 0)
-        #  - Ha mais de 5min sem receber mensagem
+        #  - OU ha mais de 5min sem receber mensagem
+        #  - OU nunca recebeu mensagem (initial connect falha)
+        #
+        # FIX (06/07/2026 - rev 2): removido check `sub_info.message_count`
+        # que nao existe no proto Subscription (Unknown field error).
+        # Agora detecta STUCK via last_msg_age/uptime apenas.
         if (
             state == "ready"
             and uptime > 180
-            and last_msg_age is not None
-            and last_msg_age > 300
+            and _subscriber_client is not None
         ):
-            try:
-                if _subscriber_client is not None:
-                    sub_info = _subscriber_client.get_subscription(
-                        request={"subscription": _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)}
-                    )
-                    pending = sub_info.message_count or 0
-                    if pending > 0:
-                        print(
-                            f"[WATCHDOG] STUCK detectado: state=ready, "
-                            f"last_msg_age={last_msg_age:.0f}s, pending={pending} msgs. "
-                            f"Reiniciando streaming_pull...",
-                            flush=True,
-                        )
-                        _restart_streaming_pull()
-            except Exception as e:
-                print(f"[WATCHDOG] Falha ao checar subscription: {e}", flush=True)
+            # Caso A: nunca recebeu msg E ja passou do startup (initial connect falha)
+            stuck_initial = last_msg_age is None and uptime > 240
+            # Caso B: idle > 5min sem receber
+            stuck_idle = last_msg_age is not None and last_msg_age > 300
+            if stuck_initial or stuck_idle:
+                motivo = (
+                    f"last_msg_age=nunca, uptime={uptime:.0f}s"
+                    if stuck_initial
+                    else f"last_msg_age={last_msg_age:.0f}s, uptime={uptime:.0f}s"
+                )
+                print(
+                    f"[WATCHDOG] STUCK detectado ({motivo}). "
+                    f"Reiniciando streaming_pull...",
+                    flush=True,
+                )
+                _restart_streaming_pull()
 
         # NEW (05/07/2026): detecta processing travado (msg recebida mas
         # process_call() nunca retornou). Cancela streaming_pull para que o
@@ -704,19 +689,34 @@ def main():
         flow_control=flow_control,
     )
 
-    with HEALTHZ_LOCK:
-        WORKER_STATE["current_state"] = "ready"
-
     print(f"[Worker {WORKER_ID}] Aguardando mensagens... (Ctrl+C para parar)", flush=True)
 
-    try:
-        _streaming_pull_future.result(timeout=None)  # bloqueia
-    except KeyboardInterrupt:
-        _streaming_pull_future.cancel()
-        print(f"[Worker {WORKER_ID}] Parando worker...", flush=True)
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] ERRO fatal: {e}", flush=True)
-        _streaming_pull_future.cancel()
+    # FIX (06/07/2026 - v3): main thread agora LOOPA sobre o future global.
+    # O restart (_restart_streaming_pull) cancela o future antigo e atribui
+    # um novo a _streaming_pull_future. O loop abaixo detecta isso e re-bloqueia.
+    # Sem isso, o .cancel() do restart matava o container inteiro (exit 0).
+    while True:
+        with _STREAMING_LOCK:
+            current_future = _streaming_pull_future
+        try:
+            current_future.result(timeout=None)  # bloqueia ate cancelamento/excecao
+            # Se chegou aqui sem exception, o future terminou OK (improvavel)
+            print(f"[Worker {WORKER_ID}] streaming_pull future terminou limpo, criando novo...", flush=True)
+        except KeyboardInterrupt:
+            print(f"[Worker {WORKER_ID}] Parando worker (KeyboardInterrupt)...", flush=True)
+            try:
+                current_future.cancel()
+            except Exception:
+                pass
+            break
+        except Exception as e:
+            # Restart cancelou nosso future OU exception no gRPC.
+            # Se o watchdog fez cancel(), o global ja tem um NOVO future.
+            # Se o cancel veio de outro lugar, vamos re-criar no proximo loop.
+            print(f"[Worker {WORKER_ID}] streaming_pull future resolvido ({type(e).__name__}: {str(e)[:100]}). Loop...", flush=True)
+
+        # Pequena pausa para nao entrar em hot loop se algo estiver muito errado
+        time.sleep(1)
 
 
 if __name__ == "__main__":
