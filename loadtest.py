@@ -8,7 +8,7 @@ Cada execucao:
   2. Gera novo call_id
   3. Insere row no DB compartilhado
   4. Publica mensagem no Pub/Sub `monitoria-whisper-jobs`
-  5. Polla o DB ate status terminal (Concluido / Erro)
+  5. Polla o DB ate status terminal (Concluído / Erro)
   6. Loga timestamps de cada etapa para SLA analysis
 
 Envia metricas estruturadas (JSON) para que a sessao pai possa extrair via gcloud logging.

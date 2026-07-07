@@ -587,6 +587,20 @@ def _verify_cloud_run_identity(auth_header: str, request_url: str) -> dict:
         raise HTTPException(status_code=401, detail=f"Invalid identity token: {e}")
 
 
+# NEW (07/07/2026): normalizar variantes de status para forma canonica.
+# Defende contra typos futuros ("Concluido" vs "Concluído") sem quebrar
+# workers antigos em producao durante a janela de deploy.
+# Tambem protege o idempotency check em worker.py:363 que compara com acento.
+# Erro: variantes NAO sao normalizadas (sao livres e significativas).
+STATUS_NORMALIZATION = {
+    "Concluido": "Concluído",       # sem acento (typo historico pre-07/07/2026)
+    "concluido": "Concluído",       # lowercase
+    "concluído": "Concluído",       # lowercase com acento
+    "CONCLUIDO": "Concluído",       # uppercase
+    "CONCLUÍDO": "Concluído",       # uppercase com acento
+}
+
+
 @app.post("/api/internal/calls/{call_id}/status")
 async def internal_update_call_status(
     call_id: str,
@@ -618,9 +632,20 @@ async def internal_update_call_status(
     if not call:
         raise HTTPException(status_code=404, detail=f"Chamada {call_id} nao encontrada")
 
+    # NEW (07/07/2026): normalizar variantes de status (defesa contra typos).
+    # Garante que Firestore sempre grava forma canonica "Concluído" (com acento),
+    # independente do que o worker envia. Veja STATUS_NORMALIZATION acima.
+    normalized_status = STATUS_NORMALIZATION.get(body.status, body.status)
+    if normalized_status != body.status:
+        print(
+            f"[InternalCallback] call_id={call_id} status NORMALIZADO: "
+            f"{body.status!r} -> {normalized_status!r}",
+            flush=True,
+        )
+
     # Monta update_fields para Firestore (last-write-wins; nao ha COALESCE,
     # entao so atualizamos campos explicitamente enviados)
-    update_fields = {"status": body.status}
+    update_fields = {"status": normalized_status}
 
     if body.qa_score is not None:
         update_fields["nota"] = body.qa_score
@@ -643,8 +668,8 @@ async def internal_update_call_status(
 
     get_db().update(call_id, update_fields)
 
-    print(f"[InternalCallback] call_id={call_id} status={body.status} qa_score={body.qa_score}", flush=True)
-    return {"updated": True, "call_id": call_id, "status": body.status}
+    print(f"[InternalCallback] call_id={call_id} status={normalized_status} qa_score={body.qa_score}", flush=True)
+    return {"updated": True, "call_id": call_id, "status": normalized_status}
 
 
 # ============================================================================

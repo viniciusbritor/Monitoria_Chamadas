@@ -300,7 +300,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
 
     # 7b. Callback final com resultado completo (transcript + qa)
     _notify_test_env_callback(call_id, {
-        "status": "Concluido",
+        "status": "Concluído",
         "transcript": "\n".join(seg.get("text", "") for seg in segments),
         "qa_score": nota,
         "qa_details": {
