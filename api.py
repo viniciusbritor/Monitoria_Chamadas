@@ -565,7 +565,7 @@ from google.auth.transport import requests as google_requests
 # Audience esperada no identity token: o proprio URL do test-env.
 # Cloud Run injeta esse valor automaticamente quando o worker chama o
 # metadata server com audience=<nosso URL>.
-TEST_ENV_AUDIENCE = os.getenv("TEST_ENV_AUDIENCE", "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app")
+TEST_ENV_AUDIENCE = os.getenv("TEST_ENV_AUDIENCE", "https://monitoria-test-env-894828119087.us-central1.run.app")
 
 
 class InternalStatusUpdate(BaseModel):
