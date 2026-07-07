@@ -11,18 +11,30 @@ export default function CallInspector({ callId, onBack }) {
   const [activeTab, setActiveTab] = useState('report') // 'report' | 'transcript'
 
   useEffect(() => {
+    console.log('[CallInspector] mount callId=', callId, 'API_URL=', API_URL)
     const fetchCall = async () => {
       try {
         const token = localStorage.getItem('auth_token')
+        console.log('[CallInspector] fetching... token=', token ? `${token.length} chars` : 'NULL')
         const res = await axios.get(`${API_URL}/api/calls/${callId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
+        console.log('[CallInspector] response status=', res.status, 'keys=', Object.keys(res.data).join(','))
 
         let analysisData = res.data.raw_evaluation
-        if (typeof analysisData === 'string') analysisData = JSON.parse(analysisData)
+        if (typeof analysisData === 'string') {
+          try {
+            analysisData = JSON.parse(analysisData)
+            console.log('[CallInspector] analysisData parsed OK, keys=', Object.keys(analysisData).join(','))
+          } catch (parseErr) {
+            console.warn('[CallInspector] analysisData is NOT valid JSON:', parseErr.message)
+            // Mantem como string - o componente renderizara com error
+          }
+        }
 
         setCall({ ...res.data, analysis: analysisData })
       } catch (err) {
+        console.error('[CallInspector] fetch error:', err.response?.status, err.message)
         // Mensagens especificas por status HTTP para melhor UX
         if (err.response?.status === 403) {
           setError('Sem permissao para visualizar esta chamada. Foi feito upload por outro usuario.')
@@ -35,13 +47,14 @@ export default function CallInspector({ callId, onBack }) {
         }
       } finally {
         setLoading(false)
+        console.log('[CallInspector] fetch done, loading=false')
       }
     }
     fetchCall()
   }, [callId])
 
   if (loading) return <div className="text-center py-12 text-textMuted">Carregando análise...</div>
-  if (error || !call) return (
+  if (error || !call) { console.log('[CallInspector] render: error=', error, 'call=', !!call); return (
     <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
       <div className="flex items-center gap-4 mb-8">
         <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors">
@@ -64,7 +77,7 @@ export default function CallInspector({ callId, onBack }) {
         </button>
       </div>
     </div>
-  )
+  )}
 
   const qaScore = call.nota_qualidade_operador || call.nota || 0
   const clientScore = call.nota_sentimento_cliente || 0
