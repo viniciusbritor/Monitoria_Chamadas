@@ -2,6 +2,106 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 07/07/2026 20:30 BRT — Refactor Total + Objetivo Principal
+
+### Contexto
+Owner pediu refactor total do modulo de monitoria. Causa: modulo
+com varios bugs acumulados (mojibake no bundle, animacoes causando
+"tela em branco", codigo morto de migracao, .bak files, etc). Tambem
+pediu para incluir o objetivo principal do negocio nos docs.
+
+### Engenharia reversa (producao)
+- Capturado bundle de `https://monitoria.coherenceai.com.br/`
+- Bundle prod: 270KB (test-env era 399KB - mais limpo)
+- CSS prod: 31KB
+- Endpoints prod: `/api/admin/users`, `/api/admin/approve`, `/api/admin/${r}`
+- URL do backend prod: `monitoria-cx-4105010761.us-central1.run.app`
+- Sem animacoes de page transition (causa do "tela em branco")
+- Sem bug de mojibake
+- Glass panel, CallInspector, Dashboard, 3 fases, QA Score, NPS,
+  Sentimentos - tudo presente
+
+### Limpeza do projeto
+Removidos (9 arquivos, -127 linhas):
+- `.bak` files (App.jsx, CallInspector.jsx, Dashboard.jsx)
+- `*.db` e `*.sqlite` (legado, Plano A++ removeu SQLite)
+- `build-*.log` (12+ logs de build antigos)
+- Scripts one-shot: `add_user.py`, `copy_key.py`, `create_logo.py`,
+  `recover.py`
+- Documentos: `MONITORIA COM IA.docx`, `notas de reuniao.txt`
+- Cache: `__pycache__/`, `.pytest_cache/`
+- Build local: `frontend/dist/`, `frontend/dist.backup/`
+- Componente nao usado: `frontend/src/components/AdminPanel.jsx`
+
+### Refactor de codigo
+
+**Backend (`api.py`):**
+- Adicionado docstring do **objetivo principal** no topo (5 pontos)
+- Removidos endpoints de migracao temporarios:
+  `/api/admin/migrate-status-accent` e `/api/internal/migrate-status-accent`
+  (ja cumpriram seu papel - 1 doc migrado, bug do accent corrigido)
+- Codigo limpo, focado nos 5 objetivos do negocio
+
+**Worker (`worker.py`):**
+- Docstring reescrito com **objetivo principal** (parte 2 do pipeline:
+  transcreve, diariza, avalia, categoriza)
+- Mantido timeout de 14min em `process_call()` (resiliencia)
+- Mantida idempotency check e watchdog
+
+**Frontend (`App.jsx`, `Dashboard.jsx`, `CallInspector.jsx`):**
+- Removidos logs de debug (`[CallInspector] mount...`, `[App] navigateTo...`)
+- Removida tag de versao experimental ("build 84b958f")
+- Removidas animacoes Tailwind (`animate-in slide-in-from-right-8 duration-500`)
+- Removidas classes CSS de animacao (`transition-content`, `transition-page`,
+  `animate-fadeInUp`, `animate-fadeIn`) em `frontend/src/index.css`
+- Mantidas apenas transicoes de hover/click states
+
+### Documentos reescritos
+
+**`HARNESS.md`** (reescrito):
+- **Objetivo principal** (5 pontos) listado no topo
+- Stack tecnologico consolidado
+- Endpoints principais (publicos, service-to-service, admin)
+- Fluxo E2E em 11 passos
+- Variaveis de ambiente (test-env + worker)
+- URL canonica + procedimento de rotacao
+
+**`ARQUITETURA.md`** (reescrito):
+- Visao geral dos 3 servicos
+- Diagrama Mermaid sequenceDiagram do fluxo E2E
+- Componentes (frontend, backend test-env, backend worker)
+- Persistencia - Firestore (schema completo)
+- Status string canonicas (todos os 8 valores)
+- Indice Firestore (3 indices)
+- Locking policy (last-write-wins)
+- Decisoes arquiteturais (Plano A++)
+
+**`GUARDRAILS.md`** (reescrito):
+- 10 regras inegociaveis (vs 14 antes)
+- Regra #0: Acesso via Portal (mantida)
+- Regra #1 (nova): Objetivo Principal do negocio
+- Regra #2: Firestore como SoT (atualizada de SQLite)
+- Regra #3: OIDC Audience Alinhado (nova)
+- Regra #4: Status Normalization (mantida)
+- Regra #5: Worker Idempotency + Timeout (mantida + melhorada)
+- Regra #6 (nova): Sem Animacoes no Frontend
+- Regra #7 (nova): Encoding UTF-8 sem Mojibake
+- Regra #8: Restricoes Severas (atualizada)
+- Regra #9: Regras de Ouro (mantida)
+- Regra #10: Seguranca/Privacidade (mantida)
+
+**`conexao_modulo.md`** + **`.json`** (atualizados):
+- Secao "Objetivo Principal do Modulo (Negocio)" adicionada
+- JSON: campo `objective` array com 5 strings
+- JSON: `last_updated` e `last_revision` atualizados
+
+### Build + deploy (pendente)
+- git add todos os arquivos alterados
+- git commit (unico ou multiplo)
+- git push origin test
+- gcloud builds submit test-env + worker
+- Smoke test E2E
+
 ## 06/07/2026 23:30 BRT — Migração Firestore completa (Plano A++ — DEPLOYED)
 
 ### Contexto

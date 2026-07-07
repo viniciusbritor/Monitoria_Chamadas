@@ -1,5 +1,16 @@
+/**
+ * CallInspector - Visualizacao detalhada de uma chamada processada
+ *
+ * Mostra 4 abas:
+ *   1. Relatorio: 3 fases (Apresentacao, Metodos de Resolucao,
+ *      Fechamento) com notas QA e NPS de cada fase.
+ *   2. Transcricao: texto da chamada separada por interlocutor
+ *      (Operador vs Cliente) - vinda do worker via diarizacao LLM.
+ *   3. Sentimentos: lista de emocoes detectadas do Operador e Cliente.
+ *   4. Audio: player do audio original (se disponivel no backend).
+ */
 import { useState, useEffect } from 'react'
-import { ArrowLeft, User, Headphones, CheckCircle2, AlertTriangle, MessageSquare, ThumbsUp, HelpCircle, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, User, Headphones, CheckCircle2, AlertTriangle, MessageSquare, ThumbsUp, ShieldAlert } from 'lucide-react'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-894828119087.us-central1.run.app"
@@ -8,25 +19,21 @@ export default function CallInspector({ callId, onBack }) {
   const [call, setCall] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [activeTab, setActiveTab] = useState('report') // 'report' | 'transcript'
+  const [activeTab, setActiveTab] = useState('report') // 'report' | 'transcript' | 'sentimentos' | 'audio'
   const [audioUrl, setAudioUrl] = useState(null)
 
   useEffect(() => {
-    console.log('[CallInspector] mount callId=', callId, 'API_URL=', API_URL)
     const fetchCall = async () => {
       try {
         const token = localStorage.getItem('auth_token')
-        console.log('[CallInspector] fetching... token=', token ? `${token.length} chars` : 'NULL')
         const res = await axios.get(`${API_URL}/api/calls/${callId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
-        console.log('[CallInspector] response status=', res.status, 'keys=', Object.keys(res.data).join(','))
 
         let analysisData = res.data.raw_evaluation
         if (typeof analysisData === 'string') {
           try {
             analysisData = JSON.parse(analysisData)
-            console.log('[CallInspector] analysisData parsed OK, keys=', Object.keys(analysisData).join(','))
           } catch (parseErr) {
             console.warn('[CallInspector] analysisData is NOT valid JSON:', parseErr.message)
             // Mantem como string - o componente renderizara com error
@@ -41,10 +48,9 @@ export default function CallInspector({ callId, onBack }) {
           })
           setAudioUrl(audioRes.data.audio_url)
         } catch (e) {
-          console.warn('[CallInspector] Nao foi possivel carregar o audio:', e.message)
+          // Audio nao obrigatorio - silencioso
         }
       } catch (err) {
-        console.error('[CallInspector] fetch error:', err.response?.status, err.message)
         // Mensagens especificas por status HTTP para melhor UX
         if (err.response?.status === 403) {
           setError('Sem permissao para visualizar esta chamada. Foi feito upload por outro usuario.')
@@ -57,15 +63,14 @@ export default function CallInspector({ callId, onBack }) {
         }
       } finally {
         setLoading(false)
-        console.log('[CallInspector] fetch done, loading=false')
       }
     }
     fetchCall()
   }, [callId])
 
-  if (loading) return <div className="text-center py-12 text-textMuted">Carregando análise...</div>
-  if (error || !call) { console.log('[CallInspector] render: error=', error, 'call=', !!call); return (
-    <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
+  if (loading) return <div className="text-center py-12 text-textMuted">Carregando análise...</div>;
+  if (error || !call) return (
+    <div className="space-y-6">
       <div className="flex items-center gap-4 mb-8">
         <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors">
           <ArrowLeft size={20} />

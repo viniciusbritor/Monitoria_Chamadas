@@ -63,25 +63,18 @@ function App() {
   // Se nao vier ?token=, usa o do localStorage (usuario voltou em outra aba).
   // CRITICO: este useEffect roda ANTES do validateTokenOnMount. Nao chama handleLogout.
   useEffect(() => {
-    console.log('[Monitoria SSO] useEffect[?token=] start')
     const urlParams = new URLSearchParams(window.location.search)
     const tokenFromUrl = urlParams.get('token')
     if (tokenFromUrl) {
-      console.log('[Monitoria SSO] ?token= detectado, length=', tokenFromUrl.length)
       localStorage.setItem('auth_token', tokenFromUrl)
       setUserToken(tokenFromUrl)
       // Limpa a URL para nao expor token no historico
       window.history.replaceState({}, document.title, window.location.pathname)
-      console.log('[Monitoria SSO] token setado no state + localStorage')
     } else {
-      console.log('[Monitoria SSO] sem ?token= na URL, checando localStorage')
       // Sem ?token= na URL: usa o do localStorage (sessao anterior)
       const stored = localStorage.getItem('auth_token')
       if (stored) {
-        console.log('[Monitoria SSO] token do localStorage, length=', stored.length)
         setUserToken(stored)
-      } else {
-        console.log('[Monitoria SSO] sem token em lugar nenhum')
       }
     }
     // NEW (Sprint 2 - 03/07/2026): encerra bootstrap. Apos isso o componente pode decidir
@@ -90,10 +83,8 @@ function App() {
   }, [])
 
   const navigateTo = (view, callId = null) => {
-    console.log('[App] navigateTo called: view=', view, 'callId=', callId)
     setSelectedCallId(callId)
     setCurrentView(view)
-    console.log('[App] navigateTo done: currentView=', view, 'selectedCallId=', callId)
   }
 
   const handleLogout = async () => {
@@ -111,16 +102,13 @@ function App() {
   useEffect(() => {
     const validateTokenOnMount = async () => {
       if (!userToken) {
-        console.log('[Monitoria SSO] validateTokenOnMount: sem userToken, sai cedo')
         return
       }
-      console.log('[Monitoria SSO] validateTokenOnMount start, token length=', userToken.length)
       setValidating(true)
       try {
         const res = await fetch(`${API_URL}/api/auth/me`, {
           headers: { Authorization: `Bearer ${userToken}` }
         })
-        console.log('[Monitoria SSO] /api/auth/me status=', res.status)
         if (!res.ok) {
           if (res.status === 403) {
             setAccessDenied(true)
@@ -128,14 +116,12 @@ function App() {
           // 401/500/etc: NAO chama handleLogout (isso causava o redirect indevido).
           // Apenas limpa o token. O user pode re-tentar.
           if (res.status === 401) {
-            console.log('[Monitoria SSO] token invalido (401), limpando')
             localStorage.removeItem('auth_token')
             setUserToken(null)
           }
           // 5xx: nao faz nada (transient)
         } else {
           const userData = await res.json()
-          console.log('[Monitoria SSO] /api/auth/me ok, role=', userData.role)
           setUserRole(userData.role)
           localStorage.setItem('user_role', userData.role)
         }
@@ -224,13 +210,9 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col transition-page">
-      <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50 transition-content">
+    <div className="min-h-screen flex flex-col">
+      <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          {/* NEW (07/07/2026): tag de versao para o user confirmar qual bundle esta rodando */}
-          <div className="absolute top-1 right-2 text-[8px] text-black/30 font-mono pointer-events-none select-none">
-            build 84b958f
-          </div>
           <div 
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => navigateTo('dashboard')}

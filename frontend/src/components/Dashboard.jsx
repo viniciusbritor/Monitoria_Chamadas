@@ -83,7 +83,7 @@ export default function Dashboard({ onInspectCall }) {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Upload Card */}
         <div className="glass-panel p-6 flex flex-col items-center justify-center text-center space-y-4 md:col-span-1">

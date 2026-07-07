@@ -1,155 +1,120 @@
-# 🛡️ Guardrails e Regras Inegociáveis
+# Guardrails e Regras Inegociáveis
 
-> Este arquivo dita as regras DURAS que todos os agentes IA devemobedecer neste projeto especificamente.
+> Ultima atualizacao: 07/07/2026 (refactor total)
+> Este arquivo dita as regras DURAS que todos os agentes IA devem obedecer neste projeto.
 
-## 🚫 Acesso EXCLUSIVO via Portal Coherence (REGRA #0 — mais alta prioridade)
+## Regra #0 (mais alta prioridade) - Acesso EXCLUSIVO via Portal Coherence
 
-**A URL `https://monitoria-test-env-894828119087.us-central1.run.app/` NÃO É pública.** (Alias deprecated: `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/`)
+**A URL `https://monitoria-test-env-894828119087.us-central1.run.app/` NAO e' publica.**
 
-1. **Único caminho válido de acesso**: usuário loga no **Portal Coherence** (`https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`), clica no card do módulo **Monitoria de Chamadas**, e o Portal abre o módulo em nova aba via `window.open(${module.url}?token=${firebase_id_token}, '_blank')`.
-2. **Acesso direto à URL do módulo (colar no navegador, bookmark, link direto)** é PROIBIDO. O resultado esperado é a tela "Acesso via Portal Coherence" com botão de redirect para `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/dashboard`.
-3. **Não reintroduzir formulário de login próprio** no módulo (Google, email/senha, magic-link, etc.). O módulo delega 100% da autenticação ao Portal.
-4. **Não documentar, comunicar, nem compartilhar a URL do test-env** como ponto de entrada para usuários finais. A URL do módulo é detalhe de implementação interno do ecossistema Coherence.
-5. **Não expor a URL do módulo em e-mails, README, comentários de código, nem variáveis `VITE_API_URL` em frontend público** sem o token via `?token=`. O bundle JS é servido pelo próprio Cloud Run e a URL está embutida — esse vazamento é aceitável apenas porque o backend rejeita chamadas sem Bearer token válido.
-6. **Backend enforcement**: requests ao endpoint raiz `/` (SPA entry point) sem `Referer` apontando para o Portal Coherence são logadas como alerta de segurança (`[Security] direct-access attempt`). O fluxo legítimo sempre carrega `Referer: https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/` (ou produção correspondente).
+1. **Unico caminho valido**: usuario loga no **Portal Coherence** (`https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`), clica no card "Monitoria de Chamadas", e o Portal abre o modulo via `window.open(module.url + '?token=' + firebase_id_token, '_blank')`.
+2. **Acesso direto** (colar URL no navegador, bookmark, link direto) e' PROIBIDO. Mostra a tela "Acesso via Portal Coherence" com botao de redirect.
+3. **Nao reintroduzir** formulario de login proprio (Google, email/senha, magic-link).
+4. **Nao compartilhar** a URL do modulo como ponto de entrada.
+5. **Nao expor** a URL em e-mails, README, comentarios de codigo, nem `VITE_API_URL` em frontend publico sem o token via `?token=`.
+6. **Backend enforcement**: requests ao `/` sem `Referer` do Portal sao logadas como `[Security] direct-access attempt`.
 
-**Por que essa regra existe:**
-- O Portal é o **source of truth** de identidade (Firebase SSO) e permissões (Firestore).
-- O módulo não tem (nem deve ter) gestão própria de usuários, senhas, sessões, ou RBAC.
-- Manter autenticação centralizada no Portal evita `user_permissions` duplicados, drift de dados, e complexidade operacional.
-- Em conformidade com a **Regra #7 do Harness Global** (modelo Portal + Módulos).
+**Por que:** Portal e' source of truth de identidade (Firebase SSO) e permissoes. Modulo delega 100% da autenticacao ao Portal.
 
-## 🚫 Restrições Severas (O que NUNCA fazer)
-1. **Nunca bloquear threads principais:** Nunca utilizar processamento bloqueante (Síncrono na rota) para transcrição e avaliação. Sempre usar `BackgroundTasks` ou Filas assíncronas no FastAPI para não causar Timeouts (HTTP 502/504) no GCP Cloud Run ou travar o navegador.
-2. **Identidade Visual Coherence.AI:** Nunca usar cores aleatórias na UI; sempre respeitar a identidade visual detalhada em docs/UI_GUIDELINES.md (Estilo Clean Light Glassmorphism em todas as telas, incluindo Login e Dashboard).
-3. **Dependências em Nuvem:** Nunca fazer um Deploy no GCP Cloud sem verificar se o arquivo `requirements.txt` contém `fastapi`, `uvicorn` e `python-multipart`.
-4. **Implementação em Produção:** NUNCA implemente código novo diretamente no ambiente de produção (`Monitoria_Chamadas`). A primeira implementação é SEMPRE no ambiente de testes (`Monitoria_Chamadas_Teste`). Com base neste ambiente, o usuário decidirá se o código será virado para produção.
-5. **Não reintroduzir tela de Login no módulo** (ver Regra #0). O módulo NÃO tem (nem deve ter) autenticação própria. Toda identidade vem do Portal via `?token=` ou `Authorization: Bearer`.
+## Regra #1 - Objetivo Principal (Negocio)
 
-## ✅ Regras de Ouro (O que SEMPRE fazer)
-1. **Feedback na UI Obrigatório:** Qualquer operação assíncrona ou demorada no backend DEVE fornecer feedback imediato e visual para a UI através de atualização de status (Ex: `Transcrevendo...`, `Analisando...`) com as respectivas barras de carregamento (progress bars).
-2. **Ambiente GCP e Whisper:** Em ambiente Cloud Run, ferramentas Multi-Threading em C++ (como o CTranslate2 do faster-whisper) podem engasgar silenciosamente. É mandatório configurar `OMP_NUM_THREADS=2` e o `compute_type="default"` no Cloud Run. Sempre adicionar `PYTHONUNBUFFERED=1` para forçar a visibilidade dos logs.
-3. **Injeção de Segredos no Deploy:** Ao trocar a engine de IA (ex: Gemini para MiniMax), NUNCA esqueça de também injetar a respectiva chave de API (ex: `MINIMAX_API_KEY`) no container da nuvem, pois o cofre local (`monitoria_ia.db`) gerado após o deploy não reflete as variáveis da máquina local original.
-4. **Tratamento de Arquivos:** Todo arquivo gerado ou feito upload no backend deve ser sanitizado e garantido que a pasta de destino (como `uploads/`) exista antes de qualquer gravação.
+O modulo existe para executar 5 objetivos em sequencia:
 
-## 🔒 Regras de Segurança / Privacidade
-1. Nenhuma chave de API, credencial ou token deve ser escrito no código em hardcode (plaintext).
-2. Todo segredo precisa passar obrigatoriamente pelo `secrets_manager` (SQLite central).
+| # | Objetivo | Onde |
+|---|---|---|
+| 1 | Upload de chamada (audio file) | frontend + api.py |
+| 2 | Transcricao audio -> texto | worker.py + core/transcriber.py |
+| 3 | Separar audio atendente e cliente (diarizacao) | worker.py + core/evaluator.py |
+| 4 | Avaliar nota QA do atendente + nota NPS do cliente | worker.py + core/evaluator.py |
+| 5 | Categorizar motivos principais da chamada | worker.py + core/evaluator.py |
 
-## 🛡️ Regras de Resiliência (Fase 1 — 05/07/2026)
+Qualquer codigo novo deve contribuir para um desses 5 objetivos. Codigo fora desse escopo deve ser justificado explicitamente.
 
-Estas regras foram criadas após incidente crítico em que chamadas órfãs no Pub/Sub travaram o worker em loop infinito porque (a) test-env usava SQLite local volátil, perdendo INSERTs em deploys; (b) worker não checava idempotência antes de processar; (c) subscription não tinha DLQ.
+## Regra #2 - Firestore como Source of Truth (DB unico)
 
-### REGRA #6 — Volume mount obrigatório em todos os serviços que compartilham DB
-1. **Qualquer serviço que lê/escreve no SQLite compartilhado DEVE ter `--add-volume name=db-vol,type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket`** no deploy.
-2. Sem o mount, o serviço cai no fallback `monitoria_ia.db` LOCAL, que é VOLÁTIL — todas as escritas se perdem quando o container reinicia.
-3. Antes de cada deploy de serviço novo que toque no DB, validar com `gcloud run services describe <service> --format="value(spec.template.spec.volumes)"` que o volume está presente.
-4. **Por que:** Sem o mount, test-env inseria no SQLite local e publicava no Pub/Sub; deploy matava o container, INSERT sumia, worker processava mensagem órfã. **Esta foi a causa raiz dos loops infinitos**.
-5. **ATENÇÃO:** O bucket DEVE estar no **mesmo projeto GCP** do Cloud Run. Cloud Run rejeita `--add-volume type=cloud-storage` cross-project. O bucket histórico `consultoria-bess-mme136-db-bucket` (do projeto antigo) foi migrado em 06/07/2026 para `coherence-ominichannel-fs-db-bucket`.
+1. **Firestore** e' a unica fonte de verdade para dados de chamada, settings de user, e audit logs.
+2. **NUNCA** usar SQLite, GCS FUSE mount, ou arquivos locais como persistencia.
+3. **NUNCA** criar `--add-volume` no `cloudbuild-*.yaml` para SQLite/GCS FUSE (foi removido no Plano A++).
+4. **Todos os writes** devem passar pelo wrapper `core/db.py` (que aplica `WRITABLE_FIELDS` whitelist como defesa contra key injection).
+5. **Migracao de dados** (Plano A++, 06/07/2026): SQLite/GCS FUSE -> Firestore. Qualquer referencia a SQLite legado deve ser removida em novos PRs.
 
-### REGRA #7 — Idempotency do Worker
-1. **Worker DEVE consultar `SELECT status FROM chamadas WHERE id = ?` ANTES de processar qualquer mensagem Pub/Sub.**
-2. Comportamento esperado:
-   - Linha **ausente** → ack + log `[Worker] ORPHAN: ...` (poison-ack, NÃO nack)
-   - Status `Concluído` ou `Erro:...` → ack + log `[Worker] JÁ PROCESSADO: ...` (idempotente)
-   - Status intermediário (`Transcrevendo/Separando/Analisando/Na Fila`) → continuar (retomada)
-3. **NUNCA** nack uma mensagem sem antes validar que a falha é transient. Nack causa redelivery infinito em poison messages.
-4. **Por que:** Pub/Sub garante at-least-once delivery. Sem idempotency, reprocessamento causa trabalho duplicado e loops em dados inválidos.
+**Por que:** 4 bugs historicos do SQLite GCS FUSE (OutOfOrderError, stale handle, file clobbered, FUSE cache invalidation) causaram loops infinitos. Firestore e' gerenciado e nao tem esses problemas.
 
-### REGRA #8 — DLQ obrigatória em subscriptions Pub/Sub
-1. **Toda subscription DEVE ter DLQ topic associado + `max-delivery-attempts >= 5`** (Cloud Run Pub/Sub exige mínimo 5; padrão da plataforma é 5).
-2. Comando obrigatório na criação:
-   ```
-   gcloud pubsub subscriptions create <sub> --topic=<topic> \
-     --dead-letter-topic=<dlq-topic> --max-delivery-attempts=5
-   ```
-3. Comando para anexar DLQ em subscription existente:
-   ```
-   gcloud pubsub subscriptions update <sub> \
-     --dead-letter-topic=projects/<proj>/topics/<dlq-topic> \
-     --max-delivery-attempts=5
-   ```
-4. Mensagens que falham 5x vão automaticamente para a DLQ. Admin inspeciona DLQ periodicamente.
-5. **Por que:** Sem DLQ, mensagens poison (inválidas, órfãs) ficam em loop infinito, bloqueando toda a subscription.
+## Regra #3 - OIDC Audience Alinhado
 
-### REGRA #9 — Schema migrations devem ser explícitas
-1. **Migrations DEVEM ser tracked em uma tabela `schema_version(version, applied_at, checksum)`.**
-2. **NUNCA** silenciar `sqlite3.OperationalError` em `ALTER TABLE` — log o erro explicitamente.
-3. Falha de migração = startup **recusa subir** (fail-fast). Não continuar com schema parcial.
-4. Cada migration incrementa a versão e registra checksum para evitar drift entre instâncias.
-5. **Por que:** Migrations silenciosas mascaram problemas de compatibilidade. Dois serviços com schemas diferentes = bugs sutis e órfãos (campos NULL inesperados).
+3 lugares DEVEM estar alinhados com a MESMA URL:
 
-### REGRA #10 — fsync após DB write
-1. **Após `conn.commit()`, chamar `os.fsync()` no arquivo SQLite para garantir flush ao disco (GCS FUSE).**
-2. Configurar `PRAGMA journal_mode=WAL` em `init_db()` para concorrência segura.
-3. Configurar `PRAGMA synchronous=NORMAL` (ou FULL para paths críticos de upload).
-4. **Por que:** GCS FUSE tem write-back cache. Sem fsync, deploy/scale pode matar container ANTES do write ser flushed, perdendo o INSERT.
+| Local | Variavel |
+|---|---|
+| `cloudbuild-worker.yaml:55` | `WORKER_CALLBACK_URL` |
+| `api.py:568` (default) | `TEST_ENV_AUDIENCE` |
+| `cloudbuild-test.yaml:60` (env var) | `TEST_ENV_AUDIENCE` |
 
-> **⚠️ REGRAS #6-#10 SÃO LEGACY (06/07/2026 — Plano A++).** SQLite + GCS FUSE foram removidos em favor de Firestore. Mantidas aqui para referência histórica. Para o sistema atual, ver **REGRA #11** abaixo.
+Se qualquer um dos 3 tiver URL diferente, o worker gera tokens com audience errado, test-env rejeita com 401, e a chamada fica presa em "Na Fila de Processamento...".
 
-## 🛡️ REGRA #11 — Firestore é a única fonte de verdade de DB (vigente desde 06/07/2026)
+**Procedimento de rotacao de URL:** ver `docs/HARNESS.md` secao "Rotacao de URL canonica do modulo" (atualizar 5+ lugares, nao esquecer `api.py:TEST_ENV_AUDIENCE`).
 
-Após migração completa (Plano A++), TODA persistência de dados do módulo usa Firestore. SQLite foi removido do runtime.
+## Regra #4 - Status Normalization
 
-### Princípios inegociáveis
-1. **NUNCA usar `import sqlite3`** em runtime (api.py, worker.py, loadtest.py, scripts operacionais). Apenas `core/db.py` é permitido como ponto único de acesso ao DB.
-2. **NUNCA instanciar `firestore.Client()` diretamente** fora de `core/db.py`. Usar sempre `get_db()`, `get_user_settings_db()`, `get_user_settings(user_id)`, `upsert_user_settings(user_id, fields)`, `get_call(call_id)`, `list_calls(...)`, `update_call_status(...)`, `cleanup_orphans(...)`.
-3. **TODO write passa pelo `_sanitize()` do wrapper**, que aplica `WRITABLE_FIELDS` whitelist. Chave não-whitelist = silenciosamente descartada + log warning. **Anti-key-injection.**
-4. **Sem volume mount GCS FUSE.** `--add-volume type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket` é PROIBIDO em cloudbuild YAMLs.
+O worker pode gravar `Concluido` (sem acento) por typo. O callback OIDC no `api.py` normaliza para `Concluido` (com acento) via `STATUS_NORMALIZATION` dict (api.py:610). **NUNCA** remover essa normalizacao.
 
-### Índices compostos obrigatórios
-Os 3 índices abaixo foram provisionados em 06/07/2026 via `gcloud firestore indexes composite create` e estão em estado READY. Source of truth: `firestore.indexes.json` no repo.
+Variaveis aceitas: `Concluido`, `concluido`, `concluido`, `CONCLUIDO`, `CONCLUIDO`. Todas normalizadas para `Concluido`.
 
-| Collection | Fields | Order | Usado por |
-|---|---|---|---|
-| `chamadas` | `user_id`, `uploaded_at` | ASC, DESC | `GET /api/calls` |
-| `chamadas` | `status`, `uploaded_at` | ASC, DESC | `list_by_status` (admin UI) |
-| `chamadas` | `status`, `uploaded_at` | ASC, ASC | `list_stale` (recover/cleanup/stuck) |
+**Por que:** UI do Dashboard.jsx compara `call.status === 'Concluido'`. Sem normalizacao, UI nunca reconhece conclusao, polling 2s infinito, worker reprocessa a cada redelivery.
 
-**Re-provisionar** (em caso de disaster recovery):
-```
-gcloud firestore indexes composite create \
-  --collection-group=chamadas \
-  --field-config=field-path=<F>,order=<O> \
-  --field-config=field-path=<F>,order=<O> \
-  --project=coherence-ominichannel-fs
-```
+## Regra #5 - Worker Idempotency Check
 
-### Endpoints legados (Plano A++)
-- `POST /api/request-access` → retorna **HTTP 410 Gone**. Auth é 100% via Portal Coherence.
-- `GET /api/approve-access` → retorna **HTTP 410 Gone**. Idem.
-- **NÃO reintroduzir.** Portal é source of truth de permissões.
+1. Worker DEVE consultar `SELECT status FROM chamadas WHERE id = ?` ANTES de processar qualquer mensagem Pub/Sub.
+2. Comportamento:
+   - Linha ausente -> ack + log `[Worker] ORPHAN: ...` (poison-ack, NAO nack)
+   - Status `Concluido` ou `Erro:...` -> ack + log idempotente
+   - Status intermediario -> continuar (retomada)
+3. **NUNCA** nack uma mensagem sem antes validar que a falha e' transient. Nack causa redelivery infinito em poison messages.
+4. **Timeout em process_call**: 14 minutos (`PROCESSING_TIMEOUT_SEC=840`). Se exceder, marca como erro e faz nack para redelivery em outra instancia.
 
-### Por que Firestore (e não SQLite)
-- **Zero race conditions** de I/O (vs 4 bugs históricos do SQLite GCS FUSE documentados em 06/07/2026).
-- **Sem volume mount** = sem cold-start I/O, sem GCS FUSE cache invalidation.
-- **Concorrencia via last-write-wins** com timestamps. UI polling de 2s absorve sobreposições benignas.
-- **Queries indexadas** sem SQL manual.
+## Regra #6 - Sem Animacoes no Frontend (evita tela em branco)
 
-### Lições aprendidas (Plano A++)
-1. **Não deixar migração parcial no filesystem sem commit.** `core/db.py` ficou untracked por horas antes da migração.
-2. **Race condition em commits paralelos via bash** no PowerShell (lockfile do git). Sempre rodar commits sequencialmente.
-3. **`gcloud run deploy` no Cloud Build NÃO remove volumes automaticamente** — sempre `gcloud run services update --remove-volume` explícito após o deploy.
-4. **Worker simplificado = menos bugs.** Removendo write local do worker, eliminamos categoria inteira de race conditions test-env vs worker.
+O `<div key={...}>` em `App.jsx` causa remount a cada `navigateTo`. Animoes CSS (`animation: fadeInUp 500ms` com `opacity: 0 -> 1`) deixam o conteudo invisivel por 500ms, fazendo parecer "tela em branco".
 
-## Barreiras Limitantes
-- **Processamento em CPU (Whisper):** O Cloud Run operando com recursos de CPU (sem GPU dedicada) é a principal barreira arquitetural de performance. A transcrição via faster-whisper em arquivos de áudio leva em média cerca de 1 a 2 minutos, o que afeta a percepção do usuário (ansiedade gerando sensação de erro) já que o frontend não possui websockets para atualizar o status em tempo real. A barreira requer a gestão de expectativa do tempo de processamento.
+**PROIBIDO** adicionar animacoes Tailwind (`animate-*`, `transition-content`, `transition-page`) no frontend. O conteudo deve aparecer IMEDIATAMENTE.
 
-## 🎙️ Configuração do Whisper (Performance vs Qualidade)
+Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-opacity` (apenas em hover/click states, nao em page transitions).
 
-### Regra de Ouro (atualizada 2026-07-06)
-**Owner aprovou `compute_type=int8`** em 06/07/2026 (speedup ~2x em CPU, perda de qualidade <1% WER segundo docs faster-whisper). **NÃO alterar tamanho do modelo (`base`)** nem remover `OMP_NUM_THREADS=2` sem nova aprovação — o int8 sem OMP_NUM_THREADS=2 causa hang silencioso em Cloud Run (ver incidente 28/06/2026 no DIARIO_BORDO).
+## Regra #7 - Encoding UTF-8 (sem mojibake)
 
-### Configuração aprovada (2026-07-06)
-- **Modelo**: `base` (75M params, melhor custo/benefício)
-- **compute_type**: `int8` (quantização, ~2x speedup CPU, perda de qualidade marginal)
-- **num_workers**: `2` (paralelismo CPU, sem perda de qualidade)
-- **OMP_NUM_THREADS**: `2` (CRÍTICO com int8 — evita hang silencioso em Cloud Run)
-- **vad_filter**: `True` (pula silêncios, não afeta qualidade)
-- **Pré-processamento**: `ffmpeg` → mono 16kHz PCM antes do Whisper (não afeta qualidade)
-- **Modelo pré-carregado** no `@app.on_event("startup")` — salva 33s no primeiro upload
+1. **NUNCA** salvar arquivos `.jsx`/`.js`/`.json`/`.md` com encoding latin1 ou windows-1252.
+2. **SEMPRE** usar UTF-8 (com BOM opcional).
+3. **NUNCA** fazer double-encoding (latin1 -> UTF-8) de strings acentuadas.
+4. O `.gitattributes` ja tem `text eol=lf` para todos os arquivos de texto, evitando que git converta LF <-> CRLF no cloudbuild.
 
-### Variáveis de ambiente relacionadas
-- `OMP_NUM_THREADS=2`: Obrigatório no Cloud Run (evita hang do CTranslate2)
-- `PYTHONUNBUFFERED=1`: Obrigatório para logs em tempo real
-- `WHISPER_MODEL=base`: Padrão (definido em `secrets/` ou env)
+**Por que:** PowerShell exibe mal bytes UTF-8 (mostra `Ã­` em vez de `í`). Use Python para verificar encoding de bundles deployed (`grep -c C3 83 C2 AD` no bundle JS).
+
+## Regra #8 - Restricoes Severas (o que NUNCA fazer)
+
+1. **Nunca** bloquear threads principais com processamento sincrono. Sempre usar Pub/Sub + worker, ou BackgroundTasks.
+2. **Nunca** hardcodear cores na UI. Sempre usar `tailwindcss` e `docs/UI_GUIDELINES.md`.
+3. **Nunca** fazer deploy no GCP Cloud sem verificar se `requirements.txt` tem `fastapi`, `uvicorn`, `python-multipart`.
+4. **Nunca** implementar direto em producao. Primeiro em `Monitoria_Chamadas_Teste` (este projeto), depois promover.
+5. **Nunca** reintroduzir tela de Login no modulo (ver Regra #0).
+6. **Nunca** criar `frontend/.env.local` (conteudo e' embutido no bundle).
+7. **Nunca** reintroduzir SQLite como persistencia (ver Regra #2).
+
+## Regra #9 - Regras de Ouro (o que SEMPRE fazer)
+
+1. **Feedback na UI obrigatorio**: qualquer operacao async DEVE fornecer feedback visual (status, progress bars).
+2. **Em Cloud Run**: `OMP_NUM_THREADS=2` e `PYTHONUNBUFFERED=1` sao mandatorios.
+3. **Injecao de segredos no deploy**: ao trocar engine de IA, NAO esquecer de injetar a chave de API via `gcloud run services update`.
+4. **Sanitizacao de arquivos**: todo upload DEVE ter pasta de destino criada antes.
+
+## Regra #10 - Seguranca / Privacidade
+
+1. Nenhuma chave de API, credencial ou token em hardcode.
+2. Todo segredo passa pelo `secrets_manager` (cofre local SQLite), NAO commitado.
+3. Auditoria: requests ao `/` sem `Referer` do Portal sao logadas como `[Security] direct-access attempt`.
+
+## Ver tambem
+
+- [HARNESS.md](HARNESS.md) - Objetivo principal + stack
+- [ARQUITETURA.md](ARQUITETURA.md) - Detalhes tecnicos
+- [conexao_modulo.md](conexao_modulo.md) - Spec do contrato com Portal
+- [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

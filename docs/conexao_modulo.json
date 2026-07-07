@@ -4,8 +4,15 @@
   "display_name": "Monitoria de Chamadas",
   "description": "Transcricao e avaliacao QA de audios de atendimento ao cliente usando faster-whisper (PT-BR) e MiniMax M3.",
   "icon": "Headphones",
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "last_updated": "2026-07-07",
+  "objective": [
+    "Upload de chamada (audio file)",
+    "Transcricao audio -> texto",
+    "Separar audio atendente e cliente",
+    "Avaliar nota QA do atendente e nota NPS do cliente",
+    "Categorizar motivos principais da chamada"
+  ],
   "owner": "viniciusbritor@gmail.com",
   "repository": "viniciusbritor/Monitoria_Chamadas",
   "_canonical_location": "Monitoria_Chamadas_Teste/docs/conexao_modulo.json (FONTE CANONICA)",
@@ -22,8 +29,8 @@
       "branch": "test",
       "build_config": "cloudbuild-test.yaml",
       "support_contact": "viniciusbritor@gmail.com",
-      "deployed_at": "2026-07-03",
-      "last_revision": "monitoria-test-env-00026-z6d"
+      "deployed_at": "2026-07-07",
+      "last_revision": "monitoria-test-env-00065-gpt"
     },
     "prod": {
       "url": null,

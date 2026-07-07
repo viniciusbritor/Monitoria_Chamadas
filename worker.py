@@ -1,17 +1,23 @@
 """
-Worker dedicado para transcricao de chamadas via Pub/Sub.
-Substitui o BackgroundTasks do FastAPI por um consumer desacoplado.
+Worker dedicado - Monitoria de Chamadas
+====================================
 
-Vantagens:
-- Backend principal fica leve (responde <100ms)
-- Worker escala independentemente (0-10 instancias)
-- Falhas nao afetam API
-- Suporta multiplos uploads simultaneos
+OBJETIVO PRINCIPAL (parte 2 do pipeline):
+  Recebe audio uploaded, transcreve com Whisper, diariza (separa
+  atendente vs cliente), e avalia com LLM (MiniMax M3) para gerar
+  nota QA + nota NPS + analise de 3 fases + motivos.
+
+O OBJETIVO PRINCIPAL completo (frontend + backend + worker):
+  1. Upload de chamada (audio file) - frontend + api.py
+  2. Transcricao audio -> texto - ESTE WORKER (Whisper)
+  3. Separar audio atendente e cliente - ESTE WORKER (LLM diarize)
+  4. Avaliar nota QA do atendente e nota NPS do cliente - ESTE WORKER (LLM evaluate)
+  5. Categorizar motivos principais da chamada - ESTE WORKER (LLM evaluate)
 
 Deploy: Cloud Run service monitoria-whisper-worker
-- 8 CPU, 16Gi RAM
+- 4 CPU, 8Gi RAM
 - min-instances=0 (scale to zero)
-- max-instances=10
+- max-instances=3
 - timeout=900s
 - concurrency=1
 """

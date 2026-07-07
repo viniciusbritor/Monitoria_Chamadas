@@ -1,14 +1,15 @@
-# Conexão do Módulo Monitoria (Portal ↔ Módulo)
+# Conexao do Modulo Monitoria (Portal <-> Modulo)
 
-> ⚠️ **AVISO:** Esta é uma **cópia de referência** para o módulo Monitoria. A **fonte canônica** está em `Coherence_Portal/docs/conexao_modulo.md` (e `.json`). O Portal consulta o spec para renderizar o módulo corretamente.
->
-> Se houver divergência, **Portal ganha**. Atualize o Portal primeiro, depois sincronize este arquivo.
+> AVISO: Esta e' uma copia de referencia para o modulo Monitoria.
+> A fonte canonica esta em `Coherence_Portal/docs/conexao_modulo.md` (e .json).
+> O Portal consulta este spec para renderizar o modulo corretamente.
+> Se houver divergencia, Portal ganha. Atualize o Portal primeiro, depois sincronize este arquivo.
 
 ---
 
 ## Resumo executivo
 
-**module_id:** `monitoria-chamadas` (constante imutável)
+**module_id:** `monitoria-chamadas` (constante imutavel)
 
 **Variante test ativa:**
 - URL: `https://monitoria-test-env-894828119087.us-central1.run.app`
@@ -22,31 +23,48 @@
 window.open(`${m.url}?token=${firebase_id_token}`, '_blank')
 ```
 
-**O que este módulo faz ao receber a URL com token:**
-1. `POST /api/auth/portal-sso` (no módulo) com o token
+**O que este modulo faz ao receber a URL com token:**
+1. `POST /api/auth/portal-sso` (no modulo) com o token
 2. Valida via Firebase Admin SDK
-3. Cria sessão local (JWT em `localStorage`)
-4. Para cada request autenticado: chama Portal `/api/me/permissions?email=X` e `/api/me/role?email=X`
-5. Em negação de acesso: `POST /api/admin/audit-logs/log-access-denied`
+3. Cria sessao local (JWT em `localStorage`)
+4. Para cada request autenticado: chama Portal `/api/auth/me?module_id=...`
+5. Em negacao de acesso: retorna 403 + mostra tela "Acesso Restrito"
 
 ---
 
-## APIs que o Portal PROVE (que este módulo CONSOME)
+## APIs que o Portal PROVE (que este modulo CONSOME)
 
-| Método | Path | Quando |
+| Metodo | Path | Quando |
 |---|---|---|
-| `GET` | `/api/me/permissions?email=X` | Toda request autenticada (TTL 300s cache) |
-| `GET` | `/api/me/role?email=X` | Toda request autenticada (TTL 300s cache) |
-| `POST` | `/api/admin/audit-logs/log-access-denied` | Quando módulo nega acesso (fire-and-forget) |
+| `GET` | `/api/auth/me?module_id=monitoria-chamadas` | Toda request autenticada (validacao de sessao) |
 
-**Implementação:** `core/portal_auth.py` e `core/portal_audit.py`
+**Implementacao:** `core/portal_auth.py`
+
+Resposta 200 OK:
+```json
+{
+  "email": "user@example.com",
+  "is_super_admin": true,
+  "client_id": "...",
+  "role": "admin",
+  "modules": {
+    "monitoria-chamadas": {
+      "is_active": true,
+      "role": "admin",
+      "client_id": "..."
+    }
+  }
+}
+```
+
+Resposta 403 Forbidden: user nao tem permissao no modulo. Audit log automatico.
 
 ---
 
-## Identidade própria (módulo conhece a si mesmo)
+## Identidade propria (modulo conhece a si mesmo)
 
 ```python
-# core/models.py (no Portal) ou backend/models.py (no módulo)
+# backend/models.py ou core/portal_auth.py
 MONITORIA_MODULE_ID = "monitoria-chamadas"  # constante
 ```
 
@@ -62,42 +80,36 @@ MONITORIA_MODULE_ID = "monitoria-chamadas"  # constante
 }
 ```
 
-**Source of truth:** Firestore (criado via Portal admin API ou console, NUNCA via seed deste módulo).
+**Source of truth:** Firestore (criado via Portal admin API ou console, NUNCA via seed deste modulo).
 
 ---
 
-## Capability check (este módulo)
+## Objetivo Principal do Modulo (Negocio)
 
-- ✅ Audio formats: MP3, WAV, MPEG
-- ✅ Transcrição: faster-whisper base (PT-BR)
-- ✅ QA: MiniMax M3
-- ✅ Worker: `monitoria-whisper-worker` (Pub/Sub consumer)
+1. Upload de chamada (audio file)
+2. Transcricao audio -> texto
+3. Separar audio atendente e cliente
+4. Avaliar nota QA do atendente e nota NPS do cliente
+5. Categorizar motivos principais da chamada
 
 ---
 
-## Spec canônico completo
+## Capability check (este modulo)
 
-Para o schema JSON validável e a documentação humana detalhada (13 seções), veja:
+- Audio formats: MP3, WAV, MPEG
+- Transcricao: faster-whisper base (PT-BR)
+- QA: MiniMax M3
+- Worker: `monitoria-whisper-worker` (Pub/Sub consumer)
+
+---
+
+## Spec canonico completo
+
+Para o schema JSON validavel e a documentacao humana detalhada, veja:
 - **Portal**: `C:\Users\vinic\workspace_antigravity\Coherence_Portal\docs\conexao_modulo.md`
 - **JSON**: `C:\Users\vinic\workspace_antigravity\Coherence_Portal\docs\conexao_modulo.json`
 
 ---
 
-**Última sincronização:** 2026-07-07
+**Ultima sincronizacao:** 2026-07-07
 **Mantido por:** viniciusbritor@gmail.com
-## Mudancas em 03/07/2026 (sincronizado com Portal)
-
-Apos a Fase 8 (commit `ee292b5` do Portal), o contrato foi **consolidado**:
-
-- ANTES (Fase 4-7): 3 endpoints separados
-  - `GET /api/me/permissions?email=X`
-  - `GET /api/me/role?email=X`
-  - `POST /api/admin/audit-logs/log-access-denied`
-
-- AGORA (Fase 8): **1 endpoint canonico**
-  - `GET /api/auth/me?module_id=<id>`
-  - Header: `Authorization: Bearer <firebase_id_token>`
-  - Resposta: `{email, is_super_admin, client_id, role, modules{}}`
-  - 403 + audit log automatico se `?module_id=X` e user sem permissao
-
-Endpoints legados ainda funcionam mas sao deprecated.
