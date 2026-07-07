@@ -315,6 +315,82 @@ Apos deploy, identificamos possivel problema de **ownership**:
 
 ---
 
+## 07/07/2026 06:30 BRT — Bundle fix: .gitattributes + debug logs no CallInspector
+
+### Contexto
+Apos deploy do fix OIDC audience (commit 25db426), o bundle deployed
+(index-ErgCUtrQ.js) ainda tinha mojibake em "Concluído"
+(C3 83 C2 AD em vez de C3 AD normal). Resultado: botao Inspecionar
+estava desabilitado (azul esmaecido, opacity 0.30).
+
+O build local (`npm run build` em frontend/dist/) gerava bundle
+correto (index-DSlTdKBS.js com C3 AD). Mas o cloudbuild gerava
+bundle DIFERENTE com mojibake.
+
+### Causa raiz
+`core.autocrlf=true` (system-wide no Windows) + git archive no
+cloudbuild = double-encoding. O working tree tem "C3 AD" (UTF-8
+normal de "i"), git converte para "C3 0D 0A" (adiciona CR LF),
+cloudbuild interpreta como latin1 e re-encoda como UTF-8:
+"C3 83 C2 AD" (mojibake de "Ã­").
+
+### Fix aplicado (3 commits)
+
+**1. `2d0c8c1` - .gitattributes para fixar encoding**
+- Adiciona .gitattributes com `text eol=lf` para arquivos .jsx, .js,
+  .ts, .tsx, .json, .md, .css, .html, .yml, .yaml, .txt
+- Resultado: git nao faz autocrlf conversion no commit
+- cloudbuild recebe os bytes UTF-8 puros
+
+**2. `f51645c` - corrigir .gitattributes + debug logs no CallInspector**
+- Erro no primeiro push: 'text=working-tree-encoding' nao e' valor
+  valido no git (apenas text, text eol=lf, text eol=crlf, text=auto,
+  binary)
+- Corrigido para `text eol=lf` (formato correto)
+- Adicionado console.log estrategicos no CallInspector:
+  - console.log no mount (callId, API_URL)
+  - console.log no fetch (token length, status, keys do response)
+  - console.log no JSON.parse (sucesso/falha)
+  - console.log no render (estado: loading/error/call)
+  - console.error em qualquer erro
+- Finalidade: investigar 'tela em branco' que owner reportou ao
+  clicar em Inspecionar (mesmo com botao habilitado)
+
+### Verificacao de encoding
+Antes (bundle deployed antigo, index-ErgCUtrQ.js):
+- 7 ocorrencias de "Concluido" - TODAS com bytes C3 83 C2 AD (mojibake)
+- 0 ocorrencias de C3 AD (UTF-8 normal)
+
+Apos (bundle novo, index-Kacg1UNp.js - rev 00069-g8w):
+- 7 ocorrencias de "Concluido" - TODAS com bytes C3 AD (UTF-8 normal)
+- 0 ocorrencias de C3 83 C2 AD (mojibake)
+
+### Licoes aprendidas
+1. **PowerShell exibe bytes UTF-8 mal** quando convertido para int:
+   byte C3 (latin1: Ã) sozinho e mostrado como 195 (decimal) mas
+   o PowerShell DEVERIA mostrar como C3 (hex). Use sempre Python ou
+   [System.IO.File]::ReadAllBytes() para verificar encoding.
+2. **Mojibake pode ter multiplas fontes**: double-encoding no git
+   archive, cache do cloudbuild, encoding do Vite plugin, ou ate
+   mesmo o PowerShell.
+3. **`.gitattributes` com `text eol=lf`** e' a forma canonica de
+   fixar EOL/encoding em repos multiplataforma.
+
+### Status
+- Bundle deployed: `index-Kacg1UNp.js` (rev 00069-g8w)
+- Encoding: 100% UTF-8 correto
+- Botao Inspecionar: agora habilitado (comparacao call.status ===
+  'Concluido' funciona)
+- Logs adicionados no CallInspector para debug de 'tela em branco'
+
+### Pendente (para o owner testar)
+1. Hard refresh (Ctrl+Shift+R) no Chrome
+2. Clicar em "Inspecionar" em uma chamada Concluida
+3. Se ainda vir tela em branco, abrir DevTools (F12) > Console
+4. Me dizer o que aparece nos logs `[CallInspector] ...`
+
+---
+
 ## 07/07/2026 03:30 BRT — Fix bug de acentuação em "Concluído" (canonical)
 
 ### Contexto
