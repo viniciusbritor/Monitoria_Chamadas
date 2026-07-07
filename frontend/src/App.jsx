@@ -90,8 +90,10 @@ function App() {
   }, [])
 
   const navigateTo = (view, callId = null) => {
+    console.log('[App] navigateTo called: view=', view, 'callId=', callId)
     setSelectedCallId(callId)
     setCurrentView(view)
+    console.log('[App] navigateTo done: currentView=', view, 'selectedCallId=', callId)
   }
 
   const handleLogout = async () => {
@@ -225,6 +227,10 @@ function App() {
     <div className="min-h-screen flex flex-col transition-page">
       <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50 transition-content">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          {/* NEW (07/07/2026): tag de versao para o user confirmar qual bundle esta rodando */}
+          <div className="absolute top-1 right-2 text-[8px] text-black/30 font-mono pointer-events-none select-none">
+            build f51645c
+          </div>
           <div 
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => navigateTo('dashboard')}
