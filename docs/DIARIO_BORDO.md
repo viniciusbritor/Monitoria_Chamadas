@@ -2,6 +2,345 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 06/07/2026 23:30 BRT — Migração Firestore completa (Plano A++ — DEPLOYED)
+
+### Contexto
+`core/db.py` (wrapper Firestore) estava UNTRACKED no git desde 06/07/2026 (data 2026-07-06 no header do arquivo), mas `worker.py` e `api.py` AINDA usavam SQLite direto. Sistema híbrido perigoso: SQLite em uso + Firestore parcialmente implementado. Decisão do owner: completar a migração 100% (Plano A++).
+
+### Causa raiz do legado
+SQLite via GCS FUSE mostrou 4 bugs insuperaveis ao longo de junho/2026:
+1. `BufferedWriteHandler.OutOfOrderError` no journal file
+2. Stale file handle (concurrent writers)
+3. File was clobbered due to generation/metageneration mismatch
+4. Disk I/O error (FUSE cache invalidation)
+
+Resultado: órfãos constantes no Pub/Sub + drift entre test-env SQLite e worker SQLite.
+
+### Decisão arquitetural: Plano A++
+1. **Remover dependência de SQLite COMPLETAMENTE** do runtime (api.py, worker.py, loadtest.py).
+2. **Migrar users + access_requests (tabelas mortas desde 03/07/2026)** → endpoints retornam HTTP 410 Gone. Auth é 100% via Portal Coherence.
+3. **Manter `chamadas` + `user_settings` como collections Firestore** (via `core/db.py` wrapper).
+4. **Worker não escreve mais no DB** — toda persistência passa pelo test-env via callback OIDC.
+5. **Sem volume mount GCS FUSE** — Firestore é gerenciado.
+
+### Mudanças aplicadas (6 commits, ordem cronológica)
+
+| SHA | Tipo | Descrição |
+|---|---|---|
+| `4264dda` | chore(deps) | `requirements.txt`: `google-cloud-firestore` |
+| `afa71a1` | feat(db) | `core/db.py` (wrapper Firestore completo: `ChamadasDB` + `UserSettingsDB`) + `firestore.indexes.json` |
+| `1b2c37b` | refactor(api) | `api.py`: -243/+221 linhas. Todos endpoints migrados |
+| `f145088` | refactor(worker) | `worker.py`: -65/+28 linhas. + `loadtest.py`: -60/+24 linhas (commit merged por race condition) |
+| `547d3bf` | chore(infra) | `cloudbuild-loadtest*.yaml` (deploy de loadtest como Cloud Run Job) |
+| `44e319c` | ci(cloudbuild) | Remove `--add-volume` GCS FUSE dos YAMLs (volume agora obsoleto) |
+
+### Redução líquida de código runtime
+- api.py: **-22 linhas**
+- worker.py: **-37 linhas** (sem `import sqlite3`, sem GCS FUSE mount)
+- loadtest.py: **-36 linhas**
+- Total runtime: **-95 linhas** + adição de 200 linhas no wrapper `core/db.py` (testável independentemente)
+- Net: **+105 linhas mas 100% gerenciado (zero I/O, zero race conditions)**
+
+### Índices Firestore provisionados
+3 índices compostos via `gcloud firestore indexes composite create`:
+1. `user_id ASC, uploaded_at DESC` → `GET /api/calls`
+2. `status ASC, uploaded_at DESC` → `list_by_status` (admin UI)
+3. `status ASC, uploaded_at ASC` → `list_stale` (recover/cleanup/stuck)
+
+Estado pós-deploy: **READY** (verificado 06/07/2026 23:30 BRT).
+
+### Endpoints removidos (Plano A++)
+- `POST /api/request-access` → HTTP 410 Gone + mensagem orientando ao Portal
+- `GET /api/approve-access` → HTTP 410 Gone + idem
+- **Não removidos do código** (mantidos para auditoria) — apenas retornam erro.
+
+### Decisões arquiteturais importantes
+
+**A1. Worker simplificado drasticamente:**
+- Antes: 5 chamadas `sqlite3.connect()` + GCS FUSE mount + race conditions.
+- Depois: 0 chamadas SQLite. Apenas chama callback OIDC. Firestore gerencia tudo.
+
+**A2. test-env callback é o único writer de Firestore:**
+- Worker chama `POST /api/internal/calls/{id}/status` via OIDC.
+- test-env valida token + atualiza Firestore via `core/db.py`.
+- Elimina "dois writers" (race conditions).
+
+**A3. User settings: lookup O(1):**
+- `documentId = user_id` (Firebase sub).
+- `get_user_settings(user_id)` é 1 chamada Firestore.
+- `upsert_user_settings(user_id, fields)` é 1 chamada Firestore.
+
+**A4. Whitelist em TODOS os writes:**
+- `WRITABLE_FIELDS` (frozenset) em `ChamadasDB` + `USER_SETTINGS_WRITABLE` em `UserSettingsDB`.
+- `_sanitize()` remove qualquer key não-whitelist antes do write.
+- Comentário no código: "segurança contra injection de keys extras".
+- Defense in depth contra injection via body de request.
+
+**A5. Bucket `coherence-ominichannel-fs-db-bucket` legado:**
+- Ainda existe no GCS com dados SQLite legados.
+- Não é mais montado por nenhum Cloud Run service (verificado pós-deploy).
+- Cleanup é backlog (próxima sprint).
+
+### Estado pós-deploy (real)
+
+| Serviço | URL | Revisão final | Imagem |
+|---|---|---|---|
+| `monitoria-test-env` | https://monitoria-test-env-894828119087.us-central1.run.app | `00058-267` | `:44e319c` |
+| `monitoria-whisper-worker` | https://monitoria-whisper-worker-894828119087.us-central1.run.app | `00038-qkc` | `:44e319c` |
+
+**Verificações:**
+- ✅ `GET /` em ambos retorna 200 OK
+- ✅ `/api/request-access` retorna 410 Gone com mensagem correta
+- ✅ `/api/calls` retorna 401 Unauthorized (auth funcionando)
+- ✅ Volumes GCS FUSE removidos (`gcloud run services update --remove-volume=db-vol --remove-volume-mount=/mnt/db`)
+- ✅ Índices Firestore em estado READY
+
+### Smoke test E2E — PENDENTE validação manual do owner
+
+Próximo teste deve ser:
+1. Login no Portal Coherence
+2. Abrir card "Monitoria de Chamadas"
+3. Upload de áudio curto (MP3 < 5MB ideal, ou WAV 16kHz mono)
+4. Observar:
+   - Status muda de "Na Fila de Processamento..." → "Transcrevendo..." → "Concluído"
+   - Barra de progresso DETERMINADA funcionando
+   - CallInspector renderiza 3 fases + sentimentos
+   - Firestore collection `chamadas` tem o documento criado/atualizado
+   - Collection `user_settings` tem documento por user (se já configurou settings antes)
+
+### Próximos passos (backlog pós-migração)
+
+- [ ] Smoke test E2E real com áudio
+- [ ] Cleanup do bucket `coherence-ominichannel-fs-db-bucket` no GCS
+- [ ] Deletar arquivos `monitoria_ia.db`, `gcs_monitoria_ia.db`, `prod_db.sqlite` do working tree
+- [ ] Remover `scripts/migrate_db.py` (não aplica mais)
+- [ ] Remover `scripts/inspect_db.py` ou migrar para Firestore inspector
+- [ ] Adicionar métricas de latência Firestore no Cloud Monitoring
+- [ ] Implementar painel de monitoramento de latência (plano original do owner — pendente)
+
+### Lições aprendidas
+
+1. **Nunca deixar migração parcial no filesystem sem commit.** `core/db.py` ficou untracked por horas, criando janela de inconsistência.
+2. **`gcloud run deploy` no Cloud Build NÃO remove volumes automaticamente.** Mounts de revisões anteriores persistem. Sempre usar `gcloud run services update --remove-volume` explicitamente.
+3. **Race condition em commits paralelos via bash:** 2 commits simultâneos no PowerShell podem se misturar (lockfile do git). Sempre rodar commits sequencialmente ou usar `--no-edit` flag.
+4. **Worker simplificado = menos bugs:** removendo write local do worker, eliminamos categoria inteira de race conditions test-env vs worker.
+
+---
+
+## 07/07/2026 00:05 BRT — Reset + push limpo (5 commits consolidados)
+
+### Contexto
+Após primeiro round de commits (14 commits, alguns com race condition de git lock misturando arquivos), owner pediu reset + rebase limpo com mensagens consistentes.
+
+### Estado final pós-reset
+
+```
+0b57c7b ci(cloudbuild): remove GCS FUSE mount + add loadtest Cloud Run Job
+c85af9e refactor(worker): migrate from SQLite to Firestore via core/db.py
+1534a78 refactor(api): migrate from SQLite to Firestore via core/db.py
+3317156 feat(db): introduce Firestore wrappers (ChamadasDB + UserSettingsDB)
+22261d7 chore(deps): add google-cloud-firestore to requirements.txt
+```
+
+### Push
+- `git push origin test` → `158532d..0b57c7b` (5 commits, sem force)
+- Repositório GitHub: https://github.com/viniciusbritor/Monitoria_Chamadas_Teste.git
+
+### Working tree residual (não commitado)
+Arquivos modificados não relacionados ao Plano A++ (owner deve revisar separadamente):
+- `chamadas_simuladas/roteiros/*.json` (5 arquivos)
+- `docs/ARQUITETURA.md`, `docs/conexao_modulo.md`
+- `frontend/.cache-bust`, `CallInspector.jsx`, `main.jsx`
+- `notas de reuniao.txt`
+- `scripts/processed_tokens_results.json`
+
+---
+
+## 06/07/2026 22:42 BRT — Plano: Painel de Monitoramento de Latência em Tempo Real
+
+### Contexto
+Owner pediu monitoramento em tempo real do módulo. Auditoria do estado atual mostrou:
+- **Já existe:** `_log_usage()` em `core/evaluator.py` (FinOps), `get_stats()` em `core/pubsub_admin.py` (Pub/Sub), `worker.py:187` mede `start_time`/`elapsed` total, `/api/queue/stats` + `/api/admin/stuck-calls` (admin-only).
+- **Não existe:** endpoint agregado de métricas, segregação de latência por fase (Whisper / Diarize / LLM), persistência de timings segregados, dashboard visual dedicado, alertas proativos.
+
+Owner respondeu à question:
+1. Escopo: **dentro do módulo Monitoria** (Portal fica para depois — owner disse "por enquanto o objetivo é garantir o módulo funcionando").
+2. Métrica prioritária: **latência (p50/p95 de Whisper + LLM)**.
+3. Push: **short-polling 2s** (padrão já validado em `Dashboard.jsx:POLL_ACTIVE_MS`).
+4. Audiência: **admin + super-admin** (`require_admin_user`).
+
+### Decisões arquiteturais
+
+**A1. Granularidade da janela:** p50/p95 sobre **últimos 60 minutos** (não global). Justificativa: p95 global mistura workloads de hoje com workloads de 1 semana atrás quando o worker estava lento. Janela de 60min é o sweet spot entre responsividade e significância estatística.
+
+**A2. Persistência dos timings:** **SQLite (não Firestore)**, mesmo caminho que `worker.py:209-326` já usa. Razão: o worker grava via `sqlite3.connect(DB_PATH)` direto (não passou pelo wrapper Firestore de `core/db.py`). Manter consistência: quem mede quem persiste.
+
+**A3. Schema segregado:** 6 novas colunas em `chamadas`:
+- `whisper_started_at` / `whisper_finished_at` (REAL, epoch seconds)
+- `diarize_started_at` / `diarize_finished_at`
+- `llm_started_at` / `llm_finished_at`
+- `total_elapsed_sec` (calculado)
+Migration via `ALTER TABLE chamadas ADD COLUMN ...` com try/except `OperationalError` (mesmo padrão das colunas `gcs_uri`, `audio_duration_sec`, `progress_pct` em `api.py:155-166`).
+
+**A4. Instrumentação no worker:** `worker.py:process_call()` ganha `time.time()` antes/depois de cada fase, com UPDATE intermediário no SQLite após Whisper (já tem UPDATE intermediário via `_notify_test_env_callback` em `worker.py:257` — reaproveitar o canal).
+
+**A5. Cálculo de percentis:** `core/metrics.py` (NOVO) com `compute_latency_percentiles(samples: list[float]) -> {"p50": float, "p95": float, "count": int}`. Implementação: numpy se disponível, fallback em Python puro (sort + index). Edge cases: count=0 → `{"p50": None, "p95": None, "count": 0}`.
+
+**A6. Endpoint:** `GET /api/admin/metrics/latency?window_min=60` protegido por `Depends(require_admin_user)` (já existe em `core/portal_auth.py:131`). Retorna:
+```json
+{
+  "window_minutes": 60,
+  "whisper": {"p50": 12.4, "p95": 87.2, "count": 42},
+  "diarize": {"p50": 3.1, "p95": 8.7, "count": 42},
+  "llm": {"p50": 28.6, "p95": 54.3, "count": 42},
+  "total": {"p50": 45.2, "p95": 152.8, "count": 42},
+  "recent": [{call_id, filename, whisper_sec, diarize_sec, llm_sec, total_sec, completed_at}] // top 10
+}
+```
+
+**A7. Frontend:** `frontend/src/components/LatencyMonitor.jsx` (NOVO):
+- 4 cards grandes (Whisper / Diarize / LLM / Total) com p50 e p95 cada.
+- Auto-refresh 2s via `setInterval` (mesmo padrão de `Dashboard.jsx:POLL_ACTIVE_MS`).
+- Tabela compacta com últimas 10 chamadas (call_id truncado, filename, timings).
+- Botão "Latência" no header (App.jsx), visível só se `userRole === 'admin'` (igual ao Queue Manager).
+
+### Trade-offs aceitos
+- **Custo de 6 colunas a mais por chamada:** aceitável. SQLite escreve in-place, sem overhead de leitura para o Dashboard atual.
+- **Cálculo de percentis in-memory:** aceitável até ~10k chamadas/hora. Acima disso, considerar materialized view ou agregação no Firestore.
+- **Sem alerta proativo:** backlog para Fase 2. Owner não pediu (foco é observabilidade, não alerta).
+
+### Implementação (próximo PR)
+1. `worker.py` — adicionar `time.time()` antes/depois de cada fase + UPDATE intermediário.
+2. `api.py:init_db()` — adicionar 6 `ALTER TABLE` migrations.
+3. `core/metrics.py` (NOVO) — função pura `compute_latency_percentiles()`.
+4. `api.py` — endpoint `GET /api/admin/metrics/latency`.
+5. `frontend/src/components/LatencyMonitor.jsx` (NOVO).
+6. `frontend/src/App.jsx` — botão "Latência" no header (admin-only).
+7. `tests/test_metrics.py` (NOVO) — testes da função pura (count=0, 1 sample, N samples, par/ímpar).
+8. `docs/DIARIO_BORDO.md` — esta entrada (feita).
+
+### Status
+- **Planejado, NÃO implementado.** Aguardando OK do owner para começar.
+
+---
+
+## 06/07/2026 — ⚠️ Migração Firestore EM ANDAMENTO (não commitada, gap arquitetural)
+
+### Contexto (auditoria 22:42 BRT)
+Durante análise para o painel de latência, detectei inconsistência arquitetural grave: o projeto tem **dois sistemas de DB em paralelo** — SQLite (legado, ativo) e Firestore (wrapper novo, parcialmente integrado).
+
+### O que existe (estado real do working tree, **NÃO COMMITADO**)
+- **`core/db.py`** (UNTRACKED, `git status`) — reescrito do zero como wrapper Firestore:
+  - Coleção `chamadas` no Firestore.
+  - Singleton `ChamadasDB` com `create()`, `update_or_create()`, `get()`, `update()`, `delete()`, `list_all()`, `list_by_status()`, `list_stale()`, `cleanup_orphans()`.
+  - Whitelist `WRITABLE_FIELDS` (proteção contra injection de keys).
+  - Comentário no topo: "Data: 2026-07-06 (migracao de SQLite GCS FUSE para Firestore)".
+  - Last-write-wins, sem transactions.
+
+### O que AINDA usa SQLite direto (não migrado)
+- **`worker.py:209`** — `sqlite3.connect(DB_PATH)` para `SELECT user_settings`.
+- **`worker.py:304-326`** — `sqlite3.connect(DB_PATH)` para UPDATE final.
+- **`api.py:104-176`** — `init_db()` cria schema SQLite.
+- **`api.py:465`** — `SELECT id, filename, uploaded_at... FROM chamadas`.
+- **`api.py:557-587`** — INSERT inicial em SQLite.
+- **`api.py:966-996`** (`/api/internal/cleanup-orphans`) — UPDATE SQLite.
+- **`api.py:1003-1020`** (`/api/admin/stuck-calls`) — SELECT SQLite.
+
+### Impacto
+- **Worker NÃO grava no Firestore.** Uploads novos persistem em SQLite local (volátil, perdido em deploys).
+- **Painel de latência planejado não pode usar o wrapper Firestore ainda** — ele não tem suporte para INSERT inicial do upload nem UPDATE intermediário do worker.
+- **Migration parcial = risco de inconsistência.** DB local do worker pode divergir do Firestore se algum dia o wrapper for usado.
+
+### Decisão (proposta, aguardando owner)
+**Opção A — Completar a migração agora** (esforço médio):
+1. Reescrever `worker.py` para usar `ChamadasDB` em vez de `sqlite3.connect()`.
+2. Reescrever `api.py:init_db()` para virar no-op (Firestore não precisa).
+3. Reescrever endpoints `/api/calls`, `/api/admin/stuck-calls`, `/api/internal/cleanup-orphans` para usar Firestore.
+4. Provisionar índices compostos via `terraform` ou `gcloud firestore indexes composite create` (campos `status` + `uploaded_at`, `user_id` + `uploaded_at`).
+5. Deletar SQLite (`monitoria_ia.db`, `gcs_monitoria_ia.db`, `prod_db.sqlite`) + bucket GCS FUSE.
+6. Commit + deploy + smoke test E2E.
+
+**Opção B — Reverter `core/db.py` até ter plano de migração completo** (esforço baixo):
+1. `rm core/db.py` (ou `git restore`).
+2. Worker continua 100% SQLite (status quo validado em produção).
+3. Migração Firestore vira item explícito do backlog com estimativa de esforço.
+4. **Recomendada para AGORA**, dado que owner disse "por enquanto o objetivo é garantir o módulo funcionando".
+
+**Opção C — Híbrido SQLite + Firestore** (esforço alto, duplicação):
+- SQLite continua como fonte primária.
+- Firestore como mirror read-only para dashboards externos.
+- Não recomendado (risco de divergência permanente).
+
+### Recomendação imediata
+**Opção B.** Não misturar mudanças parciais. Se a migração Firestore for boa, fazer 100% em sprint dedicada com testes E2E. Se não for prioridade, remover `core/db.py` e seguir com SQLite até reavaliação.
+
+### Estado
+- **`core/db.py` está como untracked no git** (não foi commitado, mas existe no filesystem).
+- **Nenhum endpoint usa Firestore ainda** (verificado via grep).
+- **Backlog oficial não menciona a migração Firestore** (DIARIO_BORDO.md não tem entrada sobre isso).
+
+---
+
+## 06/07/2026 — Worker Health Check Evolution (8 commits não pushados)
+
+### Contexto
+Durante o dia, owner (vinicius) e claude-code-assistant iteraram 8 vezes sobre a robustez do worker `monitoria-whisper-worker`. Os fixes não foram pushados para `origin/test` (`git log origin/test..HEAD` mostra 8 commits à frente).
+
+### Lista de commits (ordem cronológica)
+
+| SHA | Tipo | Descrição |
+|---|---|---|
+| `f46dd7d` | fix(worker) | POISON_THRESHOLD 3 → 20 (threshold baixo matava msgs legítimas) |
+| `2dc7f0d` | fix(worker) | Watchdog agora detecta STUCK quando **nunca** recebeu mensagem |
+| `9f3a121` | fix(worker) | Watchdog v2 — remove `sub_info.message_count` (campo não existe) |
+| `8bc2553` | fix(worker) | `main()` agora LOOPA no `streaming_pull_future` (sai do restart crash) |
+| `211fd3a` | fix(worker) | Aceita ambos nomes de campo GCS URI (`gcs_uri` ou `audio_gcs_uri`) |
+| `f874bf1` | fix(api) | Serializa `raw_evaluation` como JSON antes de inserir no SQLite |
+| `50d2d39` | fix(worker) | Health check SEMPRE 200 (stuck era warning, não unhealthy) |
+| `79000cb` | fix(worker) | Corrigir syntax error (else duplicado) no health_check_server |
+
+### Padrão identificado (8 commits = mesmo tema)
+Todos os 8 commits são sobre **detecção de travamento do worker**:
+1. Threshold de poison message muito baixo → aumentaram para 20.
+2. Watchdog não detectava worker que nunca recebeu mensagem → corrigido.
+3. Watchdog usava campo inexistente → corrigido.
+4. Main saía do loop após restart → corrigido.
+5. Payload Pub/Sub tinha nomes de campos inconsistentes → compatibilizado.
+6. `raw_evaluation` não era JSON-serializável para SQLite → corrigido.
+7. Health check retornava erro em vez de 200 quando worker travava → revertido.
+8. Bug de sintaxe no fix #7 → corrigido.
+
+### Por que não foram pushados?
+Hipótese mais provável: cada fix foi feito em sequência rápida (loop debug-and-fix) sem consolidação. Não há entrada no DIARIO_BORDO descrevendo o processo, então está implícito que foi feito em sessão interativa sem documentação formal.
+
+### Estado pós-último-commit
+| Serviço | Imagem | Última revisão conhecida | Status |
+|---|---|---|---|
+| `monitoria-whisper-worker` | `:79000cb` (último commit) | ??? (não documentada) | healthy (?) |
+
+### Ação recomendada
+1. **Push consolidado**: `git push origin test` com mensagem descritiva do tipo:
+   ```
+   fix(worker): consolidar 8 correções de health check / watchdog / poison
+   
+   - POISON_THRESHOLD 3 → 20 (não matar msgs legítimas)
+   - Watchdog detecta STUCK sem mensagem recebida
+   - main() LOOPA no streaming_pull_future
+   - Compat gcs_uri / audio_gcs_uri no payload Pub/Sub
+   - raw_evaluation serializado como JSON
+   - Health check SEMPRE 200 (stuck é warning, não unhealthy)
+   - Fix syntax error (else duplicado)
+   ```
+2. **Deploy do worker** após push: `cloudbuild-worker.yaml` deve ser acionado.
+3. **Smoke test E2E**: upload de áudio + observar logs do worker por 5min para confirmar que watchdog não entra em loop de restart.
+4. **Entrada retroativa nesta diário** após o smoke test validar que os fixes funcionam em produção.
+
+### Risco se não agir
+- Worker em produção pode estar rodando imagem **antiga** (pré-`f46dd7d`) sem nenhuma das 8 correções.
+- Próximo deploy via `cloudbuild-worker.yaml` vai pegar todas as 8 de uma vez — risco de regressão imprevisível (não houve smoke test incremental).
+
+---
+
 ## 06/07/2026 - Perf Fase 3: Otimização LLM (Plano A — zero perda)
 
 ### Contexto

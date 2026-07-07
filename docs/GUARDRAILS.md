@@ -85,6 +85,53 @@ Estas regras foram criadas após incidente crítico em que chamadas órfãs no P
 3. Configurar `PRAGMA synchronous=NORMAL` (ou FULL para paths críticos de upload).
 4. **Por que:** GCS FUSE tem write-back cache. Sem fsync, deploy/scale pode matar container ANTES do write ser flushed, perdendo o INSERT.
 
+> **⚠️ REGRAS #6-#10 SÃO LEGACY (06/07/2026 — Plano A++).** SQLite + GCS FUSE foram removidos em favor de Firestore. Mantidas aqui para referência histórica. Para o sistema atual, ver **REGRA #11** abaixo.
+
+## 🛡️ REGRA #11 — Firestore é a única fonte de verdade de DB (vigente desde 06/07/2026)
+
+Após migração completa (Plano A++), TODA persistência de dados do módulo usa Firestore. SQLite foi removido do runtime.
+
+### Princípios inegociáveis
+1. **NUNCA usar `import sqlite3`** em runtime (api.py, worker.py, loadtest.py, scripts operacionais). Apenas `core/db.py` é permitido como ponto único de acesso ao DB.
+2. **NUNCA instanciar `firestore.Client()` diretamente** fora de `core/db.py`. Usar sempre `get_db()`, `get_user_settings_db()`, `get_user_settings(user_id)`, `upsert_user_settings(user_id, fields)`, `get_call(call_id)`, `list_calls(...)`, `update_call_status(...)`, `cleanup_orphans(...)`.
+3. **TODO write passa pelo `_sanitize()` do wrapper**, que aplica `WRITABLE_FIELDS` whitelist. Chave não-whitelist = silenciosamente descartada + log warning. **Anti-key-injection.**
+4. **Sem volume mount GCS FUSE.** `--add-volume type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket` é PROIBIDO em cloudbuild YAMLs.
+
+### Índices compostos obrigatórios
+Os 3 índices abaixo foram provisionados em 06/07/2026 via `gcloud firestore indexes composite create` e estão em estado READY. Source of truth: `firestore.indexes.json` no repo.
+
+| Collection | Fields | Order | Usado por |
+|---|---|---|---|
+| `chamadas` | `user_id`, `uploaded_at` | ASC, DESC | `GET /api/calls` |
+| `chamadas` | `status`, `uploaded_at` | ASC, DESC | `list_by_status` (admin UI) |
+| `chamadas` | `status`, `uploaded_at` | ASC, ASC | `list_stale` (recover/cleanup/stuck) |
+
+**Re-provisionar** (em caso de disaster recovery):
+```
+gcloud firestore indexes composite create \
+  --collection-group=chamadas \
+  --field-config=field-path=<F>,order=<O> \
+  --field-config=field-path=<F>,order=<O> \
+  --project=coherence-ominichannel-fs
+```
+
+### Endpoints legados (Plano A++)
+- `POST /api/request-access` → retorna **HTTP 410 Gone**. Auth é 100% via Portal Coherence.
+- `GET /api/approve-access` → retorna **HTTP 410 Gone**. Idem.
+- **NÃO reintroduzir.** Portal é source of truth de permissões.
+
+### Por que Firestore (e não SQLite)
+- **Zero race conditions** de I/O (vs 4 bugs históricos do SQLite GCS FUSE documentados em 06/07/2026).
+- **Sem volume mount** = sem cold-start I/O, sem GCS FUSE cache invalidation.
+- **Concorrencia via last-write-wins** com timestamps. UI polling de 2s absorve sobreposições benignas.
+- **Queries indexadas** sem SQL manual.
+
+### Lições aprendidas (Plano A++)
+1. **Não deixar migração parcial no filesystem sem commit.** `core/db.py` ficou untracked por horas antes da migração.
+2. **Race condition em commits paralelos via bash** no PowerShell (lockfile do git). Sempre rodar commits sequencialmente.
+3. **`gcloud run deploy` no Cloud Build NÃO remove volumes automaticamente** — sempre `gcloud run services update --remove-volume` explícito após o deploy.
+4. **Worker simplificado = menos bugs.** Removendo write local do worker, eliminamos categoria inteira de race conditions test-env vs worker.
+
 ## Barreiras Limitantes
 - **Processamento em CPU (Whisper):** O Cloud Run operando com recursos de CPU (sem GPU dedicada) é a principal barreira arquitetural de performance. A transcrição via faster-whisper em arquivos de áudio leva em média cerca de 1 a 2 minutos, o que afeta a percepção do usuário (ansiedade gerando sensação de erro) já que o frontend não possui websockets para atualizar o status em tempo real. A barreira requer a gestão de expectativa do tempo de processamento.
 

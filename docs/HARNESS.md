@@ -33,7 +33,7 @@
 - `/docs`: Documentação técnica essencial.
 
 ## 🔑 Autenticação e Segredos
-- O projeto consome segredos utilizando o arquivo global `secrets_manager.py` (banco cofre). A variável `GEMINI_API_KEY` é extraída de maneira segura para inferência, evitando credenciais hardcoded.
+- O projeto consome segredos via env vars injetadas no deploy (`gcloud run services update --update-env-vars`). A variável crítica é `MINIMAX_API_KEY` (LLM MiniMax M3 para extração de QA), extraída de `secrets_manager.py` (banco cofre local) durante o deploy. **Nunca commitada em código ou YAML.** Ver `docs/DIARIO_BORDO.md` 28/06/2026 (bug `login fail: Please carry the API secret key` no deploy).
 
 ## 🤝 SSO com Portal Coherence (Fase 8 — 03/07/2026)
 
@@ -79,7 +79,7 @@ def get_current_user(authorization: str = Header(None)):
 
 ## Histórico de Erros e Resoluções
 - **Erro de "Erro no upload" no ambiente de teste (03/07/2026):** O bundle JS em `frontend/dist/` foi compilado com `VITE_API_URL=http://127.0.0.1:8001` (dev local), fazendo o navegador do usuário tentar POST para localhost. Bug adicional: 3 arquivos `.jsx` tinham fallback apontando para a URL de produção. Corrigido rebuildando o frontend com a URL correta e alinhando os fallbacks.
-- **Erro de Falhou na Interface:** Ao enviar áudios, a interface do usuário exibia o status Falhou após um longo tempo aguardando. Isso ocorreu porque o processo do Whisper no Cloud Run consome tempo substancial de CPU e a interface assumia um timeout ou um erro prematuro, apesar de o servidor continuar processando e salvar os resultados corretamente no SQLite (monitoria_ia.db). Foi mitigado ajustando a alocação de threads no Whisper e documentando a necessidade de paciência do usuário devido ao uso de CPU.
+- **Erro de Falhou na Interface:** Ao enviar áudios, a interface do usuário exibia o status Falhou após um longo tempo aguardando. Isso ocorreu porque o processo do Whisper no Cloud Run consome tempo substancial de CPU e a interface assumia um timeout ou um erro prematuro, apesar de o servidor continuar processando e salvar os resultados corretamente no **Firestore** (collection `chamadas`). Foi mitigado ajustando a alocação de threads no Whisper e documentando a necessidade de paciência do usuário devido ao uso de CPU. (Pré-06/07/2026 a persistência era em SQLite GCS FUSE; migrada para Firestore no Plano A++.)
 
 ## Visual Identity
 All UI changes must strictly follow [UI_GUIDELINES.md](UI_GUIDELINES.md) ensuring the Coherence visual identity guidelines (Clean Light Glassmorphism).
