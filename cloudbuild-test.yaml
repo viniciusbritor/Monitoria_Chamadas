@@ -17,6 +17,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
+      '--no-cache',  # NEW (07/07/2026): forca rebuild sem usar cache. Cache antigo tinha dist/ com mojibake em 'Concluido'. Sem isso, bundle deployed nao atualizava.
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '.'
