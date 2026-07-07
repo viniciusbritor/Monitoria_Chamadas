@@ -313,11 +313,12 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
 
     # 8. Cleanup
     shutil.rmtree(tmp_dir, ignore_errors=True)
-    try:
-        blob.delete()
-        print(f"[Worker {WORKER_ID}] Audio deletado do GCS: {gcs_uri}", flush=True)
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] Falha ao deletar audio do GCS: {e}", flush=True)
+    # try:
+    #     blob.delete()
+    #     print(f"[Worker {WORKER_ID}] Audio deletado do GCS: {gcs_uri}", flush=True)
+    # except Exception as e:
+    #     print(f"[Worker {WORKER_ID}] Falha ao deletar audio do GCS: {e}", flush=True)
+
 
 
 def callback(message):

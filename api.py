@@ -415,6 +415,44 @@ def get_call_endpoint(call_id: str, user = Depends(get_current_user)):
             call_data[ts_field] = call_data[ts_field].isoformat()
     return call_data
 
+@app.get("/api/calls/{call_id}/audio")
+def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
+    """Gera Signed URL para o audio salvo no GCS (playback no frontend)."""
+    call_data = get_call(call_id)
+    if not call_data or "gcs_uri" not in call_data or not call_data["gcs_uri"]:
+        raise HTTPException(status_code=404, detail="Áudio não encontrado ou já deletado")
+        
+    if call_data.get("user_id") != user.get("sub"):
+        is_super = user.get("is_super_admin", False)
+        if not is_super:
+            raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
+            
+    gcs_uri = call_data["gcs_uri"]
+    try:
+        bucket_name = gcs_uri.split("/")[2]
+        blob_name = "/".join(gcs_uri.split("/")[3:])
+        
+        from google.cloud import storage as gcs_storage
+        gcs_client = gcs_storage.Client()
+        bucket = gcs_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        
+        if not blob.exists():
+            raise HTTPException(status_code=404, detail="Arquivo deletado do storage")
+            
+        import datetime
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=datetime.timedelta(minutes=120),
+            method="GET"
+        )
+        return {"audio_url": url}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[API] Erro gerando signed_url para {gcs_uri}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao gerar link do áudio")
+
 @app.post("/api/upload")
 async def upload_audio(
     background_tasks_fallback: BackgroundTasks,

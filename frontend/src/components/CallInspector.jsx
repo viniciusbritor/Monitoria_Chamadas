@@ -9,6 +9,7 @@ export default function CallInspector({ callId, onBack }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeTab, setActiveTab] = useState('report') // 'report' | 'transcript'
+  const [audioUrl, setAudioUrl] = useState(null)
 
   useEffect(() => {
     console.log('[CallInspector] mount callId=', callId, 'API_URL=', API_URL)
@@ -33,6 +34,15 @@ export default function CallInspector({ callId, onBack }) {
         }
 
         setCall({ ...res.data, analysis: analysisData })
+
+        try {
+          const audioRes = await axios.get(`${API_URL}/api/calls/${callId}/audio`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          setAudioUrl(audioRes.data.audio_url)
+        } catch (e) {
+          console.warn('[CallInspector] Nao foi possivel carregar o audio:', e.message)
+        }
       } catch (err) {
         console.error('[CallInspector] fetch error:', err.response?.status, err.message)
         // Mensagens especificas por status HTTP para melhor UX
@@ -119,6 +129,18 @@ export default function CallInspector({ callId, onBack }) {
             </div>
           </div>
 
+          {audioUrl && (
+            <div className="mb-6 bg-surface p-4 rounded-2xl border border-black/5 shadow-sm">
+              <h3 className="font-bold text-sm text-textMain mb-2 flex items-center gap-2">
+                <Headphones size={16} className="text-primary"/> 
+                Gravação da Chamada
+              </h3>
+              <audio controls className="w-full h-10 outline-none" src={audioUrl}>
+                Seu navegador não suporta o elemento de áudio.
+              </audio>
+            </div>
+          )}
+
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin">
             {activeTab === 'report' && (
               <div className="space-y-6">
@@ -190,7 +212,7 @@ export default function CallInspector({ callId, onBack }) {
         {/* Coluna Direita: Analise */}
         <div className="space-y-6">
           
-          {call.analysis?.checklist_conformidade && (
+          {Array.isArray(call.analysis?.checklist_conformidade) && call.analysis.checklist_conformidade.length > 0 && (
             <div className="glass-panel p-6">
               <h3 className="font-semibold text-textMain mb-4 flex items-center gap-2">
                 <CheckCircle2 size={18} className="text-primary" />
@@ -227,7 +249,7 @@ export default function CallInspector({ callId, onBack }) {
                   {call.analysis.sucesso_venda_retencao ? 'Sim' : 'Não'}
                 </span>
               </div>
-              {call.analysis.argumentos_operador && call.analysis.argumentos_operador.length > 0 && (
+              {Array.isArray(call.analysis?.argumentos_operador) && call.analysis.argumentos_operador.length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-textMuted uppercase mb-2">Argumentos Utilizados:</div>
                   <ul className="space-y-2">
@@ -268,8 +290,8 @@ export default function CallInspector({ callId, onBack }) {
               Sentimentos (Operador)
             </h3>
             <div className="flex flex-wrap gap-2">
-              {call.sentimentos_operador && call.sentimentos_operador.length > 0 ? (
-                call.sentimentos_operador.map((s, i) => (
+              {Array.isArray(call.analysis?.sentimentos_operador) && call.analysis.sentimentos_operador.length > 0 ? (
+                call.analysis.sentimentos_operador.map((s, i) => (
                   <span key={i} className="bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
                     {s}
                   </span>
@@ -286,8 +308,8 @@ export default function CallInspector({ callId, onBack }) {
               Sentimentos (Cliente)
             </h3>
             <div className="flex flex-wrap gap-2">
-              {call.sentimentos_cliente && call.sentimentos_cliente.length > 0 ? (
-                call.sentimentos_cliente.map((s, i) => (
+              {Array.isArray(call.analysis?.sentimentos_cliente) && call.analysis.sentimentos_cliente.length > 0 ? (
+                call.analysis.sentimentos_cliente.map((s, i) => (
                   <span key={i} className="bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
                     {s}
                   </span>
@@ -298,14 +320,14 @@ export default function CallInspector({ callId, onBack }) {
             </div>
           </div>
           
-          {call.erros_fatais && call.erros_fatais.length > 0 && (
+          {Array.isArray(call.analysis?.erros_fatais_identificados) && call.analysis.erros_fatais_identificados.length > 0 && (
             <div className="glass-panel border-red-500/30 p-6 bg-red-50">
               <h3 className="font-semibold text-red-600 mb-4 flex items-center gap-2">
                 <ShieldAlert size={18} />
                 Erros Fatais
               </h3>
               <ul className="space-y-2">
-                {call.erros_fatais.map((erro, i) => (
+                {call.analysis.erros_fatais_identificados.map((erro, i) => (
                   <li key={i} className="text-sm text-red-600 flex items-start gap-2">
                     <span className="mt-1 flex-shrink-0">•</span> {erro}
                   </li>
