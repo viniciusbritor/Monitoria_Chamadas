@@ -68,8 +68,11 @@ export default function CallInspector({ callId, onBack }) {
     fetchCall()
   }, [callId])
 
-  if (loading) return <div className="text-center py-12 text-textMuted">Carregando análise...</div>;
-  if (error || !call) return (
+  if (loading) {
+    return <div className="text-center py-12 text-textMuted">Carregando análise...</div>
+  }
+  if (error || !call) {
+    return (
     <div className="space-y-6">
       <div className="flex items-center gap-4 mb-8">
         <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors">
