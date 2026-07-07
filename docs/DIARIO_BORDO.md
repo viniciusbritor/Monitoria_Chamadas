@@ -2,6 +2,73 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 07/07/2026 22:00 BRT — Fix sintaxe JSX no CallInspector + deploy final
+
+### Contexto
+Apos o refactor total (commit d3396c9), o build do test-env (build
+0765d456) falhou com erro de sintaxe JSX. Causa: meu edit anterior
+removeu o 'if (loading) {' mas manteve o 'return' solto, que o Vite/
+rolldown detectou como "A 'return' statement can only be used
+within a function body".
+
+### Erro do build
+```
+A 'return' statement can only be used within a function body.
+[builtin:vite-transform]
+     ╭─[ src/components/CallInspector.jsx:100:3 ]
+     │
+ 100 │   return (
+     │   ───┬──
+     │      ╰────
+─────╯
+
+[builtin:vite-transform] Unexpected token
+     ╭─[ src/components/CallInspector.jsx:348:1 ]
+     │
+ 348 │ }
+     │ ┬
+     │ ╰──
+─────╯
+```
+
+### Fix aplicado (commit 3233279)
+- Adicionado { } ao redor de todos os returns no inicio do
+  componente funcional:
+  - `if (loading) { return <div>Carregando...</div> }`
+  - `if (error || !call) { return (...) }`
+- Build local agora gera bundle corretamente:
+  - `index-D2OyDrLe.js` (398354 bytes, 0 mojibake, encoding UTF-8 normal)
+- Deploy: rev `00074-s4r` (imagem `3233279`)
+
+### Verificacao pos-deploy
+- Bundle deployed: `index-CfgviJdT.js` (398406 bytes, 0 mojibake)
+- Encoding UTF-8 normal: 9 ocorrencias de C3 AD (í)
+- Mojibake: 0
+- HTTP 200 em GET /
+- Chamada presa do OIDC limpa (Firestore)
+
+### Status de sincronizacao
+| Camada | Estado |
+|---|---|
+| Git | origin/test @ 3233279 (push OK) |
+| GCP test-env | Rev 00074-s4r / imagem :3233279 (com fix de sintaxe + refactor) |
+| GCP worker | Rev 00042-... / imagem :3233279 |
+| Local | Working tree limpo (apenas arquivos não-relacionados: roteiros, processed_tokens) |
+| Bundle | index-CfgviJdT.js (0 mojibake, encoding correto) |
+| Firestore | 7 docs (5 Concluido, 1 limpo OIDC, 1 novo upload 2a2374c9) |
+
+### Pendente (para o user testar)
+1. Hard refresh DEFINITIVO no Chrome (Ctrl+Shift+R ou Ctrl+Shift+Delete)
+2. Verificar se a tela em branco persiste ao clicar Inspecionar
+3. Se persistir, abrir DevTools (F12) > Console e me enviar os logs
+4. Fazer upload de uma chamada de teste para confirmar E2E
+
+### Licoes aprendidas
+- Edit em JSX com refactor requer cuidado com { } em torno de returns
+- Vite/rolldown eh rigoroso: detectou 'return' fora de funcao e abortou build
+- Build local antes de deploy Cloud Build economiza tempo
+- Encoding UTF-8 + PowerShell: sempre usar Python para verificar bytes brutos
+
 ## 07/07/2026 20:30 BRT — Refactor Total + Objetivo Principal
 
 ### Contexto
