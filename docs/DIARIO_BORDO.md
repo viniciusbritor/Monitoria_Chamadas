@@ -315,6 +315,54 @@ Apos deploy, identificamos possivel problema de **ownership**:
 
 ---
 
+## 07/07/2026 07:00 BRT — Fix "tela em branco" no Inspecionar (animações removidas)
+
+### Contexto
+Apos deploy do bundle corrigido (encoding UTF-8 OK), o user ainda
+reportou "tela em branco" ao clicar em Inspecionar. Console nao
+mostrava logs do CallInspector. Investigacao identificou animacoes
+Tailwind causando o problema.
+
+### Causa raiz
+`<div key={currentView + (selectedCallId || '')}>` no App.jsx + classe
+`transition-content` (animation: fadeInUp 500ms) + `animate-in
+slide-in-from-right-8 duration-500` no CallInspector causavam:
+
+1. User clica Inspecionar
+2. React remonta <div> (key muda)
+3. Animacao fadeInUp inicia com opacity: 0
+4. Durante 500ms, conteudo fica INVISIVEL
+5. User tira print = "tela em branco" (so ve o header que NAO tem
+   animacao)
+
+### Fix aplicado (commit 4247330)
+- Removido `className="space-y-6 animate-in slide-in-from-right-8 duration-500"`
+  do CallInspector.jsx
+- Removido `className="transition-content"` do <main> e do <div>
+  interno no App.jsx
+- Resultado: conteudo aparece IMEDIATAMENTE ao clicar Inspecionar
+  (sem fade, sem branco temporario)
+
+### Status
+- Bundle deployed: `index-Cg1JEESC.js` (rev 00072-g4j)
+- Imagem: `:4247330`
+- Encoding: 100% UTF-8 correto
+- Animacoes removidas: conteudo visivel instantaneamente
+- Logs do CallInspector presentes: `[CallInspector] mount/fetching/response/...`
+- Tag de versao visivel no header: `build 84b958f` (ou hash do deploy)
+
+### Pendente (para o owner testar)
+1. Hard refresh DEFINITIVO (Ctrl+Shift+R ou Ctrl+Shift+Delete)
+2. Verificar tag no canto superior direito do header: deve mostrar
+   `build <hash>` - confirma bundle novo
+3. Clicar Inspecionar - conteudo deve aparecer IMEDIATAMENTE
+4. Console deve mostrar logs `[CallInspector] mount ... fetching ...
+   response status=...`
+5. Se ainda ver "tela em branco", abrir DevTools e me copiar os logs
+   `[CallInspector] ...` - indicam exatamente o problema
+
+---
+
 ## 07/07/2026 06:30 BRT — Bundle fix: .gitattributes + debug logs no CallInspector
 
 ### Contexto
