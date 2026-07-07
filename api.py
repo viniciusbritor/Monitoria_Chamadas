@@ -892,13 +892,8 @@ def stuck_calls(user: dict = Depends(require_admin_user)):
 # 2s infinito, worker reprocessava a cada redelivery.
 # Este endpoint corrige dados legados (idempotente). Remover apos 1 semana
 # se nao houver mais dados com variantes problematicas.
-@app.post("/api/admin/migrate-status-accent")
-def migrate_status_accent(user: dict = Depends(require_admin_user)):
-    """Normaliza status variantes para forma canonica 'Concluído' (com acento).
-
-    Idempotente. Use para corrigir dados legados pre-07/07/2026.
-    Requer admin (super-admin via /api/auth/me).
-    """
+def _migrate_status_accent_logic() -> dict:
+    """Logica compartilhada entre os 2 endpoints (admin Firebase + OIDC)."""
     variants = {
         "Concluido": "Concluído",
         "concluido": "Concluído",
@@ -927,11 +922,41 @@ def migrate_status_accent(user: dict = Depends(require_admin_user)):
         except Exception as e:
             errors.append({"doc_id": doc.id, "error": str(e)})
             print(f"[Migrate] ERRO no doc {doc.id}: {e}", flush=True)
+    return {"scanned": scanned, "migrated": migrated, "errors": errors}
+
+
+@app.post("/api/admin/migrate-status-accent")
+def migrate_status_accent(user: dict = Depends(require_admin_user)):
+    """Normaliza status variantes para forma canonica 'Concluído' (com acento).
+
+    Idempotente. Use para corrigir dados legados pre-07/07/2026.
+    Requer admin (super-admin via /api/auth/me - Firebase token).
+    """
+    result = _migrate_status_accent_logic()
     print(
-        f"[Migrate] user={user.get('email')} scanned={scanned} migrated={migrated} errors={len(errors)}",
+        f"[Migrate] user={user.get('email')} scanned={result['scanned']} "
+        f"migrated={result['migrated']} errors={len(result['errors'])}",
         flush=True,
     )
-    return {"scanned": scanned, "migrated": migrated, "errors": errors}
+    return result
+
+
+@app.post("/api/internal/migrate-status-accent")
+async def migrate_status_accent_internal(request: Request):
+    """Versao OIDC-only do endpoint acima. Para Cloud Scheduler / cron / smoke test.
+
+    Autenticado via Google Cloud identity token (mesmo padrao de cleanup-orphans).
+    Use quando nao tiver Firebase token de admin em maos.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    _verify_cloud_run_identity(auth_header, str(request.base_url))
+    result = _migrate_status_accent_logic()
+    print(
+        f"[Migrate] OIDC scanned={result['scanned']} "
+        f"migrated={result['migrated']} errors={len(result['errors'])}",
+        flush=True,
+    )
+    return result
 
 
 # Endpoints administrativos migrados para o Coherence Portal (SSO Global).
