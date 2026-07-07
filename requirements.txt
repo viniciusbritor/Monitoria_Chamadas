@@ -11,3 +11,4 @@ httpx
 pyjwt
 google-cloud-pubsub
 google-cloud-storage
+google-cloud-firestore
