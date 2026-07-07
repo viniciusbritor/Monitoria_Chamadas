@@ -296,8 +296,8 @@ function App() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 transition-content">
-        <div key={currentView + (selectedCallId || '')} className="transition-content">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
+        <div key={currentView + (selectedCallId || '')}>
           {currentView === 'dashboard' && (
             <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
           )}

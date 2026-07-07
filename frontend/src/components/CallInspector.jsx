@@ -83,8 +83,8 @@ export default function CallInspector({ callId, onBack }) {
   const clientScore = call.nota_sentimento_cliente || 0
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-right-8 duration-500">
-      
+    <div className="space-y-6">
+
       {/* Top Bar */}
       <div className="flex items-center gap-4 mb-8">
         <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors">
