@@ -1,0 +1,19 @@
+steps:
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'create'
+      - 'monitoria-loadtest-job'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/monitoria-loadtest:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--cpu=1'
+      - '--memory=1Gi'
+      - '--task-timeout=600'
+      - '--max-retries=0'
+      - '--set-env-vars=GCP_PROJECT=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs,AUDIO_BUCKET=coherence-monitoria-audios-tmp,DB_PATH=/mnt/db/monitoria_ia.db'
+      - '--add-volume=name=db-vol,type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket'
+      - '--add-volume-mount=volume=db-vol,mount-path=/mnt/db'

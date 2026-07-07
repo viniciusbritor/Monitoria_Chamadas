@@ -53,16 +53,11 @@ steps:
       # cloudsdktool image do Cloud Build (--cpu-throttling=false falha
       # com 'ignored explicit argument').
       - '--no-cpu-throttling'
-      # NEW (05/07/2026 - Fase 1 / Fix #1): GCS FUSE mount compartilhado com worker.
-      # Sem isso, test-env usa SQLite LOCAL (volatil) -> INSERT some em deploys
-      # -> orfaos. Com o mount, ambos compartilham o mesmo arquivo.
-      # IMPORTANTE (06/07/2026): bucket precisa ser do MESMO projeto do Cloud Run
-      # (coherence-ominichannel-fs). O bucket antigo `consultoria-bess-mme136-db-bucket`
-      # era de outro projeto -> deploy quebrava. Foi criado `coherence-ominichannel-fs-db-bucket`
-      # e o monitoria_ia.db migrado.
-      - '--add-volume=name=db-vol,type=cloud-storage,bucket=coherence-ominichannel-fs-db-bucket'
-      - '--add-volume-mount=volume=db-vol,mount-path=/mnt/db'
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1,DB_PATH=/mnt/db/monitoria_ia.db'
+      # REMOVIDO (06/07/2026 - Plano A++): GCS FUSE mount do SQLite.
+      # Migracao completa para Firestore — nao ha mais SQLite local.
+      # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.
+      # Sera removido em sprint futura de cleanup.
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 
 substitutions:

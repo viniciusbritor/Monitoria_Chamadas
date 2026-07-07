@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir \
+    google-cloud-pubsub==2.21.0 \
+    google-cloud-storage==2.16.0
+
+WORKDIR /app
+COPY loadtest.py /app/loadtest.py
+
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "/app/loadtest.py"]</content>
