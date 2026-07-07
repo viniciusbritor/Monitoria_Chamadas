@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import time
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +25,10 @@ from core.transcriber import Transcriber, preload_model
 from core.evaluator import Evaluator
 from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, require_admin_user
 from core import pubsub_admin
+from core.db import (
+    get_db, get_call, list_calls, update_call_status, cleanup_orphans as cleanup_orphans_db,
+    get_user_settings, upsert_user_settings,
+)
 
 MODULE_ID = "monitoria-chamadas"
 
@@ -99,81 +102,18 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
-DB_PATH = "/mnt/db/monitoria_ia.db" if os.path.exists("/mnt/db") else "monitoria_ia.db"
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            email TEXT UNIQUE,
-            name TEXT,
-            picture TEXT,
-            is_approved BOOLEAN DEFAULT 0,
-            role TEXT DEFAULT 'user'
-        )
-    ''')
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN is_approved BOOLEAN DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
-    except sqlite3.OperationalError:
-        pass
-        
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS access_requests (
-            token TEXT PRIMARY KEY,
-            email TEXT UNIQUE,
-            created_at DATETIME
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS chamadas (
-            id TEXT PRIMARY KEY,
-            filename TEXT,
-            uploaded_at DATETIME,
-            status TEXT,
-            nota INTEGER,
-            transcricao TEXT,
-            sentimentos_cliente TEXT,
-            sentimentos_operador TEXT,
-            erros_fatais TEXT,
-            raw_evaluation TEXT,
-            user_id TEXT,
-            diretrizes_qualidade TEXT,
-            nota_sentimento_cliente INTEGER,
-            nota_qualidade_operador INTEGER,
-            transcricao_diarizada TEXT,
-            gcs_uri TEXT,
-            audio_duration_sec REAL,
-            progress_pct REAL
-        )
-    ''')
-    try:
-        cursor.execute("ALTER TABLE chamadas ADD COLUMN gcs_uri TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE chamadas ADD COLUMN audio_duration_sec REAL")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cursor.execute("ALTER TABLE chamadas ADD COLUMN progress_pct REAL")
-    except sqlite3.OperationalError:
-        pass
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_settings (
-            user_id TEXT PRIMARY KEY,
-            checklist_items TEXT,
-            estrategia_vendas TEXT,
-            estrategia_retencao TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    """No-op mantido para compat. Firestore nao precisa de schema initialization
+    (collections sao criadas lazily). Indices sao provisionados via terraform/gcloud.
+
+    Historico:
+    - Pre-06/07/2026: criava tabelas SQLite (users, access_requests, chamadas, user_settings)
+    - 06/07/2026 (Plano A++): migracao completa para Firestore. Tabelas users e
+      access_requests removidas (mortas desde migracao SSO Portal em 03/07/2026).
+    """
+    pass
+
 
 @app.on_event("startup")
 def startup_event():
@@ -282,44 +222,28 @@ def get_evaluator():
 
 def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qualidade: str):
     def update_status(status_text):
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE chamadas SET status = ? WHERE id = ?", (status_text, call_id))
-        conn.commit()
-        conn.close()
+        get_db().update(call_id, {"status": status_text})
 
     def update_progress(pct: float):
         """Atualiza apenas progress_pct (mantem status atual)."""
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE chamadas SET progress_pct = ? WHERE id = ?", (pct, call_id))
-        conn.commit()
-        conn.close()
+        get_db().update(call_id, {"progress_pct": pct})
 
     def read_audio_duration() -> float | None:
         """Le audio_duration_sec salvo no INSERT inicial."""
         try:
-            conn = sqlite3.connect(DB_PATH)
-            cursor = conn.cursor()
-            cursor.execute("SELECT audio_duration_sec FROM chamadas WHERE id = ?", (call_id,))
-            row = cursor.fetchone()
-            conn.close()
-            return row[0] if row and row[0] else None
+            call = get_call(call_id)
+            if call and call.get("audio_duration_sec") is not None:
+                return float(call["audio_duration_sec"])
+            return None
         except Exception:
             return None
 
     try:
-        # Busca configurações do usuário
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
-        settings_row = cursor.fetchone()
-        conn.close()
-
-        user_settings = {}
-        if settings_row:
-            user_settings = dict(settings_row)
+        # Busca configurações do usuário (Firestore collection user_settings)
+        settings_doc = get_user_settings(user_id) or {}
+        # Remove campos de controle interno antes de passar pro evaluator
+        user_settings = {k: v for k, v in settings_doc.items()
+                         if k not in ("user_id", "updated_at")}
 
         # Etapa 1: Transcricao Bruta com callback de progresso throttled
         update_status("Transcrevendo Audio (Whisper)...")
@@ -354,7 +278,7 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         # Etapa 3: Avaliacao IA
         update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
         evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
-        
+
         # Etapa 4: Conclusão
         nota = evaluation.get("nota_geral")
         if isinstance(nota, str) and "%" in nota:
@@ -363,26 +287,24 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
             nota = int(nota)
         else:
             nota = 0
-            
+
         nota_sentimento_cliente = evaluation.get("nota_sentimento_cliente", 5)
         nota_qualidade_operador = evaluation.get("nota_qualidade_operador", nota)
-            
-        sentimentos_cliente = json.dumps(evaluation.get("sentimentos_cliente", []))
-        sentimentos_operador = json.dumps(evaluation.get("sentimentos_operador", []))
-        erros_fatais = json.dumps(evaluation.get("erros_fatais_identificados", []))
-        raw_evaluation = json.dumps(evaluation)
-        transcricao = json.dumps(segments)
-        
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE chamadas
-            SET status = ?, nota = ?, transcricao = ?, sentimentos_cliente = ?, sentimentos_operador = ?, erros_fatais = ?, raw_evaluation = ?, transcricao_diarizada = ?, nota_sentimento_cliente = ?, nota_qualidade_operador = ?
-            WHERE id = ?
-        ''', ("Concluído", nota, transcricao, sentimentos_cliente, sentimentos_operador, erros_fatais, raw_evaluation, diarized_transcript, nota_sentimento_cliente, nota_qualidade_operador, call_id))
-        conn.commit()
-        conn.close()
-        
+
+        # Persiste resultado final via Firestore (Firestore sanitiza dicts/lists)
+        get_db().update(call_id, {
+            "status": "Concluído",
+            "nota": nota,
+            "transcricao": segments,
+            "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+            "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+            "erros_fatais": evaluation.get("erros_fatais_identificados", []),
+            "raw_evaluation": evaluation,
+            "transcricao_diarizada": diarized_transcript,
+            "nota_sentimento_cliente": nota_sentimento_cliente,
+            "nota_qualidade_operador": nota_qualidade_operador,
+        })
+
     except Exception as e:
         update_status(f"Erro: {str(e)}")
 
@@ -393,98 +315,89 @@ def get_me(user = Depends(get_current_user)):
 
 @app.post("/api/request-access")
 async def request_access(email: str = Form(...)):
-    token = str(uuid.uuid4())
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    now = datetime.now().isoformat()
-    cursor.execute("INSERT OR REPLACE INTO access_requests (token, email, created_at) VALUES (?, ?, ?)", (token, email, now))
-    conn.commit()
-    conn.close()
-    
-    # Simula envio de e-mail por enquanto (MOCK)
-    approve_url = f"https://monitoria-cx-4105010761.us-central1.run.app/api/approve-access?token={token}"
-    print(f"\n============================================\n[NOVO PEDIDO DE ACESSO] De: {email}\n[CLIQUE AQUI PARA APROVAR]: {approve_url}\n============================================\n", flush=True)
-    return {"message": "Solicitação enviada. O administrador foi notificado!"}
+    """Endpoint legado removido em 06/07/2026 (Plano A++).
+
+    Substituido pelo fluxo SSO Portal: admin gerencia permissoes direto no Firestore
+    via Portal Coherence (que e' source of truth de sessoes). Para solicitar acesso
+    ao modulo, o usuario deve pedir ao admin do Portal — nao ha mais self-service aqui.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint removido. Solicite acesso ao admin do Portal Coherence.",
+    )
+
 
 @app.get("/api/approve-access")
 async def approve_access(token: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT email FROM access_requests WHERE token = ?", (token,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        return {"message": "Token inválido ou expirado."}
-    
-    email = row[0]
-    cursor.execute("INSERT OR IGNORE INTO users (id, email, is_approved) VALUES (?, ?, 1)", (str(uuid.uuid4()), email))
-    cursor.execute("UPDATE users SET is_approved = 1 WHERE email = ?", (email,))
-    cursor.execute("DELETE FROM access_requests WHERE token = ?", (token,))
-    conn.commit()
-    conn.close()
-    return {"message": f"Acesso aprovado para {email} com sucesso!"}
+    """Endpoint legado removido em 06/07/2026 (Plano A++).
+
+    Substituido pelo Portal Coherence: admin aprova/revoga permissoes direto
+    no Firestore via /admin/permissions do Portal.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint removido. Gerencie permissoes no Portal Coherence.",
+    )
+
 
 class UserSettings(BaseModel):
     checklist_items: str
     estrategia_vendas: str
     estrategia_retencao: str
 
+
 @app.get("/api/settings")
 def get_settings(user = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user.get("sub"),))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return dict(row)
+    """Retorna settings de QA do usuario logado (Firestore user_settings)."""
+    doc = get_user_settings(user.get("sub"))
+    if doc:
+        # Remove chaves internas
+        return {
+            "checklist_items": doc.get("checklist_items", "[]"),
+            "estrategia_vendas": doc.get("estrategia_vendas", ""),
+            "estrategia_retencao": doc.get("estrategia_retencao", ""),
+        }
     return {
         "checklist_items": "[]",
         "estrategia_vendas": "",
         "estrategia_retencao": ""
     }
 
+
 @app.post("/api/settings")
 def save_settings(settings: UserSettings, user = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO user_settings (user_id, checklist_items, estrategia_vendas, estrategia_retencao)
-        VALUES (?, ?, ?, ?)
-    ''', (user.get("sub"), settings.checklist_items, settings.estrategia_vendas, settings.estrategia_retencao))
-    conn.commit()
-    conn.close()
+    """Persiste settings de QA do usuario (Firestore upsert)."""
+    upsert_user_settings(user.get("sub"), {
+        "checklist_items": settings.checklist_items,
+        "estrategia_vendas": settings.estrategia_vendas,
+        "estrategia_retencao": settings.estrategia_retencao,
+    })
     return {"message": "Configurações salvas com sucesso"}
+
 
 @app.get("/api/calls")
 def get_calls(user = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, filename, uploaded_at, status, nota, nota_sentimento_cliente, nota_qualidade_operador, raw_evaluation, audio_duration_sec, progress_pct FROM chamadas WHERE user_id = ? ORDER BY uploaded_at DESC", (user.get("sub"),))
-    calls = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    """Lista chamadas do usuario (Firestore list_all com filtro user_id)."""
+    calls = list_calls(limit=100, user_id_filter=user.get("sub"))
+    # Firestore retorna dicts; mantem shape compativel com frontend atual.
+    # O frontend espera camelCase/snake_case misto; mantemos snake_case (original).
     return calls
 
+
 @app.get("/api/calls/{call_id}")
-def get_call(call_id: str, user = Depends(get_current_user)):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM chamadas WHERE id = ? AND user_id = ?", (call_id, user.get("sub")))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Chamada não encontrada ou sem permissão")
-    
-    call_data = dict(row)
-    for field in ["transcricao", "sentimentos_cliente", "sentimentos_operador", "erros_fatais", "raw_evaluation"]:
-        if call_data.get(field):
-            try:
-                call_data[field] = json.loads(call_data[field])
-            except:
-                pass
+def get_call_endpoint(call_id: str, user = Depends(get_current_user)):
+    """Retorna detalhes de 1 chamada (Firestore get)."""
+    call_data = get_call(call_id)
+    if not call_data:
+        raise HTTPException(status_code=404, detail="Chamada não encontrada")
+    # Validar ownership: user so ve suas proprias chamadas
+    if call_data.get("user_id") != user.get("sub"):
+        raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
+    # Firestore ja serializa dicts/lists via _sanitize; campos JSON ja vem como dict/list.
+    # Mantem shape original (Firestore retorna datetime objects para timestamps — converter pra ISO).
+    for ts_field in ("uploaded_at", "created_at", "updated_at"):
+        if ts_field in call_data and hasattr(call_data[ts_field], "isoformat"):
+            call_data[ts_field] = call_data[ts_field].isoformat()
     return call_data
 
 @app.post("/api/upload")
@@ -555,15 +468,17 @@ async def upload_audio(
         audio_duration_sec = _probe_audio_duration(file_path)
 
         # Persiste com gcs_uri (se disponivel) para permitir recover posterior
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
         now = datetime.now().isoformat()
-        cursor.execute('''
-            INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri, audio_duration_sec, progress_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (call_id, file.filename, now, initial_status, user.get("sub"), diretrizes, gcs_uri, audio_duration_sec, 0.0))
-        conn.commit()
-        conn.close()
+        get_db().create(call_id, {
+            "filename": file.filename,
+            "uploaded_at": now,
+            "status": initial_status,
+            "user_id": user.get("sub"),
+            "diretrizes_qualidade": diretrizes,
+            "gcs_uri": gcs_uri,
+            "audio_duration_sec": audio_duration_sec,
+            "progress_pct": 0.0,
+        })
 
         if not gcs_ok:
             # Sem GCS, nao ha como recuperar. Retorna erro.
@@ -578,15 +493,17 @@ async def upload_audio(
     # Probe duracao do audio via ffprobe para UI mostrar progresso real
     audio_duration_sec = _probe_audio_duration(file_path)
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
     now = datetime.now().isoformat()
-    cursor.execute('''
-        INSERT INTO chamadas (id, filename, uploaded_at, status, user_id, diretrizes_qualidade, gcs_uri, audio_duration_sec, progress_pct)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (call_id, file.filename, now, "Na Fila de Processamento...", user.get("sub"), diretrizes, gcs_uri, audio_duration_sec, 0.0))
-    conn.commit()
-    conn.close()
+    get_db().create(call_id, {
+        "filename": file.filename,
+        "uploaded_at": now,
+        "status": "Na Fila de Processamento...",
+        "user_id": user.get("sub"),
+        "diretrizes_qualidade": diretrizes,
+        "gcs_uri": gcs_uri,
+        "audio_duration_sec": audio_duration_sec,
+        "progress_pct": 0.0,
+    })
 
     # 5. Publica job no Pub/Sub
     try:
@@ -696,49 +613,35 @@ async def internal_update_call_status(
     auth_header = request.headers.get("Authorization", "")
     _verify_cloud_run_identity(auth_header, str(request.base_url))
 
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-
-    # Verifica que chamada existe
-    cursor.execute("SELECT id, user_id, status FROM chamadas WHERE id = ?", (call_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
+    # Verifica que chamada existe (Firestore)
+    call = get_call(call_id)
+    if not call:
         raise HTTPException(status_code=404, detail=f"Chamada {call_id} nao encontrada")
 
-    # Monta UPDATE dinamico baseado nos campos fornecidos
-    fields_to_update = ["status = ?", "nota = COALESCE(?, nota)"]
-    params = [body.status, body.qa_score]
+    # Monta update_fields para Firestore (last-write-wins; nao ha COALESCE,
+    # entao so atualizamos campos explicitamente enviados)
+    update_fields = {"status": body.status}
+
+    if body.qa_score is not None:
+        update_fields["nota"] = body.qa_score
 
     if body.transcript is not None:
-        fields_to_update.append("transcricao = ?")
-        params.append(body.transcript)
+        update_fields["transcricao"] = body.transcript
 
     if body.qa_details:
         if "nota_qualidade_operador" in body.qa_details:
-            fields_to_update.append("nota_qualidade_operador = ?")
-            params.append(body.qa_details["nota_qualidade_operador"])
+            update_fields["nota_qualidade_operador"] = body.qa_details["nota_qualidade_operador"]
         if "nota_sentimento_cliente" in body.qa_details:
-            fields_to_update.append("nota_sentimento_cliente = ?")
-            params.append(body.qa_details["nota_sentimento_cliente"])
+            update_fields["nota_sentimento_cliente"] = body.qa_details["nota_sentimento_cliente"]
         if "raw_evaluation" in body.qa_details:
-            fields_to_update.append("raw_evaluation = ?")
-            params.append(body.qa_details["raw_evaluation"])
+            # Firestore aceita dict diretamente (sanitiza via JSON)
+            update_fields["raw_evaluation"] = body.qa_details["raw_evaluation"]
 
     if body.progress_pct is not None:
-        # Clamp 0-100; COALESCE preserva valor existente se caller envia None
         pct = max(0.0, min(100.0, float(body.progress_pct)))
-        fields_to_update.append("progress_pct = ?")
-        params.append(pct)
+        update_fields["progress_pct"] = pct
 
-    params.append(call_id)
-    cursor.execute(
-        f"UPDATE chamadas SET {', '.join(fields_to_update)} WHERE id = ?",
-        params,
-    )
-    conn.commit()
-    conn.close()
+    get_db().update(call_id, update_fields)
 
     print(f"[InternalCallback] call_id={call_id} status={body.status} qa_score={body.qa_score}", flush=True)
     return {"updated": True, "call_id": call_id, "status": body.status}
@@ -766,23 +669,10 @@ async def recover_stale_jobs(request: Request):
     auth_header = request.headers.get("Authorization", "")
     _verify_cloud_run_identity(auth_header, str(request.base_url))
 
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now() - timedelta(minutes=STALE_MINUTES)).isoformat()
-
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, filename, user_id, diretrizes_qualidade, gcs_uri, status, uploaded_at
-        FROM chamadas
-        WHERE uploaded_at < ?
-          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
-          AND gcs_uri IS NOT NULL
-        ORDER BY uploaded_at ASC
-        LIMIT 20
-    ''', (cutoff,))
-    stale_jobs = [dict(row) for row in cursor.fetchall()]
-    conn.close()
+    # Firestore: lista chamadas orfas via list_stale (ja implementado no core/db.py)
+    # Filtra adicionalmente por gcs_uri presente (worker so' pode retomar do GCS)
+    all_stale = get_db().list_stale(older_than_seconds=STALE_MINUTES * 60)
+    stale_jobs = [j for j in all_stale if j.get("gcs_uri")][:20]
 
     if not stale_jobs:
         return {"recovered": 0, "stale_jobs": []}
@@ -797,29 +687,29 @@ async def recover_stale_jobs(request: Request):
                 os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs"),
             )
             message_data = json.dumps({
-                "call_id": job["id"],
+                "call_id": job["call_id"],
                 "gcs_uri": job["gcs_uri"],
-                "filename": job["filename"],
-                "user_id": job["user_id"],
+                "filename": job.get("filename"),
+                "user_id": job.get("user_id"),
                 "diretrizes": job.get("diretrizes_qualidade") or "",
-                "uploaded_at": job["uploaded_at"],
+                "uploaded_at": job.get("uploaded_at").isoformat() if hasattr(job.get("uploaded_at"), "isoformat") else job.get("uploaded_at"),
                 "recovered": True,
             }).encode("utf-8")
             future = publisher.publish(topic_path, message_data)
             message_id = future.result(timeout=10)
             recovered.append({
-                "call_id": job["id"],
+                "call_id": job["call_id"],
                 "gcs_uri": job["gcs_uri"],
                 "pubsub_message_id": message_id,
-                "stale_status": job["status"],
+                "stale_status": job.get("status"),
             })
             print(
-                f"[Recover] call_id={job['id']} re-enfileirado (msg={message_id}) "
-                f"stale_status={job['status']!r}",
+                f"[Recover] call_id={job['call_id']} re-enfileirado (msg={message_id}) "
+                f"stale_status={job.get('status')!r}",
                 flush=True,
             )
         except Exception as e:
-            print(f"[Recover] FALHA call_id={job['id']}: {e}", flush=True)
+            print(f"[Recover] FALHA call_id={job.get('call_id')}: {e}", flush=True)
 
     return {"recovered": len(recovered), "stale_jobs": recovered}
 
@@ -954,40 +844,9 @@ async def cleanup_orphans(request: Request):
     auth_header = request.headers.get("Authorization", "")
     _verify_cloud_run_identity(auth_header, str(request.base_url))
 
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now() - timedelta(minutes=30)).isoformat()
-
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, filename, user_id, status, uploaded_at
-        FROM chamadas
-        WHERE uploaded_at < ?
-          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
-        ORDER BY uploaded_at ASC
-    ''', (cutoff,))
-    orphans = [dict(row) for row in cursor.fetchall()]
-
-    if not orphans:
-        conn.close()
-        return {"cleaned": 0, "orphans": []}
-
-    cleaned_ids = []
-    for orphan in orphans:
-        new_status = f"Erro: processamento interrompido (orphaned >30min). Reenvie o audio."
-        cursor.execute(
-            "UPDATE chamadas SET status = ? WHERE id = ?",
-            (new_status, orphan["id"]),
-        )
-        cleaned_ids.append(orphan["id"])
-        print(
-            f"[Cleanup] call_id={orphan['id']} filename={orphan['filename']!r} "
-            f"status_anterior={orphan['status']!r} -> {new_status!r}",
-            flush=True,
-        )
-    conn.commit()
-    conn.close()
+    # Firestore: wrapper cleanup_orphans ja' marca status como erro e retorna IDs
+    new_status = "Erro: processamento interrompido (orphaned >30min). Reenvie o audio."
+    cleaned_ids = cleanup_orphans_db(older_than_seconds=30 * 60, new_status=new_status)
 
     print(f"[Cleanup] {len(cleaned_ids)} orfaos marcados como erro", flush=True)
     return {"cleaned": len(cleaned_ids), "orphans": cleaned_ids}
@@ -997,20 +856,8 @@ async def cleanup_orphans(request: Request):
 @app.get("/api/admin/stuck-calls")
 def stuck_calls(user: dict = Depends(require_admin_user)):
     """Lista chamadas em estado inicial >15min. Apenas visualizacao."""
-    from datetime import datetime, timedelta
-    cutoff = (datetime.now() - timedelta(minutes=15)).isoformat()
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT id, filename, user_id, status, uploaded_at, audio_duration_sec, progress_pct
-        FROM chamadas
-        WHERE uploaded_at < ?
-          AND (status LIKE 'Transcrevendo%' OR status LIKE 'Na Fila%' OR status LIKE 'Separando%' OR status LIKE 'Analisando%')
-        ORDER BY uploaded_at ASC
-    ''', (cutoff,))
-    rows = [dict(r) for r in cursor.fetchall()]
-    conn.close()
+    # Firestore: list_stale faz o filtro (status prefix + idade >15min)
+    rows = get_db().list_stale(older_than_seconds=15 * 60)
     return {"stuck_count": len(rows), "stuck_calls": rows}
 
 
