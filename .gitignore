@@ -11,3 +11,9 @@ secrets/
 frontend/dist
 frontend/.cache-bust
 notas_*.txt
+uploads/
+*.pdf
+*.pyc
+*.pyo
+.pytest_cache/
+node_modules/

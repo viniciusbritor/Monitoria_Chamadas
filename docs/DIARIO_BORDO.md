@@ -2,6 +2,78 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 07/07/2026 23:00 BRT — Refactor estrutural: pipeline + LGPD + limpeza
+
+### Contexto
+Owner reportou 2 bugs criticos: (a) nota igual em qualquer chamada,
+(b) sem acesso ao modulo de avaliacao (Inspecionar). Alem disso, pediu
+plano de limpeza, engenharia reversa da producao, e compliance LGPD.
+
+### Mudancas aplicadas (FASE 1 — Limpeza)
+Removidos 15+ arquivos/diretorios de clutter:
+- `temp_docx/`, `Ata/`, `docs/*.pdf`, `docs/generate_pdfs.py`
+- `scripts/rewrite_*.py`, `scripts/migrate_db.py`,
+  `scripts/migrate_firestore_status_accent.py`, `scripts/inspect_db.py`
+- `scripts/processed_tokens_results.json`
+- `frontend/public/crop_logo.py`, `frontend/dist/`
+- `core/__pycache__/`, `tests/__pycache__/`, `docs/__pycache__/`
+- `.gitignore` atualizado com `uploads/`, `*.pdf`, `*.pyc`, `node_modules/`
+
+### Mudancas aplicadas (FASE 3 — Bug nota igual)
+**Causa raiz:** pipeline LLM recebia `pop_context=""` (string vazia)
+em todas as chamadas. O LLM (MiniMax M3) avaliava sobre prompt generico
+"1. Cordialidade. 2. Resolucao..." sem contexto especifico do negocio.
+
+**Fix no worker.py:**
+- `pop_context` agora e' computado a partir dos `user_settings`
+  (checklist_items + estrategia_vendas + estrategia_retencao +
+  diretrizes do upload)
+- Callback final agora envia `transcricao_diarizada`,
+  `sentimentos_cliente`, `sentimentos_operador`,
+  `erros_fatais_identificados` (antes apenas raw_evaluation)
+
+**Fix no evaluator.py:**
+- `diarize()`: prompt melhorado com instrucoes explicitas de rotulacao.
+  `max_tokens` aumentado de 400 para 2000 (400 insuficiente para
+  conversas completas). Validacao pos-diarizacao: checa se output
+  contem 'Operador:'/'Cliente:' e loga warning se falhou.
+- `evaluate()`: PII masking via `core/masker.py` antes de enviar ao LLM
+
+**Fix no api.py (in-process fallback):**
+- Mesmo fix de `pop_context` aplicado no `process_call_task()`
+- Transcript armazenado agora usa `mask_pii()` antes do Firestore
+
+### Mudancas aplicadas (FASE 4 — CallInspector)
+- `InternalStatusUpdate` model: adicionado campo `transcricao_diarizada`
+- Callback handler persiste `transcricao_diarizada`, `sentimentos_cliente`,
+  `sentimentos_operador`, `erros_fatais` no Firestore
+- `process_call_task` in-process ja fazia isso; worker callback estava
+  desatualizado — corrigido
+
+### Mudancas aplicadas (FASE 5 — LGPD)
+- **Novo endpoint:** `DELETE /api/calls/{call_id}` — deleta documento
+  do Firestore + audio do GCS. Owner-only ou super-admin. Log de auditoria.
+- **Novo modulo:** `core/masker.py` — mascaramento regex de CPF,
+  telefone, email, RG antes de LLM (MiniMax) e antes de storage (Firestore)
+- Integrado no `evaluator.py` (diarize + evaluate), `worker.py` (callback),
+  `api.py` (in-process)
+
+### Proximos passos (backlog)
+- [ ] Deploy via cloudbuild (test-env + worker)
+- [ ] Smoke test E2E: upload de 3 audios diferentes e validar notas distintas
+- [ ] Validar Inspecionar (CallInspector) com os novos campos
+- [ ] Validar endpoint DELETE
+- [ ] PII masker: adicionar deteccao de nome proprio (NER via regex PT-BR)
+- [ ] Migrar env vars sensiveis para Secret Manager
+- [ ] Implementar TTL/politica de retencao no Firestore (Cloud Scheduler)
+
+### Licoes aprendidas
+- `pop_context=""` silenciosamente matava a qualidade do pipeline inteiro
+- Diarizacao quebrada (sem separar Operador:/Cliente:) faz o evaluate
+  retornar sempre o mesmo score generico — validacao pos-diarize resolve
+- `max_tokens=400` para diarize era restritivo demais; conversas
+  tipicas de 3-5min geram 800-1500 tokens diarizados
+
 ## 07/07/2026 22:00 BRT — Fix sintaxe JSX no CallInspector + deploy final
 
 ### Contexto

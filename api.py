@@ -47,6 +47,7 @@ except Exception as _e:
 from core.transcriber import Transcriber, preload_model
 from core.evaluator import Evaluator
 from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, require_admin_user
+from core.masker import mask_pii
 from core import pubsub_admin
 from core.db import (
     get_db, get_call, list_calls, update_call_status, cleanup_orphans as cleanup_orphans_db,
@@ -300,7 +301,16 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
 
         # Etapa 3: Avaliacao IA
         update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
-        evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context="", quality_form=diretrizes_qualidade)
+        checklist_str = user_settings.get("checklist_items", "[]")
+        estrategia_vendas = user_settings.get("estrategia_vendas", "")
+        estrategia_retencao = user_settings.get("estrategia_retencao", "")
+        pop_context = f"Checklist: {checklist_str}. "
+        if estrategia_vendas:
+            pop_context += f"Vendas: {estrategia_vendas}. "
+        if estrategia_retencao:
+            pop_context += f"Retencao: {estrategia_retencao}. "
+        pop_context += f"Diretrizes: {diretrizes_qualidade}" if diretrizes_qualidade else "Diretrizes: Cordialidade, Resolucao, Empatia, Clareza."
+        evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context=pop_context, quality_form=diretrizes_qualidade)
 
         # Etapa 4: Conclusão
         nota = evaluation.get("nota_geral")
@@ -318,12 +328,12 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         get_db().update(call_id, {
             "status": "Concluído",
             "nota": nota,
-            "transcricao": segments,
+            "transcricao": mask_pii(" ".join(seg.get("text", "") for seg in segments)),
             "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
             "sentimentos_operador": evaluation.get("sentimentos_operador", []),
             "erros_fatais": evaluation.get("erros_fatais_identificados", []),
             "raw_evaluation": evaluation,
-            "transcricao_diarizada": diarized_transcript,
+            "transcricao_diarizada": mask_pii(diarized_transcript),
             "nota_sentimento_cliente": nota_sentimento_cliente,
             "nota_qualidade_operador": nota_qualidade_operador,
         })
@@ -475,6 +485,47 @@ def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
     except Exception as e:
         print(f"[API] Erro gerando signed_url para {gcs_uri}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao gerar link do áudio")
+
+
+@app.delete("/api/calls/{call_id}")
+def delete_call_endpoint(call_id: str, user = Depends(get_current_user)):
+    """Deleta uma chamada e seus dados associados (LGPD Art. 18, IV).
+
+    Remove documento do Firestore e audio do GCS. Apenas owner ou
+    super-admin pode deletar. Acao e' irreversivel.
+    """
+    call_data = get_call(call_id)
+    if not call_data:
+        raise HTTPException(status_code=404, detail="Chamada nao encontrada")
+
+    if call_data.get("user_id") != user.get("sub"):
+        if not user.get("is_super_admin", False):
+            raise HTTPException(status_code=403, detail="Sem permissao para deletar esta chamada")
+        print(
+            f"[AdminBypass] super-admin={user.get('email')} DELETANDO chamada {call_id[:8]}... "
+            f"de outro user (owner_sub={call_data.get('user_id')})",
+            flush=True,
+        )
+
+    gcs_uri = call_data.get("gcs_uri")
+    gcs_deleted = False
+    if gcs_uri:
+        try:
+            from google.cloud import storage as gcs_storage
+            bucket_name = gcs_uri.replace("gs://", "").split("/")[0]
+            blob_name = gcs_uri.replace(f"gs://{bucket_name}/", "")
+            gcs_client = gcs_storage.Client()
+            blob = gcs_client.bucket(bucket_name).blob(blob_name)
+            if blob.exists():
+                blob.delete()
+                gcs_deleted = True
+                print(f"[Delete] Audio deletado do GCS: {gcs_uri}", flush=True)
+        except Exception as e:
+            print(f"[Delete] Falha ao deletar audio do GCS: {e}", flush=True)
+
+    get_db().delete(call_id)
+    print(f"[Delete] call_id={call_id[:8]}... deletado do Firestore por {user.get('email')}", flush=True)
+    return {"deleted": True, "call_id": call_id, "gcs_deleted": gcs_deleted}
 
 @app.post("/api/upload")
 async def upload_audio(
@@ -632,6 +683,7 @@ TEST_ENV_AUDIENCE = os.getenv("TEST_ENV_AUDIENCE", "https://monitoria-test-env-8
 class InternalStatusUpdate(BaseModel):
     status: str  # processing | transcrevendo | analisando | concluido | erro
     transcript: str | None = None
+    transcricao_diarizada: str | None = None
     qa_score: int | None = None
     qa_details: dict | None = None  # {nota_qualidade_operador, nota_sentimento_cliente, ...}
     error: str | None = None
@@ -729,14 +781,22 @@ async def internal_update_call_status(
     if body.transcript is not None:
         update_fields["transcricao"] = body.transcript
 
+    if body.transcricao_diarizada is not None:
+        update_fields["transcricao_diarizada"] = body.transcricao_diarizada
+
     if body.qa_details:
         if "nota_qualidade_operador" in body.qa_details:
             update_fields["nota_qualidade_operador"] = body.qa_details["nota_qualidade_operador"]
         if "nota_sentimento_cliente" in body.qa_details:
             update_fields["nota_sentimento_cliente"] = body.qa_details["nota_sentimento_cliente"]
         if "raw_evaluation" in body.qa_details:
-            # Firestore aceita dict diretamente (sanitiza via JSON)
             update_fields["raw_evaluation"] = body.qa_details["raw_evaluation"]
+        if "sentimentos_cliente" in body.qa_details:
+            update_fields["sentimentos_cliente"] = body.qa_details["sentimentos_cliente"]
+        if "sentimentos_operador" in body.qa_details:
+            update_fields["sentimentos_operador"] = body.qa_details["sentimentos_operador"]
+        if "erros_fatais_identificados" in body.qa_details:
+            update_fields["erros_fatais"] = body.qa_details["erros_fatais_identificados"]
 
     if body.progress_pct is not None:
         pct = max(0.0, min(100.0, float(body.progress_pct)))

@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 from .llm_provider import LLMClient
+from .masker import mask_pii
 
 class Evaluator:
     def __init__(self):
@@ -55,14 +56,27 @@ class Evaluator:
             print(f"[FinOps] Aviso: falha ao registrar uso de tokens: {e}")
 
     def diarize(self, transcript):
-        # Prompt minimo (~50 tokens, vs ~150 anterior). Apenas regra essencial.
         system_prompt = """Separe a transcricao em dialogo entre 'Operador:' e 'Cliente:'.
-Operador = cumprimenta/pede dados/resolve. Cliente = expoe problema.
-Nao altere as palavras, prefixe cada turno."""
-        user_prompt = f"--- TRANSCRICAO CONTINUA ---\n{transcript}"
+Operador = cumprimenta/pede dados/resolve/transfere. Cliente = expoe problema/reclama/duvida.
+IMPORTANTE: prefixe CADA turno com o rotulo exato 'Operador:' ou 'Cliente:'.
+Separe turnos alternados com quebra de linha dupla.
+Nao altere as palavras originais da transcricao.
+Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
+        user_prompt = f"--- TRANSCRICAO CONTINUA ---\n{mask_pii(transcript)}"
         print("🤖 Diarizando transcricao com MiniMax M3...")
-        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False)
-        return text.strip() if text else transcript
+        text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False, max_tokens=2000)
+        result = text.strip() if text else transcript
+
+        if not result or result == transcript:
+            print("[Evaluator] AVISO: diarizacao retornou original (possivel falha)")
+            return transcript
+
+        if not ('Operador:' in result or 'Cliente:' in result):
+            print(f"[Evaluator] AVISO: diarizacao sem rotulos Operador:/Cliente:. Primeiros 100 chars: {result[:100]}")
+            return transcript
+
+        print(f"[Evaluator] Diarizacao OK: {len(result)} chars, {result.count('Operador:')} turnos operador, {result.count('Cliente:')} turnos cliente")
+        return result
 
     def evaluate(self, transcript, user_settings=None, pop_context="", quality_form=""):
         """
@@ -110,7 +124,7 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 "oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
 "tipo_oportunidade": str, "argumentos_operador": [str]}}"""
 
-        user_prompt = f"--- TRANSCRICAO DIARIZADA ---\n{transcript}"
+        user_prompt = f"--- TRANSCRICAO DIARIZADA ---\n{mask_pii(transcript)}"
 
         print("🤖 Avaliando atendimento com MiniMax M3...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=True)

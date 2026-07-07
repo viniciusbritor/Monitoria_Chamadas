@@ -36,6 +36,9 @@ from google.cloud import pubsub_v1, storage as gcs_storage
 # Firestore (substituiu SQLite em 06/07/2026 — Plano A++)
 from core.db import get_call, get_db, get_user_settings
 
+# PII masker (LGPD Art. 46)
+from core.masker import mask_pii
+
 # Logger
 import sys
 print(f"[Worker {os.getenv('K_SERVICE', 'local')}] Iniciando...", flush=True)
@@ -211,12 +214,22 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     # 2. Busca user_settings (Firestore collection user_settings)
     try:
         settings_doc = get_user_settings(user_id) or {}
-        # Remove chaves de controle interno antes de passar pro evaluator
         user_settings = {k: v for k, v in settings_doc.items()
                          if k not in ("user_id", "updated_at")}
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Falha ao ler user_settings: {e}", flush=True)
         user_settings = {}
+
+    # Prepara contexto POP a partir dos settings do usuario
+    checklist_str = user_settings.get("checklist_items", "[]")
+    estrategia_vendas = user_settings.get("estrategia_vendas", "")
+    estrategia_retencao = user_settings.get("estrategia_retencao", "")
+    pop_context = f"Checklist: {checklist_str}. "
+    if estrategia_vendas:
+        pop_context += f"Vendas: {estrategia_vendas}. "
+    if estrategia_retencao:
+        pop_context += f"Retencao: {estrategia_retencao}. "
+    pop_context += f"Diretrizes: {diretrizes}" if diretrizes else "Diretrizes: Cordialidade, Resolucao, Empatia, Clareza."
 
     # 3. Transcricao com callback de progresso throttled
     update_status(call_id, "Transcrevendo Audio (Whisper)...")
@@ -276,7 +289,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         evaluation = get_evaluator().evaluate(
             diarized_transcript,
             user_settings=user_settings,
-            pop_context="",
+            pop_context=pop_context,
             quality_form=diretrizes,
         )
         print(f"[Worker {WORKER_ID}] Avaliacao OK: nota={evaluation.get('nota_geral')}", flush=True)
@@ -305,15 +318,20 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     print(f"[Worker {WORKER_ID}] {call_id} CONCLUIDO em {elapsed:.1f}s (nota={nota})", flush=True)
     # Persistencia: feita pelo test-env via callback OIDC abaixo (api.py refatora para Firestore).
 
-    # 7b. Callback final com resultado completo (transcript + qa)
+    # 7b. Callback final com resultado completo (transcript + qa + diarizacao + sentimentos)
+    raw_text = "\n".join(seg.get("text", "") for seg in segments)
     _notify_test_env_callback(call_id, {
         "status": "Concluído",
-        "transcript": "\n".join(seg.get("text", "") for seg in segments),
+        "transcript": mask_pii(raw_text),
+        "transcricao_diarizada": mask_pii(diarized_transcript),
         "qa_score": nota,
         "qa_details": {
             "nota_qualidade_operador": nota_qualidade_operador,
             "nota_sentimento_cliente": nota_sentimento_cliente,
             "raw_evaluation": evaluation,
+            "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+            "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+            "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
         },
     })
 
