@@ -127,6 +127,52 @@ Próximo teste deve ser:
 
 ---
 
+## 07/07/2026 01:54 BRT — Rebuild frontend (CallInspector ausente no bundle deployed)
+
+### Contexto
+Owner reportou que clicar "Inspecionar" no Dashboard redirecionava para tela vazia (apenas header visivel). Investigacao revelou que o bundle JS deployed (index-DNkpI74n.js, 05/07/2026) era pre-CallInspector.
+
+### Causa raiz
+Frontend nunca foi rebuildado apos a implementacao do CallInspector. O cloudbuild-test.yaml NAO foi disparado depois das ultimas mudancas em App.jsx + Dashboard.jsx + CallInspector.jsx + SettingsPanel.jsx + QueueManager.jsx.
+
+### Fix aplicado
+- Commit `4256d22 build(frontend): atualizar .cache-bust (forcar rebuild no cloudbuild)`
+- Cloudbuild build `182d3567-af06-4e91-8afc-0ee9348a89d1` (test-env)
+- Revisao deployada: `monitoria-test-env-00062-8w5` (imagem `:4256d22`)
+
+### Verificacoes pos-deploy
+- Bundle novo: `index-CwnWRcYr.js` (397KB vs ~200KB do anterior)
+- `CallInspector` (minificado como `Zr`) presente
+- `navigateTo` (minificado como `m`) presente
+- Strings PT-BR presentes: "Inspecionar", "Sentimentos", "Erros Fatais", "Checklist de Conformidade", "QA Score"
+- HTTP 200 em `GET /`
+
+### Bug secundario identificado (pendente de investigacao)
+Apos deploy, identificamos possivel problema de **ownership**:
+- Documento `5_Cancelamento` tem `user_id = "o9ztuVhozgRIp3lGzyWdkw6G9JD3"`
+- Endpoint `GET /api/calls/{call_id}` valida `call_data.get("user_id") != user.get("sub")` → 403 se mismatch
+- Se vinicius tem outro `sub` Firebase, vai ver 403 ao tentar inspecionar
+- Fix proposto: aceitar tanto o owner quanto admin no endpoint, OU mostrar mensagem de erro mais clara no CallInspector
+
+### Estado pos-deploy
+
+| Servico | Revisao | Imagem | URL |
+|---|---|---|---|
+| `monitoria-test-env` | `00062-8w5` | `:4256d22` | https://monitoria-test-env-894828119087.us-central1.run.app |
+| `monitoria-whisper-worker` | `00039-tnk` | `:25b1ef2` | https://monitoria-whisper-worker-894828119087.us-central1.run.app |
+
+### Sincronizacao confirmada
+- Git: `origin/test @ 4256d22`
+- GCP test-env: rev `00062-8w5` / image `:4256d22` (match)
+- GCP worker: rev `00039-tnk` / image `:25b1ef2` (worker nao precisa rebuildar)
+- Local: working tree limpo (apenas arquivos modificados nao-relacionados: roteiros, docs, processed_tokens)
+
+### Proximos passos
+- [ ] Investigar 403 do `GET /api/calls/{call_id}` se user atual nao for owner do documento
+- [ ] Decidir: ajustar endpoint para admin OR ver mensagem de erro mais clara no UI
+
+---
+
 ## 07/07/2026 03:30 BRT — Fix bug de acentuação em "Concluído" (canonical)
 
 ### Contexto
