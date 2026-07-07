@@ -886,6 +886,54 @@ def stuck_calls(user: dict = Depends(require_admin_user)):
     return {"stuck_count": len(rows), "stuck_calls": rows}
 
 
+# NEW (07/07/2026): Migracao retroativa de variantes de status no Firestore.
+# Bug: pre-fix, worker gravava 'Concluido' (sem acento) mas Dashboard.jsx
+# comparava com 'Concluído'. Resultado: UI nunca reconhecia conclusao, polling
+# 2s infinito, worker reprocessava a cada redelivery.
+# Este endpoint corrige dados legados (idempotente). Remover apos 1 semana
+# se nao houver mais dados com variantes problematicas.
+@app.post("/api/admin/migrate-status-accent")
+def migrate_status_accent(user: dict = Depends(require_admin_user)):
+    """Normaliza status variantes para forma canonica 'Concluído' (com acento).
+
+    Idempotente. Use para corrigir dados legados pre-07/07/2026.
+    Requer admin (super-admin via /api/auth/me).
+    """
+    variants = {
+        "Concluido": "Concluído",
+        "concluido": "Concluído",
+        "concluído": "Concluído",
+        "CONCLUIDO": "Concluído",
+        "CONCLUÍDO": "Concluído",
+    }
+    collection = get_db().collection
+    migrated = 0
+    scanned = 0
+    errors = []
+    for doc in collection.stream():
+        scanned += 1
+        try:
+            data = doc.to_dict() or {}
+            current_status = data.get("status", "")
+            if current_status in variants:
+                new_status = variants[current_status]
+                doc.reference.update({"status": new_status})
+                migrated += 1
+                print(
+                    f"[Migrate] {doc.id[:8]}... status: "
+                    f"{current_status!r} -> {new_status!r} (filename={data.get('filename', '?')})",
+                    flush=True,
+                )
+        except Exception as e:
+            errors.append({"doc_id": doc.id, "error": str(e)})
+            print(f"[Migrate] ERRO no doc {doc.id}: {e}", flush=True)
+    print(
+        f"[Migrate] user={user.get('email')} scanned={scanned} migrated={migrated} errors={len(errors)}",
+        flush=True,
+    )
+    return {"scanned": scanned, "migrated": migrated, "errors": errors}
+
+
 # Endpoints administrativos migrados para o Coherence Portal (SSO Global).
 
 # Frontend estático (Vite Build) - DEVE FICAR NO FINAL PARA NÃO SOBRESCREVER ROTAS /API
