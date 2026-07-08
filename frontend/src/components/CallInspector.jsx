@@ -97,10 +97,14 @@ export default function CallInspector({ callId, onBack }) {
     </div>
   )}
 
-  const qaScore = call.nota_qualidade_operador || call.nota || 0
-  const clientScore = call.nota_sentimento_cliente || 0
+  const qaScore = (call && (call.nota_qualidade_operador || call.nota)) || 0
+  const clientScore = (call && call.nota_sentimento_cliente) || 0
+  const filename = (call && call.filename) || 'Chamada sem nome'
+  const uploadedAt = (call && call.uploaded_at) ? new Date(call.uploaded_at) : new Date()
+  const analysis = (call && analysis) || {}
 
-  return (
+  try {
+    return (
     <div className="space-y-6">
 
       {/* Top Bar */}
@@ -109,9 +113,9 @@ export default function CallInspector({ callId, onBack }) {
           <ArrowLeft size={20} />
         </button>
         <div>
-          <h2 className="text-xl font-bold text-textMain">{call.filename}</h2>
+          <h2 className="text-xl font-bold text-textMain">{filename}</h2>
           <div className="text-sm text-textMuted mt-1">
-            Data: {new Date(call.uploaded_at).toLocaleString('pt-BR')}
+            Data: {uploadedAt.toLocaleString('pt-BR')}
           </div>
         </div>
       </div>
@@ -152,14 +156,14 @@ export default function CallInspector({ callId, onBack }) {
           <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 scrollbar-thin">
             {activeTab === 'report' && (
               <div className="space-y-6">
-                {call.analysis?.fases ? (
+                {analysis?.fases ? (
                   ['apresentacao', 'resolucao', 'fechamento'].map((faseKey) => {
                     const titles = {
                       apresentacao: "1. Apresentação (Acolhimento e Entendimento)",
                       resolucao: "2. Métodos de Resolução (Ações de Solução)",
                       fechamento: "3. Fechamento da Chamada (Alinhamento de Trâmites)"
                     };
-                    const fase = call.analysis.fases[faseKey] || {};
+                    const fase = analysis.fases[faseKey] || {};
                     const qa = fase.nota_qa || 0;
                     const nps = fase.nota_nps || 0;
                     
@@ -190,7 +194,7 @@ export default function CallInspector({ callId, onBack }) {
 
             {activeTab === 'transcript' && (
               <div className="space-y-4">
-                {call.transcricao_diarizada ? call.transcricao_diarizada.split('\n\n').map((block, i) => {
+                {(call && call.transcricao_diarizada) ? (call && call.transcricao_diarizada).split('\n\n').map((block, i) => {
                   const isOp = block.toLowerCase().startsWith('operador:');
                   const isClient = block.toLowerCase().startsWith('cliente:');
                   if (!block.trim()) return null;
@@ -220,14 +224,14 @@ export default function CallInspector({ callId, onBack }) {
         {/* Coluna Direita: Analise */}
         <div className="space-y-6">
           
-          {Array.isArray(call.analysis?.checklist_conformidade) && call.analysis.checklist_conformidade.length > 0 && (
+          {Array.isArray(analysis?.checklist_conformidade) && analysis.checklist_conformidade.length > 0 && (
             <div className="glass-panel p-6">
               <h3 className="font-semibold text-textMain mb-4 flex items-center gap-2">
                 <CheckCircle2 size={18} className="text-primary" />
                 Checklist de Conformidade
               </h3>
               <div className="space-y-3">
-                {call.analysis.checklist_conformidade.map((item, i) => (
+                {analysis.checklist_conformidade.map((item, i) => (
                   <div key={i} className="flex items-start gap-3">
                     <div className="mt-0.5">
                       {item.cumprido ? (
@@ -245,23 +249,23 @@ export default function CallInspector({ callId, onBack }) {
             </div>
           )}
 
-          {call.analysis?.oportunidade_venda_retencao && (
-            <div className={`glass-panel p-6 ${call.analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
-              <h3 className={`font-semibold mb-4 flex items-center gap-2 ${call.analysis.sucesso_venda_retencao ? 'text-green-700' : 'text-yellow-700'}`}>
+          {analysis?.oportunidade_venda_retencao && (
+            <div className={`glass-panel p-6 ${analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
+              <h3 className={`font-semibold mb-4 flex items-center gap-2 ${analysis.sucesso_venda_retencao ? 'text-green-700' : 'text-yellow-700'}`}>
                 <ThumbsUp size={18} />
-                {call.analysis.tipo_oportunidade || 'Oportunidade Comercial'}
+                {analysis.tipo_oportunidade || 'Oportunidade Comercial'}
               </h3>
               <div className="mb-4 text-sm font-medium text-textMain">
                 Sucesso na conversão? 
-                <span className={`ml-2 px-2 py-0.5 rounded-full ${call.analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {call.analysis.sucesso_venda_retencao ? 'Sim' : 'Não'}
+                <span className={`ml-2 px-2 py-0.5 rounded-full ${analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {analysis.sucesso_venda_retencao ? 'Sim' : 'Não'}
                 </span>
               </div>
-              {Array.isArray(call.analysis?.argumentos_operador) && call.analysis.argumentos_operador.length > 0 && (
+              {Array.isArray(analysis?.argumentos_operador) && analysis.argumentos_operador.length > 0 && (
                 <div>
                   <div className="text-xs font-bold text-textMuted uppercase mb-2">Argumentos Utilizados:</div>
                   <ul className="space-y-2">
-                    {call.analysis.argumentos_operador.map((arg, i) => (
+                    {analysis.argumentos_operador.map((arg, i) => (
                       <li key={i} className="text-sm text-textMain flex items-start gap-2">
                         <span className="mt-1 text-primary flex-shrink-0">•</span> {arg}
                       </li>
@@ -298,8 +302,8 @@ export default function CallInspector({ callId, onBack }) {
               Sentimentos (Operador)
             </h3>
             <div className="flex flex-wrap gap-2">
-              {Array.isArray(call.analysis?.sentimentos_operador) && call.analysis.sentimentos_operador.length > 0 ? (
-                call.analysis.sentimentos_operador.map((s, i) => (
+              {Array.isArray(analysis?.sentimentos_operador) && analysis.sentimentos_operador.length > 0 ? (
+                analysis.sentimentos_operador.map((s, i) => (
                   <span key={i} className="bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
                     {s}
                   </span>
@@ -316,8 +320,8 @@ export default function CallInspector({ callId, onBack }) {
               Sentimentos (Cliente)
             </h3>
             <div className="flex flex-wrap gap-2">
-              {Array.isArray(call.analysis?.sentimentos_cliente) && call.analysis.sentimentos_cliente.length > 0 ? (
-                call.analysis.sentimentos_cliente.map((s, i) => (
+              {Array.isArray(analysis?.sentimentos_cliente) && analysis.sentimentos_cliente.length > 0 ? (
+                analysis.sentimentos_cliente.map((s, i) => (
                   <span key={i} className="bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
                     {s}
                   </span>
@@ -328,14 +332,14 @@ export default function CallInspector({ callId, onBack }) {
             </div>
           </div>
           
-          {Array.isArray(call.analysis?.erros_fatais_identificados) && call.analysis.erros_fatais_identificados.length > 0 && (
+          {Array.isArray(analysis?.erros_fatais_identificados) && analysis.erros_fatais_identificados.length > 0 && (
             <div className="glass-panel border-red-500/30 p-6 bg-red-50">
               <h3 className="font-semibold text-red-600 mb-4 flex items-center gap-2">
                 <ShieldAlert size={18} />
                 Erros Fatais
               </h3>
               <ul className="space-y-2">
-                {call.analysis.erros_fatais_identificados.map((erro, i) => (
+                {analysis.erros_fatais_identificados.map((erro, i) => (
                   <li key={i} className="text-sm text-red-600 flex items-start gap-2">
                     <span className="mt-1 flex-shrink-0">•</span> {erro}
                   </li>
@@ -348,4 +352,14 @@ export default function CallInspector({ callId, onBack }) {
       </div>
     </div>
   )
+  } catch (renderErr) {
+    console.error('[CallInspector] Erro durante renderizacao:', renderErr)
+    return (
+      <div className="glass-panel p-8 text-center space-y-4">
+        <AlertTriangle size={32} className="text-red-500 mx-auto" />
+        <p className="text-red-600 font-medium">Erro ao renderizar analise: {renderErr.message}</p>
+        <button onClick={onBack} className="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-6 rounded-xl">Voltar ao Dashboard</button>
+      </div>
+    )
+  }
 }

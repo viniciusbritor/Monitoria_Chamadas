@@ -2,6 +2,59 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 08/07/2026 00:45 BRT — Multi-Provider LLM: DeepSeek V4 Flash (NVIDIA NIM) + ErrorBoundary
+
+### Contexto
+MiniMax M3 sem cota ("Token Plan usage limit reached"). Todo pipeline
+quebrava na avaliacao LLM. Owner pediu fallback para DeepSeek V4 Flash
+(mesmo modelo usado no OpenCode), via NVIDIA NIM.
+
+### Mudancas (commit atual)
+
+**core/llm_provider.py (REESCRITO — multi-provider):**
+- `NvidiaNimClient`: DeepSeek V4 Flash via NVIDIA NIM
+  - base_url: `https://integrate.api.nvidia.com/v1`
+  - model: `deepseek-ai/deepseek-v4-flash`
+  - OpenAI-compatible API com JSON mode nativo (`response_format`)
+  - API key: `NVIDIA_API_KEY` (env var)
+- `MiniMaxClient`: refactor do LLMClient antigo (fallback)
+  - Mantem chatcompletion_v2 + reply_constraints
+- `LLMClient`: orquestrador multi-provider
+  - Tenta NVIDIA/DeepSeek primario → fallback MiniMax
+  - Mantem interface `cached_chat()` para compatibilidade
+  - 3 retries por provider, detecta quota errors (402)
+
+**frontend/App.jsx:**
+- Adicionado `<ErrorBoundary>` (classe React) envolvendo `<CallInspector>`
+- Captura qualquer erro de render e mostra painel com botao "Recarregar"
+
+**frontend/CallInspector.jsx:**
+- Blindagem defensiva: variaveis extraidas com fallback (`|| 0`, `|| {}`,
+  `|| 'Chamada sem nome'`)
+- Todo JSX dentro de `try/catch` — se erro no render, mostra painel
+- `call.analysis` → variavel `analysis` com fallback `{}`
+
+**core/evaluator.py, worker.py, api.py: SEM MUDANCAS**
+- `Evaluator.__init__` ja' usa `LLMClient()` que agora e' multi-provider
+- Nenhum codigo cliente precisou ser alterado
+
+### DeepSeek V4 Flash vs MiniMax M3
+
+| Aspecto | DeepSeek V4 Flash (NVIDIA) | MiniMax M3 |
+|---------|---------------------------|------------|
+| Contexto | 1M tokens | ~128K |
+| Output max | 8192 tokens | ~4096 |
+| JSON mode | Nativo `response_format` | Hack `reply_constraints` |
+| API | OpenAI-compatible | Proprietaria v2 |
+| Custo | Via NVIDIA NIM (subscription) | Plano Plus (sem cota) |
+
+### Proximos passos
+- [ ] Deploy test-env + worker
+- [ ] Smoke test E2E: upload de audio → DeepSeek processa → status "Concluído"
+- [ ] Validar Inspecionar (tela nao deve mais ficar branca)
+- [ ] Validar fallback: se DeepSeek falhar, MiniMax deve ser acionado
+- [ ] Monitorar logs: `[LLM] Chamando DeepSeek/NVIDIA` deve aparecer
+
 ## 07/07/2026 23:00 BRT — Refactor estrutural: pipeline + LGPD + limpeza
 
 ### Contexto

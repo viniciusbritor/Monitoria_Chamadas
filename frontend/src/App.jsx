@@ -6,6 +6,44 @@ import QueueManager from './components/QueueManager'
 import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
 import { auth } from './firebase'
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+  componentDidCatch(error, info) {
+    console.error('[ErrorBoundary]', error, info)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-surface p-8">
+          <div className="glass-panel p-8 text-center space-y-4 max-w-md">
+            <div className="w-16 h-16 mx-auto rounded-2xl bg-red-50 flex items-center justify-center text-red-500">
+              <AlertTriangle size={32} />
+            </div>
+            <h2 className="text-lg font-bold text-red-600">Erro inesperado</h2>
+            <p className="text-sm text-textMuted">{this.state.error?.message || 'O componente falhou ao renderizar.'}</p>
+            <button
+              onClick={() => { this.setState({ hasError: false, error: null }); window.location.reload() }}
+              className="bg-primary hover:bg-primary/90 text-white font-medium py-2 px-6 rounded-xl"
+            >
+              Recarregar pagina
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+import React from 'react'
+import { AlertTriangle } from 'lucide-react'
+
 // NEW (05/07/2026): loader brandado compartilhado.
 // Usado durante o bootstrap (validacao do ?token=) e durante a validacao inicial.
 // Da' uma transicao visual suave do Portal -> Monitoria (sem flash de tela em branco).
@@ -284,7 +322,9 @@ function App() {
             <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
           )}
           {currentView === 'inspector' && selectedCallId && (
-            <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
+            <ErrorBoundary>
+              <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
+            </ErrorBoundary>
           )}
           {currentView === 'settings' && (
             <SettingsPanel />
