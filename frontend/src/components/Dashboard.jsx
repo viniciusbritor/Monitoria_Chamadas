@@ -234,8 +234,16 @@ export default function Dashboard({ onInspectCall }) {
                     )}
                   </td>
                   <td className="p-4 text-right">
-                    <button 
-                      onClick={() => (call.status === 'Concluído' || call.status?.startsWith('Erro')) && onInspectCall(call.id)}
+                    <button
+                      onClick={() => {
+                        const id = call.id || call.call_id || ''
+                        console.log('[Dashboard] inspect.click', { id, status: call.status, hasId: !!id, callObj: { id: call.id, call_id: call.call_id } })
+                        if ((call.status === 'Concluído' || call.status?.startsWith('Erro')) && id) {
+                          onInspectCall(id)
+                        } else if (!id) {
+                          console.error('[Dashboard] ID INVALIDO!', call)
+                        }
+                      }}
                       disabled={call.status !== 'Concluído' && !call.status?.startsWith('Erro')}
                       className="text-primary hover:text-primary/80 font-medium text-sm disabled:opacity-30 transition-colors"
                     >

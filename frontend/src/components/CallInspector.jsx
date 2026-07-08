@@ -70,12 +70,21 @@ export default function CallInspector({ callId, onBack }) {
 
   useEffect(() => {
     let cancelled = false
+    console.log('[CallInspector] mount', { callId, isString: typeof callId, length: callId?.length, valid: typeof callId === 'string' && callId.length >= 8 })
+    if (!callId || typeof callId !== 'string' || callId.length < 8) {
+      console.error('[CallInspector] ID INVALIDO', { callId })
+      setError('ID da chamada invalido. Volte ao Dashboard.')
+      setLoading(false)
+      return
+    }
     const fetchCall = async () => {
       try {
+        console.log('[CallInspector] fetching', { url: `${API_URL}/api/calls/${callId}` })
         const token = localStorage.getItem('auth_token')
         const res = await axios.get(`${API_URL}/api/calls/${callId}`, {
           headers: { Authorization: `Bearer ${token}` }
         })
+        console.log('[CallInspector] response OK', { status: res.status, hasRawEval: !!res.data.raw_evaluation, hasFilename: !!res.data.filename })
 
         let analysisData = res.data.raw_evaluation
         if (typeof analysisData === 'string') {
@@ -96,6 +105,7 @@ export default function CallInspector({ callId, onBack }) {
         } catch (_) {}
       } catch (err) {
         if (!cancelled) {
+          console.error('[CallInspector] fetch ERROR', { status: err.response?.status, message: err.message, data: err.response?.data })
           if (err.response?.status === 403) setError('Sem permissao para visualizar esta chamada.')
           else if (err.response?.status === 404) setError('Chamada nao encontrada.')
           else if (err.response?.status === 401) setError('Sessao expirada. Recomece pelo Portal.')
