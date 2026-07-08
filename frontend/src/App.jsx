@@ -121,8 +121,10 @@ function App() {
   }, [])
 
   const navigateTo = (view, callId = null) => {
+    console.log('[App] navigateTo', { view, callId, isString: typeof callId, length: callId?.length })
     setSelectedCallId(callId)
     setCurrentView(view)
+    console.log('[App] state after set', { view, callId, currentView: view })
   }
 
   const handleLogout = async () => {
@@ -322,10 +324,12 @@ function App() {
             <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
           )}
           {currentView === 'inspector' && selectedCallId && (
+            console.log('[App] rendering CallInspector', { callId: selectedCallId, currentView }),
             <ErrorBoundary>
               <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
             </ErrorBoundary>
           )}
+          {!selectedCallId && currentView === 'inspector' && console.log('[App] CallInspector NOT rendered: selectedCallId is empty', { currentView })}
           {currentView === 'settings' && (
             <SettingsPanel />
           )}
