@@ -190,12 +190,15 @@ class ChamadasDB:
         """Lista chamadas em status inicial mais velhas que threshold (orphans)."""
         from datetime import datetime, timezone, timedelta
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)
+        # NEW (08/07/2026): uploaded_at e' armazenado como STRING ISO (nao timestamp Firestore).
+        # Para query por tempo, converter cutoff para string ISO e comparar lexicograficamente.
+        cutoff_str = cutoff.isoformat()
         all_stale = []
         for prefix in status_prefixes:
             q = (self.collection
                  .where("status", ">=", prefix)
                  .where("status", "<", prefix + "\uf8ff")
-                 .where("uploaded_at", "<", cutoff))
+                 .where("uploaded_at", "<", cutoff_str))
             all_stale.extend([doc.to_dict() for doc in q.stream()])
         return all_stale
 
@@ -203,12 +206,13 @@ class ChamadasDB:
         """Marca orphans como erro. Retorna IDs atualizados."""
         from datetime import datetime, timezone, timedelta
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)
+        cutoff_str = cutoff.isoformat()
         updated_ids = []
         for prefix in ("Na Fila", "Transcrevendo", "Separando", "Analisando"):
             q = (self.collection
                  .where("status", ">=", prefix)
                  .where("status", "<", prefix + "\uf8ff")
-                 .where("uploaded_at", "<", cutoff))
+                 .where("uploaded_at", "<", cutoff_str))
             for doc in q.stream():
                 doc.reference.update({
                     "status": new_status,

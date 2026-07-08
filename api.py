@@ -1041,6 +1041,68 @@ async def recover_stale_jobs(request: Request):
 
 
 # ============================================================================
+# NEW (08/07/2026 - Plano Ultra-Economico): Re-enfileira TODAS as chamadas em "Na Fila"
+# Independente da idade. Util quando worker ACKou mensagens mas falhou em salvar
+# no Firestore (causa: 403 permission denied pre-fix). Acao manual via admin.
+# ============================================================================
+@app.post("/api/internal/reprocess-na-fila")
+async def reprocess_na_fila(request: Request):
+    """Re-enfileira TODAS as chamadas em status 'Na Fila de Processamento...'.
+
+    Autenticado via OIDC. Util quando worker perdeu mensagens (ACK + 403 Firestore).
+    Sem restricao de idade (reprocessa qualquer chamada em 'Na Fila' que tenha gcs_uri).
+    """
+    auth_header = request.headers.get("Authorization", "")
+    _verify_cloud_run_identity(auth_header, str(request.base_url))
+
+    all_na_fila = (
+        get_db().collection
+        .where("status", ">=", "Na Fila")
+        .where("status", "<", "Na Fila" + "\uf8ff")
+        .stream()
+    )
+    na_fila = [d for d in all_na_fila if d.to_dict().get("gcs_uri")]
+
+    if not na_fila:
+        return {"reprocessed": 0, "calls": []}
+
+    from google.cloud import pubsub_v1
+    publisher = pubsub_v1.PublisherClient()
+    topic_path = publisher.topic_path(
+        os.getenv("GCP_PROJECT", "coherence-ominichannel-fs"),
+        os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs"),
+    )
+
+    results = []
+    for doc in na_fila:
+        d = doc.to_dict()
+        call_id = doc.id
+        try:
+            payload = json.dumps({
+                "call_id": call_id,
+                "gcs_uri": d.get("gcs_uri"),
+                "filename": d.get("filename"),
+                "user_id": d.get("user_id"),
+                "diretrizes": d.get("diretrizes_qualidade") or "",
+                "uploaded_at": d.get("uploaded_at"),
+                "reprocessed": True,
+            }).encode("utf-8")
+            future = publisher.publish(topic_path, payload)
+            msg_id = future.result(timeout=10)
+            results.append({
+                "call_id": call_id,
+                "filename": d.get("filename"),
+                "pubsub_message_id": msg_id,
+            })
+            print(f"[Reprocess] call_id={call_id[:8]}... re-enfileirado (msg={msg_id})", flush=True)
+        except Exception as e:
+            print(f"[Reprocess] FALHA call_id={call_id[:8]}...: {e}", flush=True)
+            results.append({"call_id": call_id, "error": str(e)})
+
+    return {"reprocessed": len([r for r in results if "pubsub_message_id" in r]), "calls": results}
+
+
+# ============================================================================
 # Queue Manager (Admin-only): visualizar e gerenciar fila Pub/Sub
 # Implementa as Tasks 2.1-2.5 do backlog docs/goals/queue-manager.md
 # ============================================================================
