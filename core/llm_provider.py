@@ -10,14 +10,21 @@ import secrets_manager
 
 
 class DeepSeekClient:
-    """DeepSeek V4 Flash — API direta (api.deepseek.com). OpenAI-compatible."""
+    """DeepSeek V4 Flash — API direta (api.deepseek.com). OpenAI-compatible.
+
+    Docs: https://api-docs.deepseek.com
+    Model: deepseek-v4-flash (fast, cheap, 1M context, JSON mode nativo)
+    Base URL: https://api.deepseek.com (sem /v1)
+    JSON mode: response_format={"type":"json_object"} + palavra "json" no prompt
+    Thinking: desabilitado para tarefas deterministicas (JSON/diarize)
+    """
 
     def __init__(self):
         self.api_key = os.getenv("DEEPSEEK_API_KEY", "")
         if not self.api_key:
             self.api_key = secrets_manager.get_secret("DEEPSEEK_API_KEY")
-        self.base_url = "https://api.deepseek.com/v1"
-        self.model = "deepseek-chat"
+        self.base_url = "https://api.deepseek.com"
+        self.model = "deepseek-v4-flash"
         self.enabled = bool(self.api_key)
 
     def _execute(self, payload, max_retries=3):
@@ -61,18 +68,6 @@ class DeepSeekClient:
                 print(f"[DeepSeek] Erro {e}. Retry {retries}/{max_retries} em {sleep_time:.2f}s...")
                 time.sleep(sleep_time)
 
-
-class NvidiaNimClient:
-    """DeepSeek V4 Flash via NVIDIA NIM — OpenAI-compatible API."""
-
-    def __init__(self):
-        self.api_key = os.getenv("NVIDIA_API_KEY", "")
-        if not self.api_key:
-            self.api_key = secrets_manager.get_secret("NVIDIA_API_KEY")
-        self.base_url = "https://integrate.api.nvidia.com/v1"
-        self.model = "deepseek-ai/deepseek-v4-flash"
-        self.enabled = bool(self.api_key)
-
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
@@ -80,15 +75,20 @@ class NvidiaNimClient:
         if max_tokens is None:
             max_tokens = 1500 if json_mode else 2000
 
+        sp = system_prompt
+        if json_mode and "json" not in sp.lower():
+            sp = "JSON: " + sp
+
         payload = {
             "model": self.model,
             "temperature": temperature,
             "max_tokens": max_tokens,
             "top_p": 0.95,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": sp},
                 {"role": "user", "content": user_prompt},
             ],
+            "thinking": {"type": "disabled"},
         }
 
         if json_mode:
@@ -98,7 +98,11 @@ class NvidiaNimClient:
 
 
 class NvidiaNimClient:
-    """DeepSeek V4 Flash via NVIDIA NIM (fallback se DEEPSEEK_API_KEY ausente)."""
+    """DeepSeek V4 Flash via NVIDIA NIM — fallback se DEEPSEEK_API_KEY ausente.
+
+    Model: deepseek-ai/deepseek-v4-flash
+    Base URL: https://integrate.api.nvidia.com/v1
+    """
 
     def __init__(self):
         self.api_key = os.getenv("NVIDIA_API_KEY", "")
@@ -174,7 +178,7 @@ class NvidiaNimClient:
 
 
 class MiniMaxClient:
-    """MiniMax M3 — API proprietaria chatcompletion_v2 (fallback)."""
+    """MiniMax M3 — API proprietaria chatcompletion_v2 (ultimo fallback)."""
 
     def __init__(self):
         self.api_key = secrets_manager.get_secret("MINIMAX_API_KEY")
@@ -245,9 +249,10 @@ class MiniMaxClient:
 
 
 class LLMClient:
-    """Multi-provider cascata: DeepSeek direto → NVIDIA NIM → MiniMax M3.
+    """Multi-provider cascata: DeepSeek direto -> NVIDIA NIM -> MiniMax M3.
 
-    Mantem a mesma interface cached_chat() para compatibilidade.
+    Mantem a mesma interface cached_chat() para compatibilidade com
+    evaluator, worker, api.
     """
 
     def __init__(self):
