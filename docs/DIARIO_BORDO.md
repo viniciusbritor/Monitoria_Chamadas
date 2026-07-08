@@ -2,6 +2,46 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 08/07/2026 12:50 BRT — Rename GitHub repo: `Monitoria_Chamadas_Teste` → `Monitoria_Chamadas`
+
+- **Contexto:** o repo foi criado com sufixo `_Teste` no inicio do projeto, mas o nome gerou confusao (parecia um sub-projeto descartavel). Decidido remover o sufixo para refletir o estado estavel de producao do modulo.
+
+- **O que mudou:**
+  - **GitHub:** `viniciusbritor/Monitoria_Chamadas_Teste` → `viniciusbritor/Monitoria_Chamadas` (via `gh repo rename`). Redirect automatico do slug antigo funciona (`git ls-remote` no slug antigo retorna os mesmos refs).
+  - **Identidade do modulo NAO mudou:** `MONITORIA_MODULE_ID=monitoria-chamadas`, Firestore `modules/monitoria-chamadas`, URL do Cloud Run `monitoria-test-env-894828119087.us-central1.run.app` — todos preservados. Apenas o slug do repositorio Git foi renomeado.
+
+- **Arquivos locais corrigidos (5):**
+  - `docs/DIARIO_BORDO.md` — referencias historicas (12 trocas)
+  - `docs/GUARDRAILS.md` — regra "primeiro em Monitoria_Chamadas"
+  - `docs/conexao_modulo.json` — campo `_canonical_location`
+  - `scripts/process_test_calls.py` — path local Windows
+  - `tests/test_conexao_modulo_schema.py` — docstrings/mensagens
+
+- **Cross-repo (Coherence_Portal):** commit `3910c95` em `master` atualizou:
+  - `cloudbuild-test.yaml` — URL de clone `viniciusbritor/Monitoria_Chamadas.git`
+  - `Dockerfile` — comentario de origem
+  - `backend/migrate_users.py` — path SQLite legado
+  - `docs/DIARIO_BORDO.md` — referencias historicas
+
+- **CI/CD impactado e validado:**
+  - Build do Monitoria_Chamadas (`gcloud builds submit`): build `7227f6dc-3904-4741-9a98-7cf869a6c3c3` SUCCESS em 6min. Revision `monitoria-test-env-00092-kd9` deployada.
+  - Build do Coherence_Portal: build `1b30bbcb-698f-4139-9703-b4dc4430c894` SUCCESS em 3:12. Revision `coherence-portal-test-00022-n9c` deployada. Step 0 log: `OK: copiado conexao_modulo.json do repo Monitoria_Chamadas` — clone do novo slug funcionou.
+
+- **Tests:**
+  - Backend pytest Portal: 95 passed / 3 skipped
+  - Frontend vitest Portal: 2 files / 17 tests passed
+  - Frontend Monitoria serve bundle novo `index-q5rPW82a.js` (era `index-0il_3s3q.js`)
+  - Firestore `modules/monitoria-chamadas.url` continua apontando para test-env ativo
+  - `git ls-remote https://github.com/viniciusbritor/Monitoria_Chamadas_Teste.git` redireciona corretamente para o novo slug
+
+- **Licao:** quando um repositorio publico e renomeado e outro repo depende dele via `git clone` em CI, SEMPRE atualizar o consumer PRIMEIRO. Caso contrario, ha uma janela de build quebrado. No nosso caso, o Portal foi atualizado antes do rename, evitando indisponibilidade.
+
+- **Pendencias:**
+  - Coherence_Portal continua sem remote `origin` configurado. Cada deploy exige `gcloud builds submit --config=cloudbuild-test.yaml .` manual do diretorio local.
+  - Monitoria_Chamadas continua com 4 modificacoes pre-existentes no working tree do owner (`backend/tests/test_firestore_canonical_state.py`, `docs/HARNESS.md`, `frontend/src/pages/Dashboard.jsx`, `docs/portal-aberto-2026-07-05.png`) — nao relacionadas a este rename.
+
+---
+
 ## 08/07/2026 00:45 BRT — Multi-Provider LLM: DeepSeek V4 Flash (NVIDIA NIM) + ErrorBoundary
 
 ### Contexto
