@@ -130,9 +130,26 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 3. **Mitigacao automatica**: Cloud Scheduler job `monitoria-warmup` acorda worker seg-sex 7h BRT (custo ~$0.10/mes). Fora do horario comercial, cold start e' aceito.
 4. **Plano de contingencia**: se cold start for problema em outros horarios, considerar upgrade para `min-instances=1` (~+$228/mes).
 
+## Regra #13 - Integracao com Portal Coherence (08/07/2026)
+
+**Aplicavel a partir de 08/07/2026 (Padrao de Integracao).**
+
+1. **Cloud Build step final** (em `cloudbuild-test.yaml`) DEVE chamar API admin do Portal apos deploy bem-sucedido:
+   ```
+   POST https://coherence-portal-test-.../api/admin/modules/monitoria-chamadas
+   ```
+   Body: `{name, url, revision, description, icon}`. Auth: Bearer Firebase ID Token (super-admin).
+2. **Pre-requisito**: Cloud Build SA `894828119087-compute@developer.gserviceaccount.com` deve estar em `SUPER_ADMIN_EMAILS` do Portal.
+3. **Step eh best-effort**: se falhar (rede, auth), Cloud Build NAO falha o deploy. Portal fica desatualizado ate proximo deploy ou admin manual.
+4. **Atualizar `docs/MODULE_INTEGRATION.md`** sempre que contrato ou URL mudar (pre-commit).
+5. **PROIBIDO clonar repo cross-repo em build** (ex: Portal clonando este repo). Git e' apenas versionamento.
+6. **Use a skill `coherence_module_integration`** sempre que criar/alterar integracao com Portal.
+
+Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
+
 ## Ver tambem
 
 - [HARNESS.md](HARNESS.md) - Objetivo principal + stack
 - [ARQUITETURA.md](ARQUITETURA.md) - Detalhes tecnicos
-- [conexao_modulo.md](conexao_modulo.md) - Spec do contrato com Portal
+- [MODULE_INTEGRATION.md](MODULE_INTEGRATION.md) - Como este modulo se integra ao Portal
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

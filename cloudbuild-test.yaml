@@ -58,11 +58,46 @@ steps:
       # Migracao completa para Firestore — nao ha mais SQLite local.
       # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.
       # Sera removido em sprint futura de cleanup.
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-894828119087.us-central1.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 
+  # NEW (08/07/2026 - Padrao de Integracao Portal <-> Modulos):
+  # Apos deploy, notifica Portal Coherence para registrar/atualizar este modulo
+  # no Firestore `modules/monitoria-chamadas`. Card aparece automaticamente no Dashboard.
+  # Ver OmniChannel/docs/MODULE_INTEGRATION.md e skill coherence_module_integration.
+  # Pre-requisito: Cloud Build SA deve ser super-admin no Portal (adicionado em
+  # SUPER_ADMIN_EMAILS env var do Portal Cloud Run).
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        set -e
+        SERVICE_URL=$$(gcloud run services describe monitoria-test-env --region=us-central1 --format="value(status.url)")
+        REVISION=$$(gcloud run services describe monitoria-test-env --region=us-central1 --format="value(status.latestReadyRevisionName)")
+        PORTAL_URL="https://coherence-portal-test-c5nbfc5meq-uc.a.run.app"
+        TOKEN=$$(curl -s -H "Metadata-Flavor: Google" \
+          "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=$$PORTAL_URL")
+        if [ -z "$$TOKEN" ]; then
+          echo "WARN: nao foi possivel obter OIDC token; modulo nao foi registrado no Portal. Faca manualmente."
+          exit 0
+        fi
+        RESPONSE=$$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
+          "$$PORTAL_URL/api/admin/modules/monitoria-chamadas" \
+          -H "Authorization: Bearer $$TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"name\":\"Monitoria de Chamadas\",\"url\":\"$$SERVICE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
+        echo "Portal notify response: $$RESPONSE"
+        HTTP_STATUS=$$(echo "$$RESPONSE" | grep -oP 'HTTP_STATUS:\K[0-9]+' || echo "unknown")
+        if [ "$$HTTP_STATUS" != "200" ]; then
+          echo "WARN: Portal retornou HTTP $$HTTP_STATUS. Modulo NAO foi registrado."
+          echo "WARN: Cloud Build NAO vai falhar (step eh best-effort). Faca manualmente se necessario."
+          exit 0
+        fi
+        echo "OK: Portal registrou monitoria-chamadas com url=$$SERVICE_URL revision=$$REVISION"
+
 substitutions:
-  _VITE_API_URL: 'https://monitoria-test-env-894828119087.us-central1.run.app'
+  _VITE_API_URL: 'https://monitoria-test-env-c5nbfc5meq-uc.a.run.app'
   _VITE_FIREBASE_API_KEY: 'AIzaSyAIMGRNFUIBBueB8xk0jlTWA-EfpdjywDQ'
   _VITE_FIREBASE_AUTH_DOMAIN: 'coherence-ominichannel-fs.firebaseapp.com'
   _VITE_FIREBASE_PROJECT_ID: 'coherence-ominichannel-fs'
