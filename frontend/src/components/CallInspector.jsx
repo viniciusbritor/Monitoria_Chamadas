@@ -394,57 +394,57 @@ export default function CallInspector({ callId, onBack }) {
               )}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* Transcrição Diarizada (Collapsible) */}
-      <div className="glass-panel p-5">
-        <button
-          onClick={() => setShowTranscript(!showTranscript)}
-          className="flex items-center justify-between w-full"
-        >
-          <div className="flex items-center gap-2">
-            <MessageSquare size={18} className="text-textMuted" />
-            <h3 className="font-semibold text-textMain">Transcrição</h3>
-          </div>
-          {showTranscript ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-        </button>
+          {/* Transcrição (Collapsible) — dentro da coluna direita, abaixo da Oportunidade */}
+          <div className="glass-panel p-5">
+            <button
+              onClick={() => setShowTranscript(!showTranscript)}
+              className="flex items-center justify-between w-full"
+            >
+              <div className="flex items-center gap-2">
+                <MessageSquare size={18} className="text-textMuted" />
+                <h3 className="font-semibold text-textMain">Transcrição</h3>
+              </div>
+              {showTranscript ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
 
-        {showTranscript && (
-          <div className="mt-4 pt-4 border-t border-black/5 space-y-3 max-h-[500px] overflow-y-auto">
-            {(call && call.transcricao_diarizada) ? (
-              call.transcricao_diarizada.split('\n\n').map((block, i) => {
-                const isOp = block.toLowerCase().startsWith('operador:')
-                const isClient = block.toLowerCase().startsWith('cliente:')
-                if (!block.trim()) return null
+            {showTranscript && (
+              <div className="mt-4 pt-4 border-t border-black/5 space-y-3 max-h-[500px] overflow-y-auto">
+                {(call && call.transcricao_diarizada) ? (
+                  call.transcricao_diarizada.split('\n\n').map((block, i) => {
+                    const isOp = block.toLowerCase().startsWith('operador:')
+                    const isClient = block.toLowerCase().startsWith('cliente:')
+                    if (!block.trim()) return null
 
-                let textContent = block
-                if (isOp) textContent = block.substring(9).trim()
-                if (isClient) textContent = block.substring(8).trim()
+                    let textContent = block
+                    if (isOp) textContent = block.substring(9).trim()
+                    if (isClient) textContent = block.substring(8).trim()
 
-                return (
-                  <div key={i} className={`flex gap-3 ${isOp ? 'flex-row' : 'flex-row-reverse'}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                      isOp ? 'bg-primary text-white' : 'bg-surface text-textMuted border border-black/10'
-                    }`}>
-                      {isOp ? <Headphones size={14} /> : <User size={14} />}
-                    </div>
-                    <div className={`p-3 rounded-2xl max-w-[85%] text-sm leading-relaxed ${
-                      isOp ? 'bg-surface border border-black/5 text-textMain rounded-tl-sm'
-                           : 'bg-black/5 text-textMain rounded-tr-sm'
-                    }`}>
-                      {textContent}
-                    </div>
-                  </div>
-                )
-              })
-            ) : (
-              <p className="text-sm text-textMuted italic text-center py-4">
-                Transcrição não disponível para esta chamada.
-              </p>
+                    return (
+                      <div key={i} className={`flex gap-3 ${isOp ? 'flex-row' : 'flex-row-reverse'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                          isOp ? 'bg-primary text-white' : 'bg-surface text-textMuted border border-black/10'
+                        }`}>
+                          {isOp ? <Headphones size={14} /> : <User size={14} />}
+                        </div>
+                        <div className={`p-3 rounded-2xl max-w-[85%] text-sm leading-relaxed ${
+                          isOp ? 'bg-surface border border-black/5 text-textMain rounded-tl-sm'
+                               : 'bg-black/5 text-textMain rounded-tr-sm'
+                        }`}>
+                          {textContent}
+                        </div>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <p className="text-sm text-textMuted italic text-center py-4">
+                    Transcrição não disponível para esta chamada.
+                  </p>
+                )}
+              </div>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* Pontos Positivos e Melhoria */}
