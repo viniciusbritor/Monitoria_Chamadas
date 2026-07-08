@@ -59,23 +59,62 @@ export default function Dashboard({ onInspectCall }) {
   const { opportunities, successes } = calculateRetentionStats();
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0]
-    if (!file) return
-    
+    const selectedFiles = Array.from(e.target.files || [])
+    if (selectedFiles.length === 0) return
+
+    // NEW (08/07/2026 - Plano Ultra-Economico): valida tamanho (20MB) e quantidade (50).
+    const MAX_FILES = 50
+    const MAX_FILE_SIZE = 20 * 1024 * 1024
+    const oversized = selectedFiles.filter(f => f.size > MAX_FILE_SIZE)
+    if (oversized.length > 0) {
+      alert(`${oversized.length} arquivo(s) excedem 20MB e foram ignorados: ${oversized.map(f => f.name).join(', ')}`)
+    }
+    const validFiles = selectedFiles.filter(f => f.size <= MAX_FILE_SIZE)
+    if (validFiles.length === 0) return
+    if (validFiles.length > MAX_FILES) {
+      alert(`Maximo ${MAX_FILES} arquivos por batch (recebido: ${validFiles.length}). Enviando primeiros ${MAX_FILES}.`)
+      validFiles.splice(MAX_FILES)
+    }
+
     setUploading(true)
     const formData = new FormData()
-    formData.append('file', file)
+    validFiles.forEach((f) => formData.append('files', f))
     formData.append('diretrizes', diretrizes)
-    
+
+    const endpoint = validFiles.length === 1 ? '/api/upload' : '/api/upload-batch'
+    if (validFiles.length === 1) {
+      // Endpoint single espera campo 'file' (singular), nao 'files'
+      const singleForm = new FormData()
+      singleForm.append('file', validFiles[0])
+      singleForm.append('diretrizes', diretrizes)
+      try {
+        const token = localStorage.getItem('auth_token')
+        await axios.post(`${API_URL}${endpoint}`, singleForm, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        fetchCalls()
+        setDiretrizes("")
+      } catch (err) {
+        alert('Erro no upload')
+      } finally {
+        setUploading(false)
+        e.target.value = null
+      }
+      return
+    }
+
     try {
       const token = localStorage.getItem('auth_token')
-      await axios.post(`${API_URL}/api/upload`, formData, {
+      const { data } = await axios.post(`${API_URL}${endpoint}`, formData, {
         headers: { Authorization: `Bearer ${token}` }
       })
+      if (data.errors > 0) {
+        alert(`Upload parcial: ${data.queued} adicionados, ${data.errors} com erro`)
+      }
       fetchCalls()
-      setDiretrizes("") // limpa após upload
+      setDiretrizes("")
     } catch (err) {
-      alert('Erro no upload')
+      alert(`Erro no upload em batch: ${err.response?.data?.detail || err.message}`)
     } finally {
       setUploading(false)
       e.target.value = null
@@ -111,7 +150,7 @@ export default function Dashboard({ onInspectCall }) {
             ) : (
               <>Selecionar Arquivo</>
             )}
-            <input type="file" className="hidden" accept="audio/*,video/mpeg,video/mp4,.mpeg,.mp4,.wav,.mp3" onChange={handleFileUpload} disabled={uploading} />
+            <input type="file" className="hidden" accept="audio/*,video/mpeg,video/mp4,.mpeg,.mp4,.wav,.mp3" multiple onChange={handleFileUpload} disabled={uploading} />
           </label>
         </div>
 

@@ -664,6 +664,170 @@ async def upload_audio(
 
     return {"message": "Processamento iniciado", "id": call_id, "mode": "pubsub"}
 
+
+# ============================================================================
+# NEW (08/07/2026 - Plano Ultra-Economico): Upload em BATCH
+# ============================================================================
+# Habilita dropar varios arquivos de uma vez. Cada arquivo vira 1 chamada
+# independente (Firestore row + Pub/Sub message). Worker processa em paralelo
+# ate max-instances=2 instancias.
+#
+# Limitacoes (GUARDRAILS):
+# - MAX_FILES = 50 por request
+# - MAX_FILE_SIZE = 20MB por arquivo (worker tem 4 GiB)
+#
+# Comportamento:
+# - Para cada arquivo valido: upload GCS + INSERT Firestore + publish Pub/Sub
+# - Arquivos rejeitados (muito grandes) retornam error no resultado individual
+# - Request inteiro retorna 200 mesmo com erros parciais (cliente checa results[])
+# ============================================================================
+@app.post("/api/upload-batch")
+async def upload_batch(
+    files: list[UploadFile] = File(..., description="Max 50 arquivos por batch"),
+    diretrizes: str = Form(""),
+    user = Depends(get_current_user),
+):
+    """Upload em batch. Cada arquivo vira 1 chamada independente."""
+    MAX_FILES = 50
+    MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB (worker 4 GiB - GUARDRAILS Regra #11)
+
+    if len(files) > MAX_FILES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Maximo {MAX_FILES} arquivos por batch (recebido: {len(files)})",
+        )
+    if len(files) == 0:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado")
+
+    from google.cloud import pubsub_v1, storage as gcs_storage
+
+    gcs_bucket_name = os.getenv("AUDIO_BUCKET", "coherence-monitoria-audios-tmp")
+    gcs_client = gcs_storage.Client()
+    bucket = gcs_client.bucket(gcs_bucket_name)
+
+    publisher = pubsub_v1.PublisherClient()
+    topic_path = publisher.topic_path(
+        os.getenv("GCP_PROJECT", "coherence-ominichannel-fs"),
+        os.getenv("PUBSUB_TOPIC", "monitoria-whisper-jobs"),
+    )
+
+    results = []
+    publish_futures = []
+
+    for f in files:
+        filename = f.filename or "audio.mp3"
+        try:
+            contents = await f.read()
+        except Exception as e:
+            results.append({
+                "filename": filename,
+                "call_id": None,
+                "status": "error",
+                "error": f"Falha ao ler arquivo: {e}",
+            })
+            continue
+
+        if len(contents) > MAX_FILE_SIZE:
+            results.append({
+                "filename": filename,
+                "call_id": None,
+                "status": "error",
+                "error": f"Arquivo excede {MAX_FILE_SIZE // (1024*1024)}MB",
+            })
+            continue
+
+        call_id = str(uuid.uuid4())
+        gcs_path = f"uploads/{user.get('sub')}/{call_id}_{filename}"
+        gcs_uri = None
+
+        # Upload GCS
+        try:
+            blob = bucket.blob(gcs_path)
+            blob.upload_from_string(contents, content_type=f.content_type or "audio/mpeg")
+            gcs_uri = f"gs://{gcs_bucket_name}/{gcs_path}"
+        except Exception as e:
+            print(f"[BatchUpload] GCS falhou {call_id}: {e}", flush=True)
+            results.append({
+                "filename": filename,
+                "call_id": call_id,
+                "status": "error",
+                "error": f"Falha GCS: {e}",
+            })
+            continue
+
+        # INSERT Firestore
+        now = datetime.now().isoformat()
+        try:
+            get_db().create(call_id, {
+                "filename": filename,
+                "uploaded_at": now,
+                "status": "Na Fila de Processamento...",
+                "user_id": user.get("sub"),
+                "diretrizes_qualidade": diretrizes,
+                "gcs_uri": gcs_uri,
+                "audio_duration_sec": None,
+                "progress_pct": 0.0,
+            })
+        except Exception as e:
+            print(f"[BatchUpload] Firestore create falhou {call_id}: {e}", flush=True)
+            results.append({
+                "filename": filename,
+                "call_id": call_id,
+                "status": "error",
+                "error": f"Falha Firestore: {e}",
+            })
+            continue
+
+        # Publish Pub/Sub
+        try:
+            payload = json.dumps({
+                "call_id": call_id,
+                "gcs_uri": gcs_uri,
+                "filename": filename,
+                "user_id": user.get("sub"),
+                "diretrizes": diretrizes,
+                "uploaded_at": now,
+                "audio_duration_sec": None,
+            }).encode("utf-8")
+            publish_futures.append((
+                call_id, filename, publisher.publish(topic_path, payload)
+            ))
+            results.append({
+                "filename": filename,
+                "call_id": call_id,
+                "status": "queued",
+            })
+        except Exception as e:
+            print(f"[BatchUpload] publish falhou {call_id}: {e}", flush=True)
+            results.append({
+                "filename": filename,
+                "call_id": call_id,
+                "status": "error",
+                "error": f"Falha publish: {e}",
+            })
+
+    # Espera todos os publishes
+    for call_id, filename, future in publish_futures:
+        try:
+            future.result(timeout=10)
+        except Exception as e:
+            print(f"[BatchUpload] publish result falhou {call_id}: {e}", flush=True)
+
+    queued = sum(1 for r in results if r["status"] == "queued")
+    errors = sum(1 for r in results if r["status"] == "error")
+    print(
+        f"[BatchUpload] user={user.get('email')} total={len(results)} "
+        f"queued={queued} errors={errors}",
+        flush=True,
+    )
+
+    return {
+        "calls": results,
+        "total": len(results),
+        "queued": queued,
+        "errors": errors,
+    }
+
 # ============================================================================
 # Internal Worker Callback (service-to-service, OIDC)
 # ============================================================================
