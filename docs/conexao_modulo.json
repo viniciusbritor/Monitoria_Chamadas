@@ -15,7 +15,7 @@
   ],
   "owner": "viniciusbritor@gmail.com",
   "repository": "viniciusbritor/Monitoria_Chamadas",
-  "_canonical_location": "Monitoria_Chamadas_Teste/docs/conexao_modulo.json (FONTE CANONICA)",
+  "_canonical_location": "Monitoria_Chamadas/docs/conexao_modulo.json (FONTE CANONICA)",
   "_portal_consumption": "Portal clona este arquivo via cloudbuild-test.yaml step 0 (git clone https://github.com/viniciusbritor/Monitoria_Chamadas.git)",
   "variants": {
     "test": {

@@ -838,7 +838,7 @@ c85af9e refactor(worker): migrate from SQLite to Firestore via core/db.py
 
 ### Push
 - `git push origin test` → `158532d..0b57c7b` (5 commits, sem force)
-- Repositório GitHub: https://github.com/viniciusbritor/Monitoria_Chamadas_Teste.git
+- Repositório GitHub: https://github.com/viniciusbritor/Monitoria_Chamadas.git
 
 ### Working tree residual (não commitado)
 Arquivos modificados não relacionados ao Plano A++ (owner deve revisar separadamente):
@@ -1907,7 +1907,7 @@ Bug adicional: arquivos `.jsx` (`Dashboard.jsx`, `CallInspector.jsx`, `SettingsP
 - Popup do Google aparecia em alguns casos (quando o user clicava em "Continuar com Google" na tela de login do Monitoria)
 
 ### Causa raiz
-Bug no `frontend/src/App.jsx` do Monitoria_Chamadas_Teste:
+Bug no `frontend/src/App.jsx` do Monitoria_Chamadas:
 
 1. **Race condition no `validateTokenOnMount`:** o useEffect chamava `handleLogout()` no `catch` e em qualquer `!res.ok` (incluindo 401, 5xx, timeouts).
 2. **`handleLogout()` faz redirect** (`window.location.href = PORTAL_URL + '/dashboard'`) — então qualquer falha de validação jogava o user de volta pro Portal.
@@ -1921,7 +1921,7 @@ Sequência problemática:
 - `/api/auth/me` falha (cold start, 503, timeout) → `handleLogout()` → REDIRECT para Portal → user não vê o Monitoria
 
 ### Fix aplicado
-**Arquivo:** `Monitoria_Chamadas_Teste/frontend/src/App.jsx`
+**Arquivo:** `Monitoria_Chamadas/frontend/src/App.jsx`
 
 **Mudanças:**
 
@@ -1973,13 +1973,13 @@ if (!res.ok) {
   2. Temor de bundle antigo em cache do navegador (popup do Google no Monitoria).
 
 - **Ações implementadas:**
-  - **`App.jsx` (Monitoria_Chamadas_Teste/frontend/src/App.jsx):** novo `useEffect` que:
+  - **`App.jsx` (Monitoria_Chamadas/frontend/src/App.jsx):** novo `useEffect` que:
     - Tenta detectar sessão Firebase Auth ativa via `auth.currentUser.getIdToken()` (cenário A: cookie compartilhado via authDomain).
     - Verifica `localStorage.getItem('auth_token')` (cenário B: voltou de outra aba).
     - Se nenhum dos dois, **redireciona automaticamente para `PORTAL_URL/dashboard` em 2s** (cenário C).
-  - **`vite.config.js` (Monitoria_Chamadas_Teste/frontend/):** novo plugin `cacheBustPlugin` que adiciona `?v=<BUILD_SHA>` no `<script src>` do `index.html` gerado. Todo deploy quebra o cache do navegador automaticamente.
+  - **`vite.config.js` (Monitoria_Chamadas/frontend/):** novo plugin `cacheBustPlugin` que adiciona `?v=<BUILD_SHA>` no `<script src>` do `index.html` gerado. Todo deploy quebra o cache do navegador automaticamente.
   - **`cloudbuild-test.yaml`:** passa `BUILD_SHA=$COMMIT_SHA` para o step de build do frontend.
-  - **`api.py` (Monitoria_Chamadas_Teste/):** `Transcriber` e `Evaluator` agora são **lazy-loaded** via `get_transcriber()` / `get_evaluator()`. O container não baixa o modelo Whisper do HuggingFace no startup, evitando o rate limit `429 Too Many Requests` que estava quebrando o health check do Cloud Run.
+  - **`api.py` (Monitoria_Chamadas/):** `Transcriber` e `Evaluator` agora são **lazy-loaded** via `get_transcriber()` / `get_evaluator()`. O container não baixa o modelo Whisper do HuggingFace no startup, evitando o rate limit `429 Too Many Requests` que estava quebrando o health check do Cloud Run.
 
 - **Deploy:** build `010e0105-c22d-460e-84ed-10d818290a5f` → **SUCCESS**. Revisão `monitoria-test-env-00003-89f`. Bundle servido: `index-0il_3s3q.js?v=local-dev-20260702-183811` (cache-bust confirmado).
 

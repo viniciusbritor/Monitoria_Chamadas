@@ -164,7 +164,7 @@ Responda EXATAMENTE em formato JSON estruturado com os seguintes campos:
     }
 
 def main():
-    test_dir = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas_Teste\chamadas_testes"
+    test_dir = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\chamadas_testes"
     files = [
         "WhatsApp Audio 2026-06-29 at 07.11.10.mpeg",
         "WhatsApp Audio 2026-06-29 at 07.11.11.mpeg"

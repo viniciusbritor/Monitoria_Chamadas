@@ -1,8 +1,8 @@
 """
 Valida que docs/conexao_modulo.json segue o schema esperado (fonte canonica).
 
-Este teste vive no Modulo (Monitoria_Chamadas_Teste) porque a fonte canonica
-do spec esta em Monitoria_Chamadas_Teste/docs/conexao_modulo.json (Q4=b).
+Este teste vive no Modulo (Monitoria_Chamadas) porque a fonte canonica
+do spec esta em Monitoria_Chamadas/docs/conexao_modulo.json (Q4=b).
 Portal clona este arquivo no build-time via cloudbuild-test.yaml step 0.
 
 Este teste roda no CI do Modulo e falha se:
@@ -52,7 +52,7 @@ SEMVER_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 def _load():
     assert os.path.exists(CONFIG_PATH), (
         f"Arquivo ausente: {CONFIG_PATH}. "
-        f"A fonte canonica vive no Modulo (Monitoria_Chamadas_Teste/docs/conexao_modulo.json)."
+        f"A fonte canonica vive no Modulo (Monitoria_Chamadas/docs/conexao_modulo.json)."
     )
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)

@@ -94,7 +94,7 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 1. **Nunca** bloquear threads principais com processamento sincrono. Sempre usar Pub/Sub + worker, ou BackgroundTasks.
 2. **Nunca** hardcodear cores na UI. Sempre usar `tailwindcss` e `docs/UI_GUIDELINES.md`.
 3. **Nunca** fazer deploy no GCP Cloud sem verificar se `requirements.txt` tem `fastapi`, `uvicorn`, `python-multipart`.
-4. **Nunca** implementar direto em producao. Primeiro em `Monitoria_Chamadas_Teste` (este projeto), depois promover.
+4. **Nunca** implementar direto em producao. Primeiro em `Monitoria_Chamadas` (este projeto), depois promover.
 5. **Nunca** reintroduzir tela de Login no modulo (ver Regra #0).
 6. **Nunca** criar `frontend/.env.local` (conteudo e' embutido no bundle).
 7. **Nunca** reintroduzir SQLite como persistencia (ver Regra #2).
