@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search } from 'lucide-react'
 import axios from 'axios'
+import { fmtDateTimeBR } from '../lib/datetime'
 
-const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-894828119087.us-central1.run.app"
+const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
 
 // Polling adaptativo: 2s quando ha chamada processando, 10s quando idle.
 // Reduz latencia percebida sem sobrecarregar API quando nao ha atividade.
@@ -213,7 +214,7 @@ export default function Dashboard({ onInspectCall }) {
                     </div>
                   </td>
                   <td className="p-4 text-sm text-textMuted">
-                    {new Date(call.uploaded_at).toLocaleString('pt-BR')}
+                    {fmtDateTimeBR(call.uploaded_at)}
                   </td>
                   <td className="p-4">
                     <div className="flex flex-col gap-1.5">

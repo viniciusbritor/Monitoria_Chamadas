@@ -30,6 +30,18 @@ from pydantic import BaseModel
 import uuid
 import shutil
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+# NEW (08/07/2026 - Fuso GMT-3): helper para timestamps em Brasil/Sao_Paulo
+BRT = ZoneInfo("America/Sao_Paulo")
+
+def now_brt():
+    """Datetime atual em GMT-3 (America/Sao_Paulo)."""
+    return datetime.now(BRT)
+
+def now_brt_iso():
+    """ISO 8601 com timezone GMT-3. Ex: '2026-07-08T18:30:00-03:00'."""
+    return now_brt().isoformat()
 import json
 import jwt
 
