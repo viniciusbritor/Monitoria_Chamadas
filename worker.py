@@ -275,18 +275,19 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     })
 
     # 4. Diarizacao
-    update_status(call_id, "Separando falas (Diarizacao MiniMax)...")
+    eval_ = get_evaluator()
+    update_status(call_id, f"Separando falas (Diarizacao {eval_.client.last_provider_used or 'IA'})...")
     try:
-        diarized_transcript = get_evaluator().diarize(raw_transcript)
-        print(f"[Worker {WORKER_ID}] Diarizacao OK", flush=True)
+        diarized_transcript = eval_.diarize(raw_transcript)
+        print(f"[Worker {WORKER_ID}] Diarizacao OK ({eval_.client.last_provider_used or 'IA'})", flush=True)
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Falha diarizacao (continuando): {e}", flush=True)
         diarized_transcript = raw_transcript
 
     # 5. Avaliacao LLM
-    update_status(call_id, "Analisando Qualidade e Sentimento (MiniMax M3)...")
+    update_status(call_id, f"Analisando Qualidade e Sentimento ({eval_.client.last_provider_used or 'IA'})...")
     try:
-        evaluation = get_evaluator().evaluate(
+        evaluation = eval_.evaluate(
             diarized_transcript,
             user_settings=user_settings,
             pop_context=pop_context,

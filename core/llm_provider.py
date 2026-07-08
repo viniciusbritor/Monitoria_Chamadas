@@ -257,6 +257,7 @@ class LLMClient:
 
     def __init__(self):
         self.providers = []
+        self.last_provider_used = None  # nome do ultimo provedor bem-sucedido
         active = []
 
         deepseek = DeepSeekClient()
@@ -301,6 +302,7 @@ class LLMClient:
             )
             if result:
                 print(f"[LLM] {name} OK: {len(result)} chars", flush=True)
+                self.last_provider_used = name
                 return result
             print(f"[LLM] {name} retornou None", flush=True)
             return None

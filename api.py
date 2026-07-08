@@ -296,11 +296,12 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         update_progress(100.0)
 
         # Etapa 2: Diarizacao IA
-        update_status("Separando falas (Diarizacao MiniMax)...")
-        diarized_transcript = get_evaluator().diarize(raw_transcript)
+        eval_ = get_evaluator()
+        update_status(f"Separando falas (Diarizacao {eval_.client.last_provider_used or 'IA'})...")
+        diarized_transcript = eval_.diarize(raw_transcript)
 
         # Etapa 3: Avaliacao IA
-        update_status("Analisando Qualidade e Sentimento (MiniMax M3)...")
+        update_status(f"Analisando Qualidade e Sentimento ({eval_.client.last_provider_used or 'IA'})...")
         checklist_str = user_settings.get("checklist_items", "[]")
         estrategia_vendas = user_settings.get("estrategia_vendas", "")
         estrategia_retencao = user_settings.get("estrategia_retencao", "")
@@ -310,7 +311,7 @@ def process_call_task(call_id: str, file_path: str, user_id: str, diretrizes_qua
         if estrategia_retencao:
             pop_context += f"Retencao: {estrategia_retencao}. "
         pop_context += f"Diretrizes: {diretrizes_qualidade}" if diretrizes_qualidade else "Diretrizes: Cordialidade, Resolucao, Empatia, Clareza."
-        evaluation = get_evaluator().evaluate(diarized_transcript, user_settings=user_settings, pop_context=pop_context, quality_form=diretrizes_qualidade)
+        evaluation = eval_.evaluate(diarized_transcript, user_settings=user_settings, pop_context=pop_context, quality_form=diretrizes_qualidade)
 
         # Etapa 4: Conclusão
         nota = evaluation.get("nota_geral")

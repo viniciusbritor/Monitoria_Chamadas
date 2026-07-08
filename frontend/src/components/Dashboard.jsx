@@ -235,11 +235,11 @@ export default function Dashboard({ onInspectCall }) {
                   </td>
                   <td className="p-4 text-right">
                     <button 
-                      onClick={() => call.status === 'Concluído' && onInspectCall(call.id)}
-                      disabled={call.status !== 'Concluído'}
+                      onClick={() => (call.status === 'Concluído' || call.status?.startsWith('Erro')) && onInspectCall(call.id)}
+                      disabled={call.status !== 'Concluído' && !call.status?.startsWith('Erro')}
                       className="text-primary hover:text-primary/80 font-medium text-sm disabled:opacity-30 transition-colors"
                     >
-                      Inspecionar
+                      {call.status?.startsWith('Erro') ? 'Detalhes' : 'Inspecionar'}
                     </button>
                   </td>
                 </tr>
