@@ -9,6 +9,59 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import secrets_manager
 
 
+class DeepSeekClient:
+    """DeepSeek V4 Flash — API direta (api.deepseek.com). OpenAI-compatible."""
+
+    def __init__(self):
+        self.api_key = os.getenv("DEEPSEEK_API_KEY", "")
+        if not self.api_key:
+            self.api_key = secrets_manager.get_secret("DEEPSEEK_API_KEY")
+        self.base_url = "https://api.deepseek.com/v1"
+        self.model = "deepseek-chat"
+        self.enabled = bool(self.api_key)
+
+    def _execute(self, payload, max_retries=3):
+        if not self.enabled:
+            raise Exception("[DeepSeek] DEEPSEEK_API_KEY nao configurada")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        retries = 0
+        base_delay = 1
+
+        while retries <= max_retries:
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                )
+                if resp.status_code == 429:
+                    retries += 1
+                    if retries > max_retries:
+                        raise Exception(f"[DeepSeek] Max retries atingido (429)")
+                    sleep_time = (base_delay ** retries) + random.uniform(0, 1)
+                    print(f"[DeepSeek] 429 rate limit. Aguardando {sleep_time:.2f}s...")
+                    time.sleep(sleep_time)
+                    continue
+                if resp.status_code == 402:
+                    raise Exception(f"[DeepSeek] Quota/credito insuficiente: {resp.text[:200]}")
+                resp.raise_for_status()
+                data = resp.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    return data["choices"][0]["message"]["content"]
+                return None
+            except requests.exceptions.RequestException as e:
+                retries += 1
+                if retries > max_retries:
+                    raise Exception(f"[DeepSeek] Erro apos {max_retries} retries: {e}")
+                sleep_time = (base_delay ** retries) + random.uniform(0, 1)
+                print(f"[DeepSeek] Erro {e}. Retry {retries}/{max_retries} em {sleep_time:.2f}s...")
+                time.sleep(sleep_time)
+
+
 class NvidiaNimClient:
     """DeepSeek V4 Flash via NVIDIA NIM — OpenAI-compatible API."""
 
@@ -18,8 +71,46 @@ class NvidiaNimClient:
             self.api_key = secrets_manager.get_secret("NVIDIA_API_KEY")
         self.base_url = "https://integrate.api.nvidia.com/v1"
         self.model = "deepseek-ai/deepseek-v4-flash"
+        self.enabled = bool(self.api_key)
+
+    def chat(self, system_prompt, user_prompt, json_mode=False,
+             temperature=None, max_tokens=None):
+        if temperature is None:
+            temperature = 0.3 if json_mode else 0.1
+        if max_tokens is None:
+            max_tokens = 1500 if json_mode else 2000
+
+        payload = {
+            "model": self.model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "top_p": 0.95,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        return self._execute(payload)
+
+
+class NvidiaNimClient:
+    """DeepSeek V4 Flash via NVIDIA NIM (fallback se DEEPSEEK_API_KEY ausente)."""
+
+    def __init__(self):
+        self.api_key = os.getenv("NVIDIA_API_KEY", "")
+        if not self.api_key:
+            self.api_key = secrets_manager.get_secret("NVIDIA_API_KEY")
+        self.base_url = "https://integrate.api.nvidia.com/v1"
+        self.model = "deepseek-ai/deepseek-v4-flash"
+        self.enabled = bool(self.api_key)
 
     def _execute(self, payload, max_retries=3):
+        if not self.enabled:
+            raise Exception("[NVIDIA] NVIDIA_API_KEY nao configurada")
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -89,6 +180,7 @@ class MiniMaxClient:
         self.api_key = secrets_manager.get_secret("MINIMAX_API_KEY")
         self.base_url = "https://api.minimax.io/v1/text/chatcompletion_v2"
         self.model = "MiniMax-M3"
+        self.enabled = bool(self.api_key)
 
     def _execute(self, payload, max_retries=3):
         headers = {
@@ -153,37 +245,44 @@ class MiniMaxClient:
 
 
 class LLMClient:
-    """Multi-provider: DeepSeek V4 Flash (NVIDIA) primario, MiniMax M3 fallback.
+    """Multi-provider cascata: DeepSeek direto → NVIDIA NIM → MiniMax M3.
 
-    Mantem a mesma interface cached_chat() para compatibilidade com o
-    restante do codigo (evaluator, worker, api).
+    Mantem a mesma interface cached_chat() para compatibilidade.
     """
 
     def __init__(self):
-        self.primary = NvidiaNimClient()
-        self.fallback = MiniMaxClient() if self.fallback.api_key else None
-        print("[LLM] Primario: DeepSeek V4 Flash (NVIDIA NIM)", flush=True)
-        print(f"[LLM] Fallback: {'MiniMax M3' if self.fallback else 'DESABILITADO (sem key)'}", flush=True)
+        self.providers = []
+        active = []
+
+        deepseek = DeepSeekClient()
+        self.providers.append(("DeepSeek", deepseek))
+        if deepseek.enabled:
+            active.append("DeepSeek (api.deepseek.com)")
+
+        nvidia = NvidiaNimClient()
+        self.providers.append(("NVIDIA", nvidia))
+        if nvidia.enabled:
+            active.append("NVIDIA NIM")
+
+        minimax = MiniMaxClient()
+        self.providers.append(("MiniMax", minimax))
+        if minimax.enabled:
+            active.append("MiniMax M3")
+
+        print(f"[LLM] Provedores ativos: {', '.join(active) if active else 'NENHUM'}", flush=True)
 
     def cached_chat(self, system_prompt, user_prompt, json_mode=False,
                     cache_key=None, temperature=None, max_tokens=None):
-        resultado = self._try_provider(
-            self.primary, "DeepSeek/NVIDIA",
-            system_prompt, user_prompt, json_mode, temperature, max_tokens,
-        )
-        if resultado is not None:
-            return resultado
-
-        if self.fallback is not None:
-            print("[LLM] Primario falhou. Tentando fallback MiniMax...", flush=True)
+        for name, provider in self.providers:
             resultado = self._try_provider(
-                self.fallback, "MiniMax",
+                provider, name,
                 system_prompt, user_prompt, json_mode, temperature, max_tokens,
             )
             if resultado is not None:
                 return resultado
+            print(f"[LLM] {name} falhou, tentando proximo...", flush=True)
 
-        raise Exception("Todos provedores LLM falharam (DeepSeek + MiniMax)")
+        raise Exception("Todos provedores LLM falharam (DeepSeek + NVIDIA + MiniMax)")
 
     def _try_provider(self, provider, name, system_prompt, user_prompt,
                       json_mode, temperature, max_tokens):
