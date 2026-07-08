@@ -5,7 +5,7 @@
   "description": "Transcricao e avaliacao QA de audios de atendimento ao cliente usando faster-whisper (PT-BR) e MiniMax M3.",
   "icon": "Headphones",
   "schema_version": "1.2.0",
-  "last_updated": "2026-07-07",
+  "last_updated": "2026-07-08",
   "objective": [
     "Upload de chamada (audio file)",
     "Transcricao audio -> texto",
@@ -172,14 +172,33 @@
   "module_capabilities": {
     "audio_formats_supported": ["MP3", "WAV", "MPEG"],
     "transcription_engine": "faster-whisper base (PT-BR)",
-    "qa_evaluation_engine": "MiniMax M3",
+    "qa_evaluation_engine": "DeepSeek V4 Flash + NVIDIA NIM + MiniMax M3 (cascata, batch desde 08/07/2026)",
     "queue_engine": "Google Cloud Pub/Sub",
     "topic": "monitoria-whisper-jobs",
     "subscription": "monitoria-whisper-jobs-worker",
     "worker_service": "monitoria-whisper-worker",
-    "max_audio_size_mb": 100,
-    "estimated_processing_time_short_audio_sec": "180-300",
-    "estimated_processing_time_long_audio_sec": "1500"
+    "max_audio_size_mb": 20,
+    "max_files_per_batch": 50,
+    "batch_upload_endpoint": "POST /api/upload-batch",
+    "estimated_processing_time_short_audio_sec": "30-50",
+    "estimated_processing_time_long_audio_sec": "60-120",
+    "throughput_per_day": 600,
+    "cost_estimate_per_month_usd": 110,
+    "plan": "Plano Ultra-Economico aplicado em 08/07/2026",
+    "worker_resources": {
+      "cpu": "4 vCPU",
+      "memory": "4 GiB",
+      "min_instances": 0,
+      "max_instances": 2,
+      "concurrency": 1
+    },
+    "llm_defaults": {
+      "temperature": 0.1,
+      "max_tokens": 1000,
+      "batch_mode": true,
+      "batch_combines": ["diarize", "evaluate"]
+    },
+    "legacy_callback_rollback": "Set LEGACY_CALLBACK=true para reverter worker ao callback OIDC legado em 5min"
   },
   "rotation_procedure": {
     "summary": "PATCH Firestore URL; zero deploy do Portal",

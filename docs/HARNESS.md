@@ -35,7 +35,8 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 - `GET /api/calls/{id}` - Detalhe de uma chamada (com bypass super-admin)
 - `GET /api/calls/{id}/audio` - URL do audio (signed)
 - `GET /api/settings` / `POST /api/settings` - QA settings do user
-- `POST /api/upload` - Upload de audio (cria chamada no Firestore + publica no Pub/Sub)
+- `POST /api/upload` - Upload de 1 audio (cria chamada no Firestore + publica no Pub/Sub)
+- `POST /api/upload-batch` - **NEW (08/07/2026)**: Upload em batch, max 50 arquivos, max 20MB cada
 
 ### Service-to-service (requer OIDC)
 - `POST /api/internal/calls/{id}/status` - Callback OIDC do worker
@@ -80,9 +81,21 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | `PUBSUB_TOPIC` | `monitoria-whisper-jobs` |
 | `PUBSUB_SUBSCRIPTION` | `monitoria-whisper-jobs-worker` |
 | `AUDIO_BUCKET` | `coherence-monitoria-audios-tmp` |
-| `WORKER_CALLBACK_URL` | URL do test-env |
+| `WORKER_CALLBACK_URL` | URL do test-env (opcional desde 08/07/2026) |
+| `LEGACY_CALLBACK` | **`false`** (NEW 08/07/2026 - Plano Ultra-Economico). Se `true`, worker usa callback OIDC legado em vez de gravar direto no Firestore. |
 | `OMP_NUM_THREADS` | `2` |
 | `WHISPER_DOWNLOAD_ROOT` | `/app/whisper_models` |
+
+### worker Cloud Run (recursos desde 08/07/2026 - Plano Ultra-Economico)
+| Recurso | Valor |
+|---|---|
+| CPU | 4 vCPU |
+| Memory | 4 GiB |
+| max-instances | 2 |
+| min-instances | 0 (scale-to-zero) |
+| concurrency | 1 |
+| `--no-cpu-throttling` | ativo |
+| Custo estimado | ~$96/mês (300h ativas) |
 
 ## URL canonica
 

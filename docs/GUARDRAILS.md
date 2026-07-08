@@ -112,6 +112,24 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 2. Todo segredo passa pelo `secrets_manager` (cofre local SQLite), NAO commitado.
 3. Auditoria: requests ao `/` sem `Referer` do Portal sao logadas como `[Security] direct-access attempt`.
 
+## Regra #11 - Limites de Upload (worker 4 GiB)
+
+**Aplicavel desde 08/07/2026 (Plano Ultra-Economico)**.
+
+1. **Audio individual**: max **20MB** por arquivo (validacao client-side em Dashboard.jsx + server-side em api.py).
+2. **Batch upload**: max **50 arquivos** por request via `POST /api/upload-batch`.
+3. Justificativa: worker reduzido de 8 GiB para 4 GiB (custo). 20MB cobre audio de ~10min em WAV 16kHz mono (cenario tipico de monitoria). Audio maior deve ser dividido em chunks ou convertido para MP3.
+4. **Risco de OOM**: arquivo > 20MB pode crashar o worker por falta de memoria. Validacao dupla (frontend + backend) e obrigatoria.
+
+## Regra #12 - Cold Start Aceitavel (worker scale-to-zero)
+
+**Aplicavel desde 08/07/2026**.
+
+1. **min-instances=0** no worker significa que **cold start de 60s** ocorre na primeira chamada apos periodo idle (geralmente 1x por dia).
+2. Cold start e' o tempo de carregar modelo Whisper base (~1.5GB) na memoria.
+3. **Mitigacao automatica**: Cloud Scheduler job `monitoria-warmup` acorda worker seg-sex 7h BRT (custo ~$0.10/mes). Fora do horario comercial, cold start e' aceito.
+4. **Plano de contingencia**: se cold start for problema em outros horarios, considerar upgrade para `min-instances=1` (~+$228/mes).
+
 ## Ver tambem
 
 - [HARNESS.md](HARNESS.md) - Objetivo principal + stack

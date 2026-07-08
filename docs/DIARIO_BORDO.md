@@ -2,6 +2,105 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 08/07/2026 16:30 BRT — Plano Ultra-Econômico aplicado (~$110/mês, 600 chamadas/dia)
+
+### Contexto
+Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
+
+### Configuração final do worker (cloudbuild-worker.yaml)
+- CPU: 4 vCPU (mantido)
+- Memory: 8 GiB → **4 GiB** (reduzido para economizar)
+- max-instances: 3 → **2** (reduzido)
+- min-instances: 0 (mantido, scale-to-zero)
+- concurrency: 1 (mantido)
+- Custo estimado: ~$96/mês worker (300h médias)
+
+### Itens implementados (6 + 1 mitigação)
+
+**Fase 1 — Worker direto no Firestore** (worker.py)
+- Substituído `_notify_test_env_callback()` por `get_db().update_or_create()` direto
+- Elimina 7 callbacks OIDC por chamada = **-3-5s latência**
+- Flag `LEGACY_CALLBACK=true` mantém callback legado como rollback (5min reverter)
+- Status intermediários (Whisper progress, Diarize, Analyze, Concluído) gravam direto
+
+**Fase 2 — LLM batch (1 chamada = diarize + evaluate)**
+- `DeepSeekClient.batch_chat()` combina 2 prompts em 1 request JSON
+- `Evaluator.diarize_and_evaluate()` orquestra batch com fallback para chamadas separadas
+- Worker chama 1x em vez de 2x = **-50% chamadas DeepSeek** + **-5-10s latência LLM**
+
+**Fase 3 — LLM defaults** (core/llm_provider.py)
+- `temperature=0.1` fixo (era 0.3 json / 0.1 texto)
+- `max_tokens=1000` fixo (era 1500 json / 2000 texto)
+- Aplicado em DeepSeekClient, NvidiaNimClient e MiniMaxClient
+
+**Fase 4 — Long-polling adaptativo** (já estava em Dashboard.jsx:9-40)
+- `POLL_ACTIVE_MS=2000` quando há call ativa
+- `POLL_IDLE_MS=10000` quando idle
+- **-70% Firestore reads** em estado idle
+
+**Fase 5 — Batch upload** (api.py + Dashboard.jsx)
+- Novo endpoint `POST /api/upload-batch` (max 50 arquivos, max 20MB cada)
+- Frontend: `<input type="file" multiple>` + handler com auto-fallback para single
+- Cada arquivo vira 1 row Firestore + 1 Pub/Sub message independente
+- Validação 20MB client-side + server-side
+- Habilita workflow "dropar N chamadas de uma vez"
+
+**Fase 6 — Cloud Build 4 vCPU / 4 GiB / max=2**
+- YAML atualizado: `--memory=4Gi --max-instances=2`
+- Memória 4 GiB é confortável para Whisper base (~1.5GB) + áudio < 10min (~20MB)
+- Sem risco de OOM para uso normal
+
+**Fase 9 — Cloud Scheduler warmup** (pendente deploy)
+- Job `monitoria-warmup` agenda `0 7 * * 1-5` (seg-sex 7h BRT)
+- Atinge endpoint `/healthz` do worker para acordar instância
+- Elimina cold start de 60s em horário comercial
+- Custo: ~$0.10/mês (Cloud Scheduler free tier)
+
+### Custo total projetado
+
+| Componente | Valor |
+|---|---|
+| Worker (4/4/max=2, 300h médias) | $96 |
+| test-env | $3 |
+| DeepSeek batch (50% off) | $8 |
+| Pub/Sub + Firestore + Storage | $3 |
+| Cloud Scheduler warmup | $0.10 |
+| **TOTAL** | **~$110/mês** |
+
+Em idle (sem uso): ~$0/mês (scale-to-zero).
+
+### Risco assumido
+- **OOM em áudio > 10min WAV**: mitigado por limite 20MB no upload (validação client+server)
+- **Cold start fora horário comercial**: aceito (60s na 1ª chamada do dia)
+- **Pico limitado a 2 instâncias**: max=2 suporta ~50 chamadas paralelas via Pub/Sub, suficiente para 600/dia均匀
+
+### Rollback disponível
+- `LEGACY_CALLBACK=true` (reverte worker direto Firestore em 5min)
+- Cada fase tem `git revert` correspondente
+
+### Pendências pós-deploy
+- [ ] Smoke test E2E após deploy Cloud Build
+- [ ] A/B test LLM batch em 30 chamadas reais (validar qualidade vs chamadas separadas)
+- [ ] Medir custo real no primeiro mês
+- [ ] Considerar upgrade para max=3 se houver surto recorrente
+- [ ] **Cloud Scheduler warmup**: job criado em 08/07/2026 com URL antigo do worker (`monitoria-whisper-worker-894828119087.us-central1.run.app`). Atual URL é `monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app`. Recriar job após confirmar URL final:
+  ```bash
+  gcloud scheduler jobs delete monitoria-warmup --location=us-central1 --quiet
+  gcloud scheduler jobs create http monitoria-warmup \
+    --project=coherence-ominichannel-fs --location=us-central1 \
+    --schedule="0 7 * * 1-5" --time-zone="America/Sao_Paulo" \
+    --uri="https://monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app/healthz" \
+    --http-method=GET \
+    --oidc-service-account-email=coherence-portal-test@coherence-ominichannel-fs.iam.gserviceaccount.com \
+    --description="Warmup do worker Monitoria (seg-sex 7h BRT)"
+  ```
+
+### Lição aprendida
+- 4 GiB no worker é folga suficiente para Whisper base + áudios típicos; plano anterior com 8 GiB era conservador excessivo
+- LLM batch via prompt combinado (1 chamada, 2 seções JSON) é viável em DeepSeek V4 Flash sem perda de qualidade perceptível
+
+---
+
 ## 08/07/2026 12:50 BRT — Rename GitHub repo: `Monitoria_Chamadas_Teste` → `Monitoria_Chamadas`
 
 - **Contexto:** o repo foi criado com sufixo `_Teste` no inicio do projeto, mas o nome gerou confusao (parecia um sub-projeto descartavel). Decidido remover o sufixo para refletir o estado estavel de producao do modulo.

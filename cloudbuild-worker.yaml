@@ -33,7 +33,7 @@ steps:
       - '--execution-environment=gen2'
       - '--no-allow-unauthenticated'
       - '--cpu=4'
-      - '--memory=8Gi'
+      - '--memory=4Gi'
       - '--port=8080'
       - '--timeout=900'
       # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
@@ -43,7 +43,10 @@ steps:
       - '--no-cpu-throttling'
       - '--concurrency=1'
       - '--min-instances=0'
-      - '--max-instances=3'
+      # NEW (08/07/2026 - Plano Ultra-Economico): memory 8GiB -> 4GiB,
+      # max-instances 3 -> 2. Custo ~$110/mes para 600 calls/dia.
+      # Audio max 20MB por arquivo (validado no upload, GUARDRAILS Regra #11).
+      - '--max-instances=2'
       # REMOVIDO (06/07/2026 - Plano A++): GCS FUSE mount do SQLite.
       # Worker agora le/escreve via Firestore. Nao precisa mais do bucket compartilhado.
       - '--startup-probe=httpGet.path=/healthz,initialDelaySeconds=15,periodSeconds=5,timeoutSeconds=3,failureThreshold=18'
