@@ -51,7 +51,8 @@ steps:
       # do Whisper (~1.5GB do disco para RAM) em 2-4x durante o boot. Cloud Run
       # aloca ate 4x mais CPU nos primeiros 10s de inicializacao. Custo $0.
       # Reduz cold start de ~60s para ~15-30s.
-      - '--startup-cpu-boost'
+      # NOTA: a flag correta do gcloud e' --cpu-boost (nao --startup-cpu-boost).
+      - '--cpu-boost'
       # REMOVIDO (06/07/2026 - Plano A++): GCS FUSE mount do SQLite.
       # Worker agora le/escreve via Firestore. Nao precisa mais do bucket compartilhado.
       - '--startup-probe=httpGet.path=/healthz,initialDelaySeconds=15,periodSeconds=5,timeoutSeconds=3,failureThreshold=18'
