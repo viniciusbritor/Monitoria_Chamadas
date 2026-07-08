@@ -71,9 +71,9 @@ class DeepSeekClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.3 if json_mode else 0.1
+            temperature = 0.1  # NEW (08/07/2026): fixo (era 0.3 json / 0.1 texto)
         if max_tokens is None:
-            max_tokens = 1500 if json_mode else 2000
+            max_tokens = 1000  # NEW (08/07/2026): fixo (era 1500 json / 2000 texto)
 
         sp = system_prompt
         if json_mode and "json" not in sp.lower():
@@ -95,6 +95,64 @@ class DeepSeekClient:
             payload["response_format"] = {"type": "json_object"}
 
         return self._execute(payload)
+
+    def batch_chat(self, tasks: list[dict], json_mode=True) -> list:
+        """NEW (08/07/2026 - Plano Ultra-Economico): executa 2 inferencias em 1 chamada.
+
+        Para 2 tasks (caso comum: diarize + evaluate), combina em 1 prompt estruturado
+        que pede ao LLM um JSON com 2 campos: 'diarizacao' e 'avaliacao'.
+        Economia: -50% chamadas DeepSeek e -50% latencia LLM (~5-10s por chamada).
+
+        Args:
+            tasks: lista de dicts com chaves 'system_prompt' e 'user_prompt'
+            json_mode: se True, forca JSON output
+
+        Returns:
+            lista de strings (respostas na mesma ordem das tasks)
+            Retorna [None, None] se LLM falhar.
+        """
+        if not self.enabled:
+            raise Exception("[DeepSeek] DEEPSEEK_API_KEY nao configurada")
+
+        if len(tasks) == 2:
+            combined_system = (
+                "Voce deve responder em JSON com 2 campos: "
+                "'diarizacao' (string com dialogo Operador:/Cliente:) e "
+                "'avaliacao' (objeto JSON com campos nota_geral, etc).\n\n"
+                f"TAREFA 1 (DIARIZACAO):\n{tasks[0]['system_prompt']}\n\n"
+                f"TAREFA 2 (AVALIACAO):\n{tasks[1]['system_prompt']}"
+            )
+            combined_user = (
+                f"TEXTO PARA DIARIZAR:\n{tasks[0]['user_prompt']}\n\n"
+                f"TEXTO PARA AVALIAR:\n{tasks[1]['user_prompt']}"
+            )
+            payload = {
+                "model": self.model,
+                "temperature": 0.1,
+                "max_tokens": 1000,
+                "messages": [
+                    {"role": "system", "content": combined_system},
+                    {"role": "user", "content": combined_user},
+                ],
+                "response_format": {"type": "json_object"},
+                "thinking": {"type": "disabled"},
+            }
+            resp_text = self._execute(payload)
+            if not resp_text:
+                return [None, None]
+            try:
+                data = json.loads(resp_text)
+                return [data.get("diarizacao"), json.dumps(data.get("avaliacao")) if data.get("avaliacao") else None]
+            except Exception as e:
+                print(f"[DeepSeek] batch parse falhou: {e}", flush=True)
+                return [None, None]
+
+        # Fallback: chamadas paralelas via threads
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+            futures = [pool.submit(self.chat, t["system_prompt"], t["user_prompt"],
+                                   json_mode=json_mode) for t in tasks]
+            return [f.result() for f in futures]
 
 
 class NvidiaNimClient:
@@ -156,9 +214,9 @@ class NvidiaNimClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.3 if json_mode else 0.1
+            temperature = 0.1  # NEW (08/07/2026): fixo
         if max_tokens is None:
-            max_tokens = 1500 if json_mode else 2000
+            max_tokens = 1000  # NEW (08/07/2026): fixo
 
         payload = {
             "model": self.model,
@@ -225,9 +283,9 @@ class MiniMaxClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.3 if json_mode else 0.1
+            temperature = 0.1  # NEW (08/07/2026): fixo
         if max_tokens is None:
-            max_tokens = 1500 if json_mode else 400
+            max_tokens = 1000  # NEW (08/07/2026): fixo (era 1500 json / 400 texto)
 
         payload = {
             "model": self.model,

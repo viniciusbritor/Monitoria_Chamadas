@@ -128,20 +128,130 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
         print("🤖 Avaliando atendimento com MiniMax M3...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=True)
-        
+
         try:
             if not text:
                 raise Exception("Resposta vazia da API")
-            
+
             if "```json" in text:
                 text = text.split("```json")[1].split("```")[0]
             elif "```" in text:
                 text = text.split("```")[1].split("```")[0]
-            
+
             return json.loads(text.strip())
         except Exception as e:
             print(f"❌ Erro ao parsear resposta da IA: {e}")
             return {"error": "Falha no processamento", "raw_response": str(text)}
+
+    def diarize_and_evaluate(self, transcript, user_settings=None,
+                              pop_context="", quality_form=""):
+        """NEW (08/07/2026 - Plano Ultra-Economico): diarize + evaluate em 1 chamada LLM.
+
+        Combina os 2 prompts (diarizacao + avaliacao) em 1 request combinado via
+        LLMClient.batch_chat(). Quando o provider primario (DeepSeek) suporta
+        batch_chat(), processa em 1 round-trip. Fallback: chamadas separadas.
+
+        Args:
+            transcript: texto bruto transcrito pelo Whisper
+            user_settings: dict com checklist_items, estrategia_vendas, etc
+            pop_context: contexto POP do usuario
+            quality_form: diretrizes de qualidade do formulario
+
+        Returns:
+            dict com chaves:
+              - diarized_transcript: texto com prefixos Operador:/Cliente:
+              - evaluation: dict parseado do JSON de avaliacao
+        """
+        if user_settings is None:
+            user_settings = {}
+
+        checklist_str = user_settings.get('checklist_items', '[]')
+        estrategia_vendas = user_settings.get('estrategia_vendas', 'Não informada.')
+        estrategia_retencao = user_settings.get('estrategia_retencao', 'Não informada.')
+
+        # Prompt 1: Diarizacao
+        diarize_system = """Separe a transcricao em dialogo entre 'Operador:' e 'Cliente:'.
+Operador = cumprimenta/pede dados/resolve/transfere. Cliente = expoe problema/reclama/duvida.
+IMPORTANTE: prefixe CADA turno com o rotulo exato 'Operador:' ou 'Cliente:'.
+Separe turnos alternados com quebra de linha dupla.
+Nao altere as palavras originais da transcricao.
+Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
+        diarize_user = f"--- TRANSCRICAO CONTINUA ---\n{mask_pii(transcript)}"
+
+        # Prompt 2: Avaliacao (reuso do mesmo system_prompt do evaluate())
+        eval_system = f"""Auditor Sênior CX. Avalie o atendimento abaixo.
+
+--- CONTEXTO POP ---
+{pop_context if pop_context else "1. Cordialidade. 2. Resolucao. 3. Empatia. 4. Clareza."}
+
+--- DIRETRIZES DE QUALIDADE ---
+{quality_form if quality_form else "1. Cordialidade. 2. Resolucao do Problema. 3. Empatia. 4. Clareza."}
+
+--- CONFIGURACOES DA EMPRESA ---
+1. CHECKLIST OBRIGATORIO: {checklist_str}
+2. PLAYBOOK VENDAS (Up-sell/Cross-sell): {estrategia_vendas}
+3. PLAYBOOK RETENCAO (Anti-Cancelamento): {estrategia_retencao}
+
+--- AVALIACAO EM 3 FASES ---
+Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
+Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
+
+--- SAIDA (JSON ESTRITO) ---
+{{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
+"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
+"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
+"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str}}}},
+"erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
+"recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
+"humor_expert": "Positivo|Neutro|Desinteressado",
+"sentimentos_cliente": [str], "sentimentos_operador": [str],
+"erros_fatais_identificados": [str],
+"checklist_conformidade": [{{"item": str, "cumprido": bool}}],
+"oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
+"tipo_oportunidade": str, "argumentos_operador": [str]}}"""
+
+        eval_user = f"--- TRANSCRICAO DIARIZADA ---\n{mask_pii(transcript)}"
+
+        tasks = [
+            {"system_prompt": diarize_system, "user_prompt": diarize_user},
+            {"system_prompt": eval_system, "user_prompt": eval_user},
+        ]
+
+        # Tentar batch primeiro
+        if hasattr(self.client, 'batch_chat'):
+            try:
+                print("[Evaluator] Batch LLM (diarize + evaluate em 1 chamada)...", flush=True)
+                results = self.client.batch_chat(tasks, json_mode=True)
+                diarized = results[0] if results[0] else transcript
+                evaluation_raw = results[1] if results[1] else None
+
+                if not diarized or ('Operador:' not in diarized and 'Cliente:' not in diarized):
+                    print("[Evaluator] AVISO: diarizacao batch sem rotulos. Fallback diarize().", flush=True)
+                    diarized = self.diarize(transcript)
+
+                if evaluation_raw:
+                    try:
+                        evaluation = json.loads(evaluation_raw) if isinstance(evaluation_raw, str) else evaluation_raw
+                    except Exception as e:
+                        print(f"[Evaluator] Parse avaliacao batch falhou: {e}", flush=True)
+                        evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
+                else:
+                    evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
+
+                return {
+                    "diarized_transcript": diarized,
+                    "evaluation": evaluation,
+                }
+            except Exception as e:
+                print(f"[Evaluator] Batch LLM falhou ({e}), fallback chamadas separadas", flush=True)
+
+        # Fallback: chamadas separadas (codigo original)
+        diarized = self.diarize(transcript)
+        evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
+        return {
+            "diarized_transcript": diarized,
+            "evaluation": evaluation,
+        }
 
 if __name__ == "__main__":
     # Teste rápido

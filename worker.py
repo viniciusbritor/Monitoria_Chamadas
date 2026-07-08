@@ -94,16 +94,31 @@ def get_evaluator():
     return _evaluator
 
 
-def update_status(call_id: str, status_text: str):
-    """Atualiza status da chamada. Persistencia e' feita pelo test-env via callback OIDC.
+def update_status(call_id: str, status_text: str, **extra):
+    """Atualiza status da chamada. Escrita DIRETA no Firestore.
 
     Historico:
     - Pre-06/07/2026: escrevia em SQLite (GCS FUSE mount) E chamava callback OIDC.
-    - 06/07/2026 (Plano A++): SQLite removido. Apenas callback OIDC permanece —
-      test-env valida token, atualiza Firestore via /api/internal/calls/{id}/status.
-      Worker NAO tem mais write direto no DB.
+    - 06/07/2026 (Plano A++): SQLite removido. Apenas callback OIDC permanece.
+    - 08/07/2026 (Plano Ultra-Economico): Worker grava DIRETO no Firestore,
+      eliminando 7 callbacks OIDC por chamada (-3-5s latencia). Callback OIDC
+      fica disponivel como fallback via env var LEGACY_CALLBACK=true.
+
+    Args:
+        call_id: UUID da chamada
+        status_text: status canonico (ex: "Concluido", "Transcrevendo...")
+        **extra: campos extras para gravar (ex: progress_pct=42.5)
     """
-    _notify_test_env_callback(call_id, {"status": status_text})
+    payload = {"status": status_text, **extra}
+    try:
+        get_db().update_or_create(call_id, payload)
+        with HEALTHZ_LOCK:
+            WORKER_STATE["last_callback_ok"] = time.time()
+    except Exception as e:
+        print(f"[Worker {WORKER_ID}] Firestore write FALHOU: {e}", flush=True)
+        # Fallback: callback OIDC legado (defesa em profundidade)
+        if LEGACY_CALLBACK:
+            _notify_test_env_callback(call_id, payload)
 
 
 def _notify_test_env_callback(call_id: str, payload: dict):
@@ -161,6 +176,11 @@ def _notify_test_env_callback(call_id: str, payload: dict):
 # sera ack'ada sem reprocessar (poison message). Detecta-se orfao quando
 # callback do test-env retorna 404 (call_id nao existe no DB).
 _ORPHAN_CALL_ID = None
+
+# NEW (08/07/2026 - Plano Ultra-Economico): Flag de rollback para callback OIDC legado.
+# Quando true, worker cai de volta no callback HTTP via test-env em vez de gravar
+# direto no Firestore. Util se o item 1.1 (worker direto Firestore) causar regressao.
+LEGACY_CALLBACK = os.getenv("LEGACY_CALLBACK", "false").lower() == "true"
 
 
 def _get_cloud_run_identity_token(audience: str) -> str | None:
@@ -237,7 +257,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     PROGRESS_THROTTLE_SEC = 2.0
 
     def on_whisper_progress(segment_end: float, audio_total: float):
-        """Callback por segmento. Envia progress_pct ao test-env no maximo a cada 2s."""
+        """Callback por segmento. Grava progress_pct no Firestore no maximo a cada 2s."""
         now = time.time()
         if now - last_progress_ts[0] < PROGRESS_THROTTLE_SEC:
             return
@@ -245,11 +265,12 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
             return
         pct = max(0.0, min(99.0, (segment_end / audio_total) * 100.0))
         last_progress_ts[0] = now
-        # Atualiza apenas progress_pct (mantem status atual)
-        _notify_test_env_callback(call_id, {
-            "status": "Transcrevendo Audio (Whisper)...",
-            "progress_pct": pct,
-        })
+        # NEW (08/07/2026): escrita direta no Firestore (sem callback OIDC)
+        update_status(
+            call_id,
+            "Transcrevendo Audio (Whisper)...",
+            progress_pct=pct,
+        )
 
     try:
         raw_transcript, segments = get_transcriber().transcribe(
@@ -268,32 +289,26 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
             pass
         return
 
-    # Marca Whisper como 100% ao terminar
-    _notify_test_env_callback(call_id, {
-        "status": "Transcrevendo Audio (Whisper)...",
-        "progress_pct": 100.0,
-    })
+    # Marca Whisper como 100% ao terminar (NEW 08/07/2026: escrita direta)
+    update_status(
+        call_id,
+        "Transcrevendo Audio (Whisper)...",
+        progress_pct=100.0,
+    )
 
-    # 4. Diarizacao
+    # 4. Diarizacao + Avaliacao em 1 chamada LLM (NEW 08/07/2026)
     eval_ = get_evaluator()
-    update_status(call_id, f"Separando falas (Diarizacao {eval_.client.last_provider_used or 'IA'})...")
+    update_status(call_id, f"Processando IA ({eval_.client.last_provider_used or 'IA'}) - diarize + evaluate batch...")
     try:
-        diarized_transcript = eval_.diarize(raw_transcript)
-        print(f"[Worker {WORKER_ID}] Diarizacao OK ({eval_.client.last_provider_used or 'IA'})", flush=True)
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] Falha diarizacao (continuando): {e}", flush=True)
-        diarized_transcript = raw_transcript
-
-    # 5. Avaliacao LLM
-    update_status(call_id, f"Analisando Qualidade e Sentimento ({eval_.client.last_provider_used or 'IA'})...")
-    try:
-        evaluation = eval_.evaluate(
-            diarized_transcript,
+        result = eval_.diarize_and_evaluate(
+            raw_transcript,
             user_settings=user_settings,
             pop_context=pop_context,
             quality_form=diretrizes,
         )
-        print(f"[Worker {WORKER_ID}] Avaliacao OK: nota={evaluation.get('nota_geral')}", flush=True)
+        diarized_transcript = result["diarized_transcript"]
+        evaluation = result["evaluation"]
+        print(f"[Worker {WORKER_ID}] Batch LLM OK ({eval_.client.last_provider_used or 'IA'}): nota={evaluation.get('nota_geral')}", flush=True)
     except Exception as e:
         update_status(call_id, f"Erro: avaliacao LLM falhou: {e}")
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -320,21 +335,43 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     # Persistencia: feita pelo test-env via callback OIDC abaixo (api.py refatora para Firestore).
 
     # 7b. Callback final com resultado completo (transcript + qa + diarizacao + sentimentos)
+    # NEW (08/07/2026): escrita DIRETA no Firestore via update_or_create.
+    # Substitui _notify_test_env_callback (callback OIDC). Veja Fase 1 do plano.
     raw_text = "\n".join(seg.get("text", "") for seg in segments)
-    _notify_test_env_callback(call_id, {
+    final_payload = {
         "status": "Concluído",
-        "transcript": mask_pii(raw_text),
+        "nota": nota,
+        "transcricao": mask_pii(raw_text),
         "transcricao_diarizada": mask_pii(diarized_transcript),
-        "qa_score": nota,
-        "qa_details": {
-            "nota_qualidade_operador": nota_qualidade_operador,
-            "nota_sentimento_cliente": nota_sentimento_cliente,
-            "raw_evaluation": evaluation,
-            "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
-            "sentimentos_operador": evaluation.get("sentimentos_operador", []),
-            "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
-        },
-    })
+        "nota_qualidade_operador": nota_qualidade_operador,
+        "nota_sentimento_cliente": nota_sentimento_cliente,
+        "raw_evaluation": evaluation,
+        "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+        "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+        "erros_fatais": evaluation.get("erros_fatais_identificados", []),
+        "progress_pct": 100.0,
+    }
+    try:
+        get_db().update_or_create(call_id, final_payload)
+        print(f"[Worker {WORKER_ID}] Firestore write OK: {call_id[:8]}... status=Concluido", flush=True)
+    except Exception as e:
+        print(f"[Worker {WORKER_ID}] Firestore write FALHOU (final): {e}", flush=True)
+        if LEGACY_CALLBACK:
+            # Fallback OIDC: monta payload no formato esperado pelo callback handler
+            _notify_test_env_callback(call_id, {
+                "status": "Concluído",
+                "transcript": final_payload["transcricao"],
+                "transcricao_diarizada": final_payload["transcricao_diarizada"],
+                "qa_score": final_payload["nota"],
+                "qa_details": {
+                    "nota_qualidade_operador": nota_qualidade_operador,
+                    "nota_sentimento_cliente": nota_sentimento_cliente,
+                    "raw_evaluation": evaluation,
+                    "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+                    "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+                    "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
+                },
+            })
 
     # 8. Cleanup
     shutil.rmtree(tmp_dir, ignore_errors=True)
