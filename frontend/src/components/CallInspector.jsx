@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, ThumbsUp,
   ShieldAlert, ChevronDown, ChevronUp, Headphones, User,
-  FileText, Brain, Star, MessageSquare, Target
+  FileText, Star, MessageSquare, Target
 } from 'lucide-react'
 import axios from 'axios'
 
@@ -166,7 +166,7 @@ export default function CallInspector({ callId, onBack }) {
   const isErro = (call?.status || '').startsWith('Erro')
 
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="space-y-6 w-full">
 
       {/* Cabeçalho */}
       <div className="flex items-center gap-4">
@@ -209,8 +209,8 @@ export default function CallInspector({ callId, onBack }) {
         </div>
       )}
 
-      {/* Score Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Score Cards (compactos, sem IA Utilizada) */}
+      <div className="grid grid-cols-2 gap-4">
         <div className="glass-panel p-5 text-center">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Target size={18} className="text-primary" />
@@ -229,171 +229,173 @@ export default function CallInspector({ callId, onBack }) {
             <span className="text-lg text-textMuted font-normal">/10</span>
           </div>
         </div>
-        <div className="glass-panel p-5 text-center">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Brain size={18} className="text-purple-500" />
-            <h3 className="font-medium text-textMuted text-xs uppercase tracking-wide">IA Utilizada</h3>
-          </div>
-          <div className="text-xl font-bold text-purple-600">{iaUtilizada}</div>
-        </div>
       </div>
 
-      {/* 3 Fases do Atendimento */}
-      {Object.keys(fases).length > 0 ? (
-        <div>
-          <div className="flex items-center gap-3 mb-4">
-            <FileText size={20} className="text-primary" />
-            <h3 className="font-bold text-lg text-textMain">Avaliacao em 3 Fases</h3>
-          </div>
-          <div className="space-y-4">
-            <PhaseCard
-              title="1. Inicio — Apresentacao e Acolhimento"
-              icon={null}
-              fase={faseInicio}
-            />
-            <PhaseCard
-              title="2. Meio — Metodos de Resolucao"
-              icon={null}
-              fase={faseMeio}
-            />
-            <PhaseCard
-              title="3. Fim — Fechamento e Alinhamento"
-              icon={null}
-              fase={faseFim}
-            />
-          </div>
-        </div>
-      ) : (
-        !isErro && (
-          <div className="glass-panel p-6 text-center">
-            <FileText size={24} className="text-textMuted mx-auto mb-2" />
-            <p className="text-sm text-textMuted">Analise por fases nao disponivel para esta chamada.</p>
-          </div>
-        )
-      )}
-
-      {/* Humor / Sentimentos */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="glass-panel p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <User size={18} className="text-textMuted" />
-            <h3 className="font-semibold text-textMain">Humor do Cliente</h3>
-          </div>
-          <TagList
-            items={analysis?.sentimentos_cliente || []}
-            emptyText="Nenhum sentimento detectado"
-          />
-          {analysis?.humor_cliente && (
-            <div className="mt-3">
-              <span className="text-xs text-textMuted">Classificacao: </span>
-              <span className="text-sm font-medium text-textMain">{analysis.humor_cliente}</span>
+      {/* Layout 2 colunas: esquerda (Humor + Checklist + Erro) | direita (3 Fases) */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Coluna esquerda — 1fr */}
+        <div className="lg:col-span-1 space-y-6">
+          {/* Humor do Cliente */}
+          <div className="glass-panel p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <User size={18} className="text-textMuted" />
+              <h3 className="font-semibold text-textMain">Humor do Cliente</h3>
             </div>
-          )}
-        </div>
-        <div className="glass-panel p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Headphones size={18} className="text-primary" />
-            <h3 className="font-semibold text-textMain">Humor do Atendente</h3>
-          </div>
-          <TagList
-            items={analysis?.sentimentos_operador || []}
-            emptyText="Nenhum sentimento detectado"
-          />
-          {analysis?.humor_expert && (
-            <div className="mt-3">
-              <span className="text-xs text-textMuted">Classificacao: </span>
-              <span className="text-sm font-medium text-textMain">{analysis.humor_expert}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Erro Crítico */}
-      <div className={`glass-panel p-5 ${analysis?.erro_critico ? 'border-red-500/30 bg-red-50/80' : ''}`}>
-        <div className="flex items-center gap-3">
-          <ShieldAlert size={20} className={analysis?.erro_critico ? 'text-red-500' : 'text-green-500'} />
-          <div>
-            <h3 className="font-semibold text-textMain">Erro Critico</h3>
-            <p className={`text-sm font-medium mt-1 ${analysis?.erro_critico ? 'text-red-600' : 'text-green-600'}`}>
-              {analysis?.erro_critico ? 'SIM — Foram identificados erros fatais no atendimento' : 'NAO — Nenhum erro fatal identificado'}
-            </p>
-          </div>
-        </div>
-        {Array.isArray(analysis?.erros_fatais_identificados) && analysis.erros_fatais_identificados.length > 0 && (
-          <ul className="mt-4 space-y-1 border-t border-red-200 pt-3">
-            {analysis.erros_fatais_identificados.map((e, i) => (
-              <li key={i} className="text-sm text-red-600 flex items-start gap-2">
-                <span className="mt-1 shrink-0">•</span> {e}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* Checklist de Conformidade (POP) */}
-      {Array.isArray(analysis?.checklist_conformidade) && analysis.checklist_conformidade.length > 0 && (
-        <div className="glass-panel p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <CheckCircle2 size={18} className="text-primary" />
-            <h3 className="font-semibold text-textMain">Checklist de Conformidade</h3>
-          </div>
-          <div className="space-y-2">
-            {analysis.checklist_conformidade.map((item, i) => (
-              <div key={i} className="flex items-start gap-3 py-2 border-b border-black/5 last:border-0">
-                {item.cumprido ? (
-                  <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                )}
-                <span className={`text-sm ${item.cumprido ? 'text-textMain' : 'text-red-600 font-medium'}`}>
-                  {item.item}
-                </span>
+            <TagList
+              items={analysis?.sentimentos_cliente || []}
+              emptyText="Nenhum sentimento detectado"
+            />
+            {analysis?.humor_cliente && (
+              <div className="mt-3 pt-3 border-t border-black/5">
+                <span className="text-xs text-textMuted">Classificacao: </span>
+                <span className="text-sm font-medium text-textMain">{analysis.humor_cliente}</span>
               </div>
-            ))}
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Recomendação de Treinamento */}
-      {analysis?.recomendacao_treinamento && (
-        <div className="glass-panel p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <MessageSquare size={18} className="text-primary" />
-            <h3 className="font-semibold text-textMain">Recomendacao de Treinamento</h3>
+          {/* Humor do Atendente */}
+          <div className="glass-panel p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Headphones size={18} className="text-primary" />
+              <h3 className="font-semibold text-textMain">Humor do Atendente</h3>
+            </div>
+            <TagList
+              items={analysis?.sentimentos_operador || []}
+              emptyText="Nenhum sentimento detectado"
+            />
+            {analysis?.humor_expert && (
+              <div className="mt-3 pt-3 border-t border-black/5">
+                <span className="text-xs text-textMuted">Classificacao: </span>
+                <span className="text-sm font-medium text-textMain">{analysis.humor_expert}</span>
+              </div>
+            )}
           </div>
-          <p className="text-sm text-textMain leading-relaxed">{analysis.recomendacao_treinamento}</p>
-        </div>
-      )}
 
-      {/* Oportunidade Comercial */}
-      {analysis?.oportunidade_venda_retencao && (
-        <div className={`glass-panel p-5 ${analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
-          <div className="flex items-center gap-2 mb-4">
-            <ThumbsUp size={18} className={analysis.sucesso_venda_retencao ? 'text-green-600' : 'text-yellow-600'} />
-            <h3 className="font-semibold text-textMain">
-              {analysis.tipo_oportunidade || 'Oportunidade de Venda/Retencao'}
-            </h3>
-          </div>
-          <div className="text-sm font-medium text-textMain mb-3">
-            Sucesso na conversao?{' '}
-            <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {analysis.sucesso_venda_retencao ? 'Sim' : 'Nao'}
-            </span>
-          </div>
-          {Array.isArray(analysis?.argumentos_operador) && analysis.argumentos_operador.length > 0 && (
-            <div>
-              <div className="text-xs font-bold text-textMuted uppercase mb-2">Argumentos Utilizados</div>
-              <ul className="space-y-1">
-                {analysis.argumentos_operador.map((arg, i) => (
-                  <li key={i} className="text-sm text-textMain flex items-start gap-2">
-                    <span className="text-primary shrink-0">•</span> {arg}
+          {/* Checklist de Conformidade (POP) */}
+          {Array.isArray(analysis?.checklist_conformidade) && analysis.checklist_conformidade.length > 0 && (
+            <div className="glass-panel p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle2 size={18} className="text-primary" />
+                <h3 className="font-semibold text-textMain">Checklist de Conformidade</h3>
+              </div>
+              <div className="space-y-2">
+                {analysis.checklist_conformidade.map((item, i) => (
+                  <div key={i} className="flex items-start gap-3 py-2 border-b border-black/5 last:border-0">
+                    {item.cumprido ? (
+                      <CheckCircle2 size={16} className="text-green-500 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                    )}
+                    <span className={`text-sm ${item.cumprido ? 'text-textMain' : 'text-red-600 font-medium'}`}>
+                      {item.item}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Erro Crítico */}
+          <div className={`glass-panel p-5 ${analysis?.erro_critico ? 'border-red-500/30 bg-red-50/80' : ''}`}>
+            <div className="flex items-center gap-3">
+              <ShieldAlert size={20} className={analysis?.erro_critico ? 'text-red-500' : 'text-green-500'} />
+              <div>
+                <h3 className="font-semibold text-textMain">Erro Critico</h3>
+                <p className={`text-sm font-medium mt-1 ${analysis?.erro_critico ? 'text-red-600' : 'text-green-600'}`}>
+                  {analysis?.erro_critico ? 'SIM — Foram identificados erros fatais' : 'NAO — Nenhum erro fatal identificado'}
+                </p>
+              </div>
+            </div>
+            {Array.isArray(analysis?.erros_fatais_identificados) && analysis.erros_fatais_identificados.length > 0 && (
+              <ul className="mt-4 space-y-1 border-t border-red-200 pt-3">
+                {analysis.erros_fatais_identificados.map((e, i) => (
+                  <li key={i} className="text-sm text-red-600 flex items-start gap-2">
+                    <span className="mt-1 shrink-0">•</span> {e}
                   </li>
                 ))}
               </ul>
+            )}
+          </div>
+        </div>
+
+        {/* Coluna direita — 2fr */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* 3 Fases do Atendimento */}
+          {Object.keys(fases).length > 0 ? (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <FileText size={20} className="text-primary" />
+                <h3 className="font-bold text-lg text-textMain">Avaliacao em 3 Fases</h3>
+              </div>
+              <div className="space-y-4">
+                <PhaseCard
+                  title="1. Inicio — Apresentacao e Acolhimento"
+                  icon={null}
+                  fase={faseInicio}
+                />
+                <PhaseCard
+                  title="2. Meio — Metodos de Resolucao"
+                  icon={null}
+                  fase={faseMeio}
+                />
+                <PhaseCard
+                  title="3. Fim — Fechamento e Alinhamento"
+                  icon={null}
+                  fase={faseFim}
+                />
+              </div>
+            </div>
+          ) : (
+            !isErro && (
+              <div className="glass-panel p-6 text-center">
+                <FileText size={24} className="text-textMuted mx-auto mb-2" />
+                <p className="text-sm text-textMuted">Analise por fases nao disponivel para esta chamada.</p>
+              </div>
+            )
+          )}
+
+          {/* Recomendação de Treinamento (coluna direita, abaixo das fases) */}
+          {analysis?.recomendacao_treinamento && (
+            <div className="glass-panel p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare size={18} className="text-primary" />
+                <h3 className="font-semibold text-textMain">Recomendacao de Treinamento</h3>
+              </div>
+              <p className="text-sm text-textMain leading-relaxed">{analysis.recomendacao_treinamento}</p>
+            </div>
+          )}
+
+          {/* Oportunidade Comercial (coluna direita) */}
+          {analysis?.oportunidade_venda_retencao && (
+            <div className={`glass-panel p-5 ${analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
+              <div className="flex items-center gap-2 mb-4">
+                <ThumbsUp size={18} className={analysis.sucesso_venda_retencao ? 'text-green-600' : 'text-yellow-600'} />
+                <h3 className="font-semibold text-textMain">
+                  {analysis.tipo_oportunidade || 'Oportunidade de Venda/Retencao'}
+                </h3>
+              </div>
+              <div className="text-sm font-medium text-textMain mb-3">
+                Sucesso na conversao?{' '}
+                <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {analysis.sucesso_venda_retencao ? 'Sim' : 'Nao'}
+                </span>
+              </div>
+              {Array.isArray(analysis?.argumentos_operador) && analysis.argumentos_operador.length > 0 && (
+                <div>
+                  <div className="text-xs font-bold text-textMuted uppercase mb-2">Argumentos Utilizados</div>
+                  <ul className="space-y-1">
+                    {analysis.argumentos_operador.map((arg, i) => (
+                      <li key={i} className="text-sm text-textMain flex items-start gap-2">
+                        <span className="text-primary shrink-0">•</span> {arg}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {/* Transcrição Diarizada (Collapsible) */}
       <div className="glass-panel p-5">
