@@ -203,7 +203,7 @@ export default function CallInspector({ callId, onBack }) {
         <div className="bg-surface p-4 rounded-2xl border border-black/5 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <Headphones size={16} className="text-primary" />
-            <span className="font-bold text-sm text-textMain">Gravacao da Chamada</span>
+            <span className="font-bold text-sm text-textMain">Gravação da Chamada</span>
           </div>
           <audio controls className="w-full h-10 outline-none" src={audioUrl} />
         </div>
@@ -231,9 +231,9 @@ export default function CallInspector({ callId, onBack }) {
         </div>
       </div>
 
-      {/* Layout 2 colunas: esquerda (Humor + Checklist + Erro) | direita (3 Fases) */}
+      {/* Layout 2 colunas: esquerda (Humor + Checklist + Erro) | direita (3 Fases + Recom. + Oport.) */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Coluna esquerda — 1fr */}
+        {/* Coluna esquerda — 1fr (Humor Cliente, Humor Atendente, Checklist, Erro Crítico) */}
         <div className="lg:col-span-1 space-y-6">
           {/* Humor do Cliente */}
           <div className="glass-panel p-5">
@@ -247,7 +247,7 @@ export default function CallInspector({ callId, onBack }) {
             />
             {analysis?.humor_cliente && (
               <div className="mt-3 pt-3 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificacao: </span>
+                <span className="text-xs text-textMuted">Classificação: </span>
                 <span className="text-sm font-medium text-textMain">{analysis.humor_cliente}</span>
               </div>
             )}
@@ -265,7 +265,7 @@ export default function CallInspector({ callId, onBack }) {
             />
             {analysis?.humor_expert && (
               <div className="mt-3 pt-3 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificacao: </span>
+                <span className="text-xs text-textMuted">Classificação: </span>
                 <span className="text-sm font-medium text-textMain">{analysis.humor_expert}</span>
               </div>
             )}
@@ -300,9 +300,9 @@ export default function CallInspector({ callId, onBack }) {
             <div className="flex items-center gap-3">
               <ShieldAlert size={20} className={analysis?.erro_critico ? 'text-red-500' : 'text-green-500'} />
               <div>
-                <h3 className="font-semibold text-textMain">Erro Critico</h3>
+                <h3 className="font-semibold text-textMain">Erro Crítico</h3>
                 <p className={`text-sm font-medium mt-1 ${analysis?.erro_critico ? 'text-red-600' : 'text-green-600'}`}>
-                  {analysis?.erro_critico ? 'SIM — Foram identificados erros fatais' : 'NAO — Nenhum erro fatal identificado'}
+                  {analysis?.erro_critico ? 'SIM — Foram identificados erros fatais' : 'NÃO — Nenhum erro fatal identificado'}
                 </p>
               </div>
             </div>
@@ -318,23 +318,23 @@ export default function CallInspector({ callId, onBack }) {
           </div>
         </div>
 
-        {/* Coluna direita — 2fr */}
+        {/* Coluna direita — 2fr (3 Fases + Recomendação + Oportunidade) */}
         <div className="lg:col-span-2 space-y-6">
           {/* 3 Fases do Atendimento */}
           {Object.keys(fases).length > 0 ? (
             <div>
               <div className="flex items-center gap-3 mb-4">
                 <FileText size={20} className="text-primary" />
-                <h3 className="font-bold text-lg text-textMain">Avaliacao em 3 Fases</h3>
+                <h3 className="font-bold text-lg text-textMain">Avaliação em 3 Fases</h3>
               </div>
               <div className="space-y-4">
                 <PhaseCard
-                  title="1. Inicio — Apresentacao e Acolhimento"
+                  title="1. Início — Apresentação e Acolhimento"
                   icon={null}
                   fase={faseInicio}
                 />
                 <PhaseCard
-                  title="2. Meio — Metodos de Resolucao"
+                  title="2. Meio — Métodos de Resolução"
                   icon={null}
                   fase={faseMeio}
                 />
@@ -349,7 +349,7 @@ export default function CallInspector({ callId, onBack }) {
             !isErro && (
               <div className="glass-panel p-6 text-center">
                 <FileText size={24} className="text-textMuted mx-auto mb-2" />
-                <p className="text-sm text-textMuted">Analise por fases nao disponivel para esta chamada.</p>
+                <p className="text-sm text-textMuted">Análise por fases não disponível para esta chamada.</p>
               </div>
             )
           )}
@@ -359,25 +359,25 @@ export default function CallInspector({ callId, onBack }) {
             <div className="glass-panel p-5">
               <div className="flex items-center gap-2 mb-3">
                 <MessageSquare size={18} className="text-primary" />
-                <h3 className="font-semibold text-textMain">Recomendacao de Treinamento</h3>
+                <h3 className="font-semibold text-textMain">Recomendação de Treinamento</h3>
               </div>
               <p className="text-sm text-textMain leading-relaxed">{analysis.recomendacao_treinamento}</p>
             </div>
           )}
 
-          {/* Oportunidade Comercial (coluna direita) */}
+          {/* Oportunidade Comercial (coluna direita, abaixo da Recomendação) */}
           {analysis?.oportunidade_venda_retencao && (
             <div className={`glass-panel p-5 ${analysis.sucesso_venda_retencao ? 'border-green-500/30 bg-green-50/50' : 'border-yellow-500/30 bg-yellow-50/50'}`}>
               <div className="flex items-center gap-2 mb-4">
                 <ThumbsUp size={18} className={analysis.sucesso_venda_retencao ? 'text-green-600' : 'text-yellow-600'} />
                 <h3 className="font-semibold text-textMain">
-                  {analysis.tipo_oportunidade || 'Oportunidade de Venda/Retencao'}
+                  {analysis.tipo_oportunidade || 'Oportunidade de Venda/Retenção'}
                 </h3>
               </div>
               <div className="text-sm font-medium text-textMain mb-3">
-                Sucesso na conversao?{' '}
+                Sucesso na conversão?{' '}
                 <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${analysis.sucesso_venda_retencao ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                  {analysis.sucesso_venda_retencao ? 'Sim' : 'Nao'}
+                  {analysis.sucesso_venda_retencao ? 'Sim' : 'Não'}
                 </span>
               </div>
               {Array.isArray(analysis?.argumentos_operador) && analysis.argumentos_operador.length > 0 && (
@@ -405,7 +405,7 @@ export default function CallInspector({ callId, onBack }) {
         >
           <div className="flex items-center gap-2">
             <MessageSquare size={18} className="text-textMuted" />
-            <h3 className="font-semibold text-textMain">Transcricao Diarizada</h3>
+            <h3 className="font-semibold text-textMain">Transcrição</h3>
           </div>
           {showTranscript ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
         </button>
@@ -440,7 +440,7 @@ export default function CallInspector({ callId, onBack }) {
               })
             ) : (
               <p className="text-sm text-textMuted italic text-center py-4">
-                Transcricao diarizada nao disponivel para esta chamada.
+                Transcrição não disponível para esta chamada.
               </p>
             )}
           </div>
