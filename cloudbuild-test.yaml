@@ -1,6 +1,7 @@
 steps:
   # NEW (08/07/2026 - C4): CI check LGPD (bloqueia merge se houver violacao).
   - name: 'python:3.11-slim'
+    entrypoint: 'bash'
     dir: '.'
     args:
       - '-c'
