@@ -41,7 +41,7 @@ steps:
       # fazendo transcricao ficar 5-10x mais lenta. Producao ja tem.
       # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
       - '--no-cpu-throttling'
-      - '--concurrency=4'
+      - '--concurrency=2'
       - '--min-instances=0'
       # NEW (08/07/2026 - Plano Ultra-Economico): memory 8GiB -> 4GiB,
       # max-instances 3 -> 2. Custo ~$110/mes para 600 calls/dia.
