@@ -607,7 +607,7 @@ def _restart_streaming_pull():
             return  # nao inicializado ainda, nao pode recriar
         try:
             subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
-            flow_control = pubsub_v1.types.FlowControl(max_messages=1)
+            flow_control = pubsub_v1.types.FlowControl(max_messages=2)
             new_future = _subscriber_client.subscribe(
                 subscription_path,
                 callback=callback,
@@ -827,7 +827,7 @@ def main():
             # Sempre continua - subscription ja pode existir
 
     # Pull em streaming (bloqueante)
-    flow_control = pubsub_v1.types.FlowControl(max_messages=1)  # 1 msg por vez por instancia
+    flow_control = pubsub_v1.types.FlowControl(max_messages=2)  # 2 msgs por vez por instancia (Batch/Standalone)
     _streaming_pull_future = subscriber.subscribe(
         subscription_path,
         callback=callback,
