@@ -356,7 +356,36 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         print(f"[Worker {WORKER_ID}] Firestore write OK: {call_id[:8]}... status=Concluido", flush=True)
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Firestore write FALHOU (final): {e}", flush=True)
+        # NEW (08/07/2026 - A1): Re-raise para que callback() faca NACK
+        # e a mensagem seja reprocessada por outra instancia.
+        # Isso evita perda de trabalho quando Firestore tem permissao
+        # negada, network blip, etc. Veja DIARIO_BORDO.md A1.
         if LEGACY_CALLBACK:
+            # Fallback OIDC: monta payload no formato esperado pelo callback handler
+            try:
+                _notify_test_env_callback(call_id, {
+                    "status": "Concluído",
+                    "transcript": final_payload["transcricao"],
+                    "transcricao_diarizada": final_payload["transcricao_diarizada"],
+                    "qa_score": final_payload["nota"],
+                    "qa_details": {
+                        "nota_qualidade_operador": nota_qualidade_operador,
+                        "nota_sentimento_cliente": nota_sentimento_cliente,
+                        "raw_evaluation": evaluation,
+                        "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+                        "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+                        "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
+                    },
+                })
+                # Fallback OIDC deu certo - mensagem pode ser ack
+                print(f"[Worker {WORKER_ID}] Firestore falhou mas OIDC fallback OK: {call_id[:8]}...", flush=True)
+            except Exception as e2:
+                # Fallback OIDC TAMBEM falhou - re-raise para NACK
+                print(f"[Worker {WORKER_ID}] Firestore + OIDC fallback ambos falharam: {e2}", flush=True)
+                raise RuntimeError(f"Firestore write failed and OIDC fallback also failed: {e2}") from e
+        else:
+            # Sem fallback: re-raise para NACK
+            raise
             # Fallback OIDC: monta payload no formato esperado pelo callback handler
             _notify_test_env_callback(call_id, {
                 "status": "Concluído",

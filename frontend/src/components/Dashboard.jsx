@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search } from 'lucide-react'
 import axios from 'axios'
 import { fmtDateTimeBR } from '../lib/datetime'
+import { anonymizeFilename, anonymizeTranscript, canSeeFullData } from '../lib/anonymize'
 
 const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
 
@@ -15,6 +16,10 @@ export default function Dashboard({ onInspectCall }) {
   const [uploading, setUploading] = useState(false)
   const [diretrizes, setDiretrizes] = useState("")
   const intervalRef = useRef(null)
+
+  // NEW (08/07/2026 - B3): verifica se user pode ver dados completos (LGPD Art. 12).
+  const userRole = localStorage.getItem('user_role')
+  const showFullData = canSeeFullData(userRole)
 
   const fetchCalls = async () => {
     try {
@@ -210,7 +215,9 @@ export default function Dashboard({ onInspectCall }) {
                       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Headphones className="text-primary" size={16} />
                       </div>
-                      <span className="font-medium text-textMain max-w-[150px] truncate">{call.filename}</span>
+                       <span className="font-medium text-textMain max-w-[150px] truncate" title={showFullData ? call.filename : 'Dados anonimizados (LGPD)'}>
+                         {showFullData ? call.filename : anonymizeFilename(call.filename)}
+                       </span>
                     </div>
                   </td>
                   <td className="p-4 text-sm text-textMuted">
