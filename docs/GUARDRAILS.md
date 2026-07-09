@@ -152,4 +152,26 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 - [HARNESS.md](HARNESS.md) - Objetivo principal + stack
 - [ARQUITETURA.md](ARQUITETURA.md) - Detalhes tecnicos
 - [MODULE_INTEGRATION.md](MODULE_INTEGRATION.md) - Como este modulo se integra ao Portal
+- [PRIVACIDADE.md](PRIVACIDADE.md) - Politica de Privacidade LGPD
+
+## 🔒 Regra #14 — LGPD Compliance (Harness Global) (08/07/2026)
+
+**Aplicavel a partir de 08/07/2026.**
+
+1. **PII Masker obrigatorio**: `core/masker.py` DEVE ser aplicado em qualquer transcricao antes de enviar para LLM (DeepSeek, NVIDIA, MiniMax). Patterns: CPF, RG, telefone, email, cartao (LGPD Art. 12).
+
+2. **PROIBIDO** salvar transcricao com PII em texto plano no Firestore. Aplicar `mask_pii()` antes de persistir (ja feito em `worker.py`).
+
+3. **PROIBIDO** `print(transcript_completo)` em logs. Logs devem conter apenas metadados (call_id, user_id, status) - nunca transcricao.
+
+4. **Audio deletado do GCS imediatamente apos 'Concluido'** (worker cleanup). NAO espera 90 dias de lifecycle - ja processou e salvou resultado no Firestore.
+
+5. **Retention obrigatoria** (LGPD Art. 16):
+   - Ver `OmniChannel/docs/LGPD_RETENTION.md` para detalhes tecnicos
+   - GCS: 90 dias (lifecycle policy)
+   - Firestore: 365 dias (TTL field)
+
+6. **Skill `lgpd_compliance` obrigatoria** ao trabalhar com dados pessoais. Ver `~/.config/opencode/skills/lgpd_compliance/`.
+
+7. **CI check `check_lgpd_compliance.py`** DEVE rodar em todo `cloudbuild-*.yaml` (Fase 2 pendente).
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
