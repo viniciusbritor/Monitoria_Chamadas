@@ -73,6 +73,15 @@ WORKER_STATE = {
     "consecutive_errors": 0,
 }
 
+# NEW (09/07/2026 - Batch/Standalone): fila interna para acumular mensagens
+# e processar em batch. Aproveita o concurrency=4 configurado no Cloud Run.
+BATCH_SIZE = 4
+BATCH_TIMEOUT_SEC = 30  # max espera para encher batch
+_batch_buffer = []        # lista de (message, data) aguardando
+_batch_buffer_lock = __import__("threading").Lock()
+_batch_buffer_first_at = None  # timestamp da primeira msg no buffer atual
+_batch_timer = None           # referencia ao timer ativo
+
 HEALTHZ_LOCK = __import__("threading").Lock()
 
 
@@ -412,17 +421,40 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
 
 
 
-def callback(message):
-    """Callback para mensagens do Pub/Sub."""
+def _flush_batch():
+    """NEW (09/07/2026 - Batch/Standalone): drena buffer e processa todas as mensagens em paralelo.
+    Aproveita o concurrency=4 do Cloud Run para paralelismo real."""
+    global _batch_buffer, _batch_buffer_first_at, _batch_timer
+    with _batch_buffer_lock:
+        if not _batch_buffer:
+            return
+        items = list(_batch_buffer)
+        _batch_buffer = []
+        _batch_buffer_first_at = None
+        _batch_timer = None
+
+    print(f"[Worker {WORKER_ID}] BATCH: processando {len(items)} mensagens em paralelo", flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(items)) as executor:
+        futures = {
+            executor.submit(_process_single_message, msg, data): (msg, data)
+            for msg, data in items
+        }
+        for future in concurrent.futures.as_completed(futures, timeout=900):
+            msg, _ = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[Worker {WORKER_ID}] BATCH erro: {e}", flush=True)
+                msg.nack()
+
+
+def _process_single_message(message, data):
+    """Processa uma unica mensagem (chamado pelo _flush_batch em paralelo).
+    Faz ack/nack + idempotency + process_call.
+    """
     global _ORPHAN_DETECTED
     try:
-        data = json.loads(message.data.decode("utf-8"))
         call_id = data["call_id"]
-        # FIX (06/07/2026 - Fase 3 load test): aceita ambos nomes do campo GCS URI.
-        # Producao/api.py envia "gcs_uri" (commit 9e7cfa9).
-        # Load test agent envia "audio_gcs_uri" (loadtest.py:130).
-        # Sem isso: KeyError loop infinito no poison-threshold antigo;
-        # mesmo com threshold 20, KeyError conta como erro e degrada UX.
         gcs_uri = data.get("gcs_uri") or data.get("audio_gcs_uri")
         if not gcs_uri:
             print(f"[Worker {WORKER_ID}] ERRO: payload sem audio URI. keys={list(data.keys())}", flush=True)
@@ -432,18 +464,11 @@ def callback(message):
         audio_duration_sec = data.get("audio_duration_sec")
 
         # NEW (05/07/2026 - Fase 1 / Fix #2): idempotency check ANTES de processar.
-        # Worker consulta o DB compartilhado (GCS FUSE mount) para validar:
-        # 1. Call existe? Se nao -> orfao (call_id sem INSERT no DB), ack + descarta.
-        # 2. Call ja' concluida? -> idempotencia (redelivery apos sucesso), ack.
-        # 3. Call em estado intermediario? -> retomar de onde parou.
-        # Isso elimina loops infinitos em mensagens problematicas.
         try:
-            # Firestore: idempotency check via get_call
             call_doc = get_call(call_id)
             if call_doc is None:
                 print(
-                    f"[Worker {WORKER_ID}] ORPHAN: call_id={call_id} "
-                    f"ausente no Firestore. Ack (poison-ack).",
+                    f"[Worker {WORKER_ID}] ORPHAN: call_id={call_id} ausente. Ack (poison-ack).",
                     flush=True,
                 )
                 message.ack()
@@ -455,8 +480,7 @@ def callback(message):
             existing_status = call_doc.get("status", "")
             if existing_status == "Concluído" or existing_status.startswith("Erro"):
                 print(
-                    f"[Worker {WORKER_ID}] JÁ PROCESSADO: call_id={call_id} "
-                    f"status={existing_status!r}. Ack (idempotente).",
+                    f"[Worker {WORKER_ID}] JÁ PROCESSADO: call_id={call_id}. Ack (idempotente).",
                     flush=True,
                 )
                 message.ack()
@@ -465,16 +489,11 @@ def callback(message):
                     WORKER_STATE["consecutive_errors"] = 0
                     WORKER_STATE["current_state"] = "ready"
                 return
-            # Status intermediario (Transcrevendo/Separando/Analisando/Na Fila):
-            # continuar processamento (retomada de estado anterior possivel).
             print(
-                f"[Worker {WORKER_ID}] RETOMANDO: call_id={call_id} "
-                f"status_anterior={existing_status!r}",
+                f"[Worker {WORKER_ID}] RETOMANDO: call_id={call_id} status_anterior={existing_status!r}",
                 flush=True,
             )
         except Exception as e:
-            # Falha ao consultar Firestore NAO bloqueia processamento - segue e confia
-            # no callback 404 path para detectar orfao.
             print(f"[Worker {WORKER_ID}] idempotency check falhou: {e}", flush=True)
 
         with HEALTHZ_LOCK:
@@ -483,9 +502,7 @@ def callback(message):
             WORKER_STATE["last_msg_call_id"] = call_id
             WORKER_STATE["current_state"] = "processing"
 
-        # NEW (07/07/2026): timeout explicito em process_call para evitar
-        # status orfao quando audio corrompido trava Whisper. Margem de 60s
-        # abaixo do timeout de 900s do Cloud Run para permitir cleanup.
+        # NEW (07/07/2026): timeout explicito em process_call.
         PROCESSING_TIMEOUT_SEC = int(os.getenv("PROCESSING_TIMEOUT_SEC", "840"))
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
@@ -494,20 +511,13 @@ def callback(message):
             try:
                 future.result(timeout=PROCESSING_TIMEOUT_SEC)
             except concurrent.futures.TimeoutError:
-                # Whisper travado. Marca como erro no test-env via callback
-                # OIDC antes de fazer nack (forca redelivery para outra instancia).
                 _notify_test_env_callback(
                     call_id,
                     {"status": f"Erro: processamento excedeu {PROCESSING_TIMEOUT_SEC}s timeout"},
                 )
-                print(
-                    f"[Worker {WORKER_ID}] TIMEOUT em process_call "
-                    f"({PROCESSING_TIMEOUT_SEC}s). Nack para redelivery.",
-                    flush=True,
-                )
+                print(f"[Worker {WORKER_ID}] TIMEOUT em process_call. Nack para redelivery.", flush=True)
                 raise
 
-        # Ack message (sucesso)
         message.ack()
         print(f"[Worker {WORKER_ID}] Message {message.message_id} ACKed", flush=True)
 
@@ -519,26 +529,10 @@ def callback(message):
         print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
         with HEALTHZ_LOCK:
             WORKER_STATE["consecutive_errors"] += 1
-            consec_errors = WORKER_STATE["consecutive_errors"]
-        # NEW (05/07/2026): poison message detection para evitar loop infinito
-        # com mensagens problematicas (call_id orfao redelivered eternamente).
-        #
-        # FIX (06/07/2026): threshold original de 3 estava MATANDO mensagens
-        # legitimas. O contador acumulou de execucoes anteriores (queue limpa
-        # recente) e qualquer mensagem nova era poison-acked sem ser tentada.
-        #
-        # Nova politica:
-        # - Threshold 20 (vs 3) — mais conservador, deixa chance de recovery
-        # - Poison so dispara apos N falhas seguidas com a subscription
-        #   efetivamente travada (nao apenas erros antigos)
-        # - NUNCA acks mensagem sem ter tentado processar pelo menos uma vez
-        #   nesta execucao (counter de mensagem individual vs counter global)
         POISON_THRESHOLD = 20
-        if consec_errors >= POISON_THRESHOLD:
+        if WORKER_STATE["consecutive_errors"] >= POISON_THRESHOLD:
             print(
-                f"[Worker {WORKER_ID}] POISON MESSAGE detectado "
-                f"({consec_errors} erros consecutivos). Ack forcado "
-                f"para message_id={message.message_id}.",
+                f"[Worker {WORKER_ID}] POISON: Ack forcado para {message.message_id}",
                 flush=True,
             )
             message.ack()
@@ -546,8 +540,44 @@ def callback(message):
                 WORKER_STATE["consecutive_errors"] = 0
                 WORKER_STATE["current_state"] = "ready"
             return
-        # Nack normal: Pub/Sub fara redelivery
         message.nack()
+
+
+def callback(message):
+    """Callback para mensagens do Pub/Sub. Acumula em batch para processar em paralelo."""
+    global _batch_buffer, _batch_buffer_first_at, _batch_timer
+    try:
+        data = json.loads(message.data.decode("utf-8"))
+    except Exception as e:
+        print(f"[Worker {WORKER_ID}] ERRO parse JSON: {e}", flush=True)
+        message.nack()
+        return
+
+    # Acumula no buffer para batch
+    should_flush = False
+    with _batch_buffer_lock:
+        _batch_buffer.append((message, data))
+        if _batch_buffer_first_at is None:
+            _batch_buffer_first_at = time.time()
+        if len(_batch_buffer) >= BATCH_SIZE:
+            should_flush = True
+        else:
+            # Agenda timer para flush se buffer nao encher
+            if _batch_timer is None:
+                _batch_timer = __import__("threading").Timer(
+                    BATCH_TIMEOUT_SEC, _flush_batch
+                )
+                _batch_timer.daemon = True
+                _batch_timer.start()
+
+    if should_flush:
+        _flush_batch()
+
+
+# Mantido para compatibilidade com testes
+def _callback_legacy_unused(message):
+    """Callback legacy. Substituido por callback() + batch processing."""
+    raise NotImplementedError("Use callback() instead")
 
 
 # ============================================================================

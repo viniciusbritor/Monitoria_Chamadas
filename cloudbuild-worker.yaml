@@ -32,8 +32,8 @@ steps:
       - 'us-central1'
       - '--execution-environment=gen2'
       - '--no-allow-unauthenticated'
-      - '--cpu=4'
-      - '--memory=4Gi'
+      - '--cpu=8'
+      - '--memory=8Gi'
       - '--port=8080'
       - '--timeout=900'
       # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
@@ -41,12 +41,16 @@ steps:
       # fazendo transcricao ficar 5-10x mais lenta. Producao ja tem.
       # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
       - '--no-cpu-throttling'
-      - '--concurrency=1'
+      - '--concurrency=4'
       - '--min-instances=0'
       # NEW (08/07/2026 - Plano Ultra-Economico): memory 8GiB -> 4GiB,
       # max-instances 3 -> 2. Custo ~$110/mes para 600 calls/dia.
       # Audio max 20MB por arquivo (validado no upload, GUARDRAILS Regra #11).
-      - '--max-instances=2'
+      # NEW (09/07/2026 - Batch/Standalone): concurrency 1 -> 4, cpu 4 -> 8,
+      # memory 4 -> 8, max-instances 2 -> 4. Throughput combinado:
+      # 4 (concurrency) x 4 (instances) = 16 transcricoes em paralelo.
+      # Whisper large-v3 (~2x mais rapido que base em CPU). Custo ~$110-150/mes.
+      - '--max-instances=4'
       # NEW (08/07/2026 - Cold start fix): Startup CPU Boost. Acelera o carregamento
       # do Whisper (~1.5GB do disco para RAM) em 2-4x durante o boot. Cloud Run
       # aloca ate 4x mais CPU nos primeiros 10s de inicializacao. Custo $0.

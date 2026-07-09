@@ -22,7 +22,9 @@ class Transcriber:
           Loss de qualidade <1% WER segundo docs faster-whisper.
         """
         if model_size is None:
-            model_size = get_secret("WHISPER_MODEL", "base")
+            # NEW (09/07/2026 - Batch/Standalone): default alterado de 'base' para 'large-v3'.
+            # large-v3 e' ~2x mais rapido em CPU que 'base' e melhor qualidade.
+            model_size = get_secret("WHISPER_MODEL", "large-v3")
 
         # Otimização: paralelismo CPU via OMP_NUM_THREADS e cpu_threads
         # faster-whisper usa CTranslate2 que paraleliza em CPU.
