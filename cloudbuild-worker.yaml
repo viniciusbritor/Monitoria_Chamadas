@@ -65,7 +65,7 @@ steps:
       - '--update-env-vars=PUBSUB_TOPIC=monitoria-whisper-jobs'
       - '--update-env-vars=PUBSUB_SUBSCRIPTION=monitoria-whisper-jobs-worker'
       - '--update-env-vars=AUDIO_BUCKET=coherence-monitoria-audios-tmp'
-      - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria-test-env-894828119087.us-central1.run.app'
+      - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app'
       - '--update-env-vars=OMP_NUM_THREADS=2'
       - '--update-env-vars=PYTHONUNBUFFERED=1'
       - '--update-env-vars=WHISPER_DOWNLOAD_ROOT=/app/whisper_models'
