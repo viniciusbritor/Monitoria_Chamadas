@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, AlertTriangle } from 'lucide-react'
+import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, AlertTriangle, Volume2 } from 'lucide-react'
 import axios from 'axios'
 import { fmtDateTimeBR } from '../lib/datetime'
 import { anonymizeFilename, anonymizeTranscript, canSeeFullData } from '../lib/anonymize'
@@ -218,7 +218,7 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-textMain mr-2">Últimas Monitorias</h3>
             {/* Filtros de status */}
-            {['', 'Na Fila', 'Transcrevendo', 'Concluído', 'Erro'].map(s => (
+            {['', 'Concluído', 'Erro'].map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
                 className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
                   statusFilter === s
@@ -359,6 +359,16 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
                       className="text-primary hover:text-primary/80 font-medium text-sm disabled:opacity-30 transition-colors"
                     >
                       {call.status?.startsWith('Erro') ? 'Detalhes' : 'Inspecionar'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const id = call.id || call.call_id || ''
+                        if (id) onInspectCall(id)
+                      }}
+                      className="text-textMuted hover:text-primary p-1.5 rounded hover:bg-black/5 transition-colors ml-1"
+                      title="Ouvir chamada"
+                    >
+                      <Volume2 size={14} />
                     </button>
                     <button
                       onClick={async () => {

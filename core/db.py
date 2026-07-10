@@ -170,7 +170,12 @@ class ChamadasDB:
             q = q.where("status", ">=", status_filter).where("status", "<", status_filter + "\uf8ff")
         if user_id_filter:
             q = q.where("user_id", "==", user_id_filter)
-        return [doc.to_dict() for doc in q.stream()]
+        result = []
+        for doc in q.stream():
+            d = doc.to_dict()
+            d["id"] = doc.id
+            result.append(d)
+        return result
 
     def list_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
         """Busca multiplas chamadas por IDs. Usa batch get (mais eficiente que N queries)."""

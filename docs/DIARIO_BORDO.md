@@ -153,6 +153,27 @@ Dashboard.jsx. Agora o fetch dispara imediatamente ao mudar o filtro.
 ### P5 — LGPD curl fix
 - cloudbuild-test.yaml Step 0: curl substituído por python urllib.request.
 
+## 10/07/2026 04:30 BRT — Fix id no list_all + botão 🔊 + simplificar filtros
+
+### F1 — Corrigido list_all() sem id do documento
+`doc.to_dict()` do Firestore não inclui o ID do documento. Chamadas novas
+não tinham `id` nem `call_id` nos dados retornados, quebrando toda a lógica
+do frontend (filtros, checkboxes, delete, inspecionar, navegação).
+
+Fix: adicionado `d["id"] = doc.id` no `list_all()` (db.py). Campo adicionado
+apenas na leitura, não afeta WRITABLE_FIELDS nem escrita no Firestore.
+
+### F2 — Botão 🔊 no Dashboard
+Adicionado botão Volume2 ao lado de Inspecionar. Navega para o CallInspector
+onde o player de áudio já existe.
+
+### F4 — Filtros simplificados
+Removidas opções "Na Fila" e "Transcrevendo" (efêmeros, duram segundos).
+Mantidos: Todas, Concluído, Erro.
+
+### Deploy
+- test-env 00113: db.py + Dashboard.jsx (id do documento + Volume2 + filtros)
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 
