@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, ThumbsUp,
   ShieldAlert, ChevronDown, ChevronUp, Headphones, User,
-  FileText, Star, MessageSquare, Target
+  FileText, Star, MessageSquare, Target, Volume2
 } from 'lucide-react'
 import axios from 'axios'
 
@@ -210,12 +210,21 @@ export default function CallInspector({ callId, onBack }) {
     <div className="space-y-6 w-full">
 
       {/* Cabeçalho */}
-      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
         <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0">
           <ArrowLeft size={20} />
         </button>
-        <div className="min-w-0">
-          <h2 className="text-xl font-bold text-textMain truncate">{filename}</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-bold text-textMain truncate flex items-center gap-3">
+            {filename}
+            {audioUrl && (
+              <button onClick={() => document.getElementById('audio-player')?.scrollIntoView({ behavior: 'smooth' })}
+                className="text-primary hover:text-primary/80 p-1.5 rounded hover:bg-black/5 transition-colors shrink-0"
+                title="Ouvir chamada">
+                <Volume2 size={18} />
+              </button>
+            )}
+          </h2>
           <div className="text-sm text-textMuted mt-1 flex items-center gap-3 flex-wrap">
             <span>{uploadedAt.toLocaleString('pt-BR')}</span>
             {analysis?.nome_atendente && (
@@ -246,17 +255,6 @@ export default function CallInspector({ callId, onBack }) {
               <p className="text-sm text-red-600 mt-1">{call?.status}</p>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Player de Áudio */}
-      {audioUrl && (
-        <div className="bg-surface p-4 rounded-2xl border border-black/5 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <Headphones size={16} className="text-primary" />
-            <span className="font-bold text-sm text-textMain">Gravação da Chamada</span>
-          </div>
-          <audio controls className="w-full h-10 outline-none" src={audioUrl} />
         </div>
       )}
 
@@ -442,6 +440,17 @@ export default function CallInspector({ callId, onBack }) {
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Player de Áudio */}
+          {audioUrl && (
+            <div id="audio-player" className="bg-primary/5 p-4 rounded-2xl border border-primary/20 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <Headphones size={16} className="text-primary" />
+                <span className="font-bold text-sm text-textMain">Gravação da Chamada</span>
+              </div>
+              <audio controls className="w-full h-10 outline-none" src={audioUrl} />
             </div>
           )}
 

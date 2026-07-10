@@ -11,7 +11,7 @@ const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nb
 const POLL_ACTIVE_MS = 2000
 const POLL_IDLE_MS = 10000
 
-export default function Dashboard({ onInspectCall, onViewBatch }) {
+export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
   const [calls, setCalls] = useState([])
   const [uploading, setUploading] = useState(false)
   const [diretrizes, setDiretrizes] = useState("")
@@ -363,7 +363,7 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
                     <button
                       onClick={() => {
                         const id = call.id || call.call_id || ''
-                        if (id) onInspectCall(id)
+                        if (id && onPlayAudio) onPlayAudio(id)
                       }}
                       className="text-textMuted hover:text-primary p-1.5 rounded hover:bg-black/5 transition-colors ml-1"
                       title="Ouvir chamada"

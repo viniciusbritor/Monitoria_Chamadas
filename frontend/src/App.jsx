@@ -122,11 +122,16 @@ function App() {
     setBootstrapping(false)
   }, [])
 
-  const navigateTo = (view, callId = null) => {
-    console.log('[App] navigateTo', { view, callId, isString: typeof callId, length: callId?.length })
+  const navigateTo = (view, callId = null, opts = {}) => {
+    console.log('[App] navigateTo', { view, callId })
     setSelectedCallId(callId)
     setCurrentView(view)
-    console.log('[App] state after set', { view, callId, currentView: view })
+    if (opts.playAudio) {
+      setTimeout(() => {
+        const el = document.getElementById('audio-player')
+        if (el) el.scrollIntoView({ behavior: 'smooth' })
+      }, 500)
+    }
   }
 
   const handleLogout = async () => {
@@ -323,7 +328,9 @@ function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
         <div key={currentView + (selectedCallId || '') + (batchViewIds.length || '')}>
           {currentView === 'dashboard' && (
-            <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} onViewBatch={(ids) => { setBatchViewIds(ids); setCurrentView('batch') }} userToken={userToken} />
+            <Dashboard onInspectCall={(id) => navigateTo('inspector', id)}
+              onPlayAudio={(id) => navigateTo('inspector', id, { playAudio: true })}
+              onViewBatch={(ids) => { setBatchViewIds(ids); setCurrentView('batch') }} userToken={userToken} />
           )}
           {currentView === 'inspector' && selectedCallId && (
             console.log('[App] rendering CallInspector', { callId: selectedCallId, currentView }),
