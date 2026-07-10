@@ -544,9 +544,9 @@ _STREAMING_LOCK = __import__("threading").Lock()
 def _restart_streaming_pull():
     """Cancela streaming_pull atual e recria. Usado pelo watchdog quando trava."""
     global _subscriber_client, _streaming_pull_future, _last_restart_at
-    # Debounce: nao reiniciar mais de uma vez a cada 120s
+    # Debounce: nao reiniciar mais de uma vez a cada 10s
     now = time.time()
-    if now - _last_restart_at < 120:
+    if now - _last_restart_at < 10:
         return
     _last_restart_at = now
     # Descarrega buffer pendente antes de reiniciar
@@ -571,7 +571,12 @@ def _restart_streaming_pull():
                 _batch_buffer_first_at = None
                 _batch_timer = None
             # Cria NOVO cliente Pub/Sub (gRPC channel pode estar corrompido
-            # apos cancel do streaming_pull anterior)
+            # apos cancel do streaming_pull anterior). Fecha o antigo primeiro.
+            if _subscriber_client is not None:
+                try:
+                    _subscriber_client.close()
+                except Exception:
+                    pass
             _subscriber_client = pubsub_v1.SubscriberClient()
             subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
             flow_control = pubsub_v1.types.FlowControl(max_messages=2)
@@ -808,8 +813,10 @@ def main():
             current_future = _streaming_pull_future
         try:
             current_future.result(timeout=None)  # bloqueia ate cancelamento/excecao
-            # Se chegou aqui sem exception, o future terminou OK (improvavel)
-            print(f"[Worker {WORKER_ID}] streaming_pull future terminou, re-bloqueando...", flush=True)
+            # Se chegou aqui sem exception, o future terminou (Pub/Sub fechou stream).
+            # Recria subscriber com novo SubscriberClient para manter conexao ativa.
+            print(f"[Worker {WORKER_ID}] streaming_pull future terminou, recriando subscriber...", flush=True)
+            _restart_streaming_pull()
         except KeyboardInterrupt:
             print(f"[Worker {WORKER_ID}] Parando worker (KeyboardInterrupt)...", flush=True)
             try:
