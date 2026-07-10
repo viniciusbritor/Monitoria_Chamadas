@@ -3,6 +3,7 @@ import Dashboard from './components/Dashboard'
 import CallInspector from './components/CallInspector'
 import SettingsPanel from './components/SettingsPanel'
 import QueueManager from './components/QueueManager'
+import BatchDashboard from './components/BatchDashboard'
 import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
 import { auth } from './firebase'
 
@@ -80,8 +81,9 @@ function BrandedLoader({ message = 'Conectando ao Portal Coherence...' }) {
 }
 
 function App() {
-  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'settings' | 'queue'
+  const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'batch' | 'settings' | 'queue'
   const [selectedCallId, setSelectedCallId] = useState(null)
+  const [batchViewIds, setBatchViewIds] = useState([])
 
   // IMPORTANTE: userToken sempre comeca como null para evitar race condition.
   // O token stale do localStorage (de sessoes anteriores) nao pode interferir
@@ -319,9 +321,9 @@ function App() {
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
-        <div key={currentView + (selectedCallId || '')}>
+        <div key={currentView + (selectedCallId || '') + (batchViewIds.length || '')}>
           {currentView === 'dashboard' && (
-            <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} userToken={userToken} />
+            <Dashboard onInspectCall={(id) => navigateTo('inspector', id)} onViewBatch={(ids) => { setBatchViewIds(ids); setCurrentView('batch') }} userToken={userToken} />
           )}
           {currentView === 'inspector' && selectedCallId && (
             console.log('[App] rendering CallInspector', { callId: selectedCallId, currentView }),
@@ -330,6 +332,9 @@ function App() {
             </ErrorBoundary>
           )}
           {!selectedCallId && currentView === 'inspector' && console.log('[App] CallInspector NOT rendered: selectedCallId is empty', { currentView })}
+          {currentView === 'batch' && batchViewIds.length > 0 && (
+            <BatchDashboard callIds={batchViewIds} onBack={() => navigateTo('dashboard')} />
+          )}
           {currentView === 'settings' && (
             <SettingsPanel />
           )}

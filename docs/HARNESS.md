@@ -1,6 +1,6 @@
 # HARNESS do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 07/07/2026 (refactor total + objetivo principal)
+> Ultima atualizacao: 10/07/2026 (base model + OIDC callback + BatchDashboard)
 
 ## Objetivo Principal
 
@@ -9,7 +9,7 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | # | Objetivo | Componente | Status |
 |---|---|---|---|
 | 1 | **Upload de chamada** (audio file) | Frontend + `api.py:POST /api/upload` | Ativo |
-| 2 | **Transcricao audio -> texto** | `worker.py:process_call` (Whisper) | Ativo |
+| 2 | **Transcricao audio -> texto** | `worker.py:process_call` (Whisper base) | Ativo |
 | 3 | **Separar audio atendente e cliente** (diarizacao) | `core/evaluator.py:diarize` (LLM) | Ativo |
 | 4 | **Avaliar nota QA do atendente + nota NPS do cliente** | `core/evaluator.py:evaluate` (LLM) | Ativo |
 | 5 | **Categorizar motivos principais da chamada** | `core/evaluator.py:evaluate` (LLM) | Ativo |
@@ -81,21 +81,21 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | `PUBSUB_TOPIC` | `monitoria-whisper-jobs` |
 | `PUBSUB_SUBSCRIPTION` | `monitoria-whisper-jobs-worker` |
 | `AUDIO_BUCKET` | `coherence-monitoria-audios-tmp` |
-| `WORKER_CALLBACK_URL` | URL do test-env (opcional desde 08/07/2026) |
-| `LEGACY_CALLBACK` | **`false`** (NEW 08/07/2026 - Plano Ultra-Economico). Se `true`, worker usa callback OIDC legado em vez de gravar direto no Firestore. |
-| `OMP_NUM_THREADS` | `2` |
+| `WORKER_CALLBACK_URL` | URL do test-env |
+| `OMP_NUM_THREADS` | `6` |
 | `WHISPER_DOWNLOAD_ROOT` | `/app/whisper_models` |
 
-### worker Cloud Run (recursos desde 08/07/2026 - Plano Ultra-Economico)
+### worker Cloud Run (recursos atuais)
 | Recurso | Valor |
 |---|---|
 | CPU | 4 vCPU |
 | Memory | 4 GiB |
-| max-instances | 2 |
+| max-instances | 4 |
 | min-instances | 0 (scale-to-zero) |
-| concurrency | 1 |
+| concurrency | 2 |
 | `--no-cpu-throttling` | ativo |
-| Custo estimado | ~$96/mês (300h ativas) |
+| `--cpu-boost` | ativo |
+| Custo estimado | ~$50/mês (modelo base, OIDC callback) |
 
 ## URL canonica
 

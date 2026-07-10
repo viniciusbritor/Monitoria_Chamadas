@@ -112,9 +112,12 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
-"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
-"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
-"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str}}}},
+"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
 "recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
 "humor_expert": "Positivo|Neutro|Desinteressado",
@@ -198,9 +201,12 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
-"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
-"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str}},
-"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str}}}},
+"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
+  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
 "recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
 "humor_expert": "Positivo|Neutro|Desinteressado",

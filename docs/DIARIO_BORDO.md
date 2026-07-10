@@ -2,7 +2,80 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
-## 08/07/2026 16:30 BRT — Plano Ultra-Econômico aplicado (~$110/mês, 600 chamadas/dia)
+## 10/07/2026 00:15 BRT — Pipeline funcional: Whisper base + OIDC + BatchDashboard
+
+### Contexto
+Sessão intensiva de debugging e otimização. Pipeline estava quebrado (chamadas presas em "Na Fila..."). Causas: watchdog restart loop, subscriber gRPC morto após timeout, mensagens mal formatadas causando nack storm.
+
+### Mudanças aplicadas (8 commits, 10/07)
+
+**Commit `ece4343`** — Fix watchdog restart loop + batch + cleanup-orphans:
+- `worker.py`: reset `last_msg_received_at` pós-ACK (watchdog não dispara falso STUCK)
+- `worker.py`: debounce 120s no watchdog restart
+- `worker.py`: `BATCH_TIMEOUT_SEC` 30s→5s
+- `worker.py`: dead code OIDC removida (linhas 398-412 inalcançáveis)
+- `api.py`: `POST /api/admin/cleanup-orphans` (QueueManager agora funciona)
+
+**Commit `47aa471`** — Whisper base + OIDC callback + timeout 1800:
+- **Modelo:** `large-v3` (1.5GB, 2.5x real-time) → **`base`** (74MB, ~0.1x real-time)
+- **Beam size:** 5→1 (greedy, ~30% mais rápido)
+- **CPU threads:** 2→6, num_workers: 2→4
+- **Worker:** revertido de Firestore direto para **OIDC callback** (como funcionava antes)
+- **LEGACY_CALLBACK:** removido (sempre OIDC agora)
+- **PROCESSING_TIMEOUT_SEC:** 840→1800 (30 min, sem limitador)
+- **Main loop:** auto-recovery com `_restart_streaming_pull()` quando subscriber morre
+- **Watchdog:** try/except para não morrer silenciosamente
+- **Cloud Run timeout:** 900→3600
+
+**Commit `6b33fc7`** — Fix subscriber gRPC channel:
+- `_restart_streaming_pull()` cria **novo `SubscriberClient()`** após cancel
+  (gRPC channel corrompido pelo cancel do future anterior)
+
+**Commit `d2d9e1c`** — Cache + deploy seletivo:
+- `cloudbuild-*.yaml`: `--cache-from` reduz build de 7min para ~2min
+- `scripts/deploy.ps1`: deploy automático detecta o que mudou
+
+**Commit `bf6882b`** — Poison ack + redução custo + GUARDRAILS BRT:
+- `callback()`: **ack imediato** em JSON inválido (em vez de nack storm)
+- `cloudbuild-worker.yaml`: CPU 8→4, RAM 8Gi→4Gi (modelo base = 1GB)
+- `GUARDRAILS.md`: Regra #15 (Timezone BRT obrigatório)
+- `GUARDRAILS.md`: Regra #12 atualizada (base=74MB, não 1.5GB)
+
+### Resultados (benchmark)
+- Áudio de ~4 min: **29.9s pipeline** (Whisper base ~24s + DeepSeek ~5s + OIDC ~1s)
+- Mesmo áudio com large-v3 anterior: **~14 min** (2.5x real-time)
+- Custo worker: de ~$150/mês para **~$50/mês**
+- Cold start: de ~60s para **~15s** (modelo 74MB vs 1.5GB)
+
+### Bugs evitados
+- Storm de nacks por mensagem mal formatada (JSON com BOM do PowerShell)
+- Subscriber morto após centenas de nacks rápidos → **poison ack imediato**
+- Watchdog restart loop (falso STUCK) → **reset `last_msg_received_at`**
+
+### Próximos passos
+- [ ] BatchDashboard: selecionar chamadas no Dashboard e ver métricas agregadas
+- [ ] Sentimento por fase no CallInspector (avaliador LLM + frontend)
+- [ ] MoodBar (mapa de calor) nos campos de Humor Cliente/Atendente
+
+---
+
+## 10/07/2026 14:00 BRT — BatchDashboard + Sentimento por fase + MoodBar
+
+### BatchDashboard (Dashboard.jsx + BatchDashboard.jsx)
+- Dashboard ganha checkbox `☐` em cada chamada + botão "Ver selecionadas (N)"
+- `GET /api/calls?ids=id1,id2,...` — filtro por múltiplos IDs
+- `BatchDashboard.jsx`: visão agregada (médias, status) do grupo selecionado
+- Rota em `App.jsx`: `currentView === 'batch'` com lista de IDs no estado
+
+### Sentimento por fase (CallInspector.jsx)
+- LLM prompt atualizado: cada fase agora inclui `sentimento_cliente` e `sentimento_operador`
+- `PhaseCard` exibe badges coloridos para sentimento por fase
+- Backward compatible: chamadas antigas (sem sentimento por fase) não mostram badges
+
+### MoodBar (CallInspector.jsx)
+- Substitui texto simples "Positivo/Neutro/Irritado" por barra gradiente verde→vermelho
+- Visual: ████████▓▓▓░░░ com indicador na posição correspondente
+- Aplicado em Humor do Cliente e Humor do Atendente
 
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.

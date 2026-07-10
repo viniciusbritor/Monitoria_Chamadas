@@ -11,11 +11,13 @@ const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nb
 const POLL_ACTIVE_MS = 2000
 const POLL_IDLE_MS = 10000
 
-export default function Dashboard({ onInspectCall }) {
+export default function Dashboard({ onInspectCall, onViewBatch }) {
   const [calls, setCalls] = useState([])
   const [uploading, setUploading] = useState(false)
   const [diretrizes, setDiretrizes] = useState("")
   const intervalRef = useRef(null)
+  const [selectedIds, setSelectedIds] = useState([])
+  const [statusFilter, setStatusFilter] = useState("")
 
   // NEW (08/07/2026 - B3): verifica se user pode ver dados completos (LGPD Art. 12).
   const userRole = localStorage.getItem('user_role')
@@ -24,7 +26,10 @@ export default function Dashboard({ onInspectCall }) {
   const fetchCalls = async () => {
     try {
       const token = localStorage.getItem('auth_token')
-      const res = await axios.get(`${API_URL}/api/calls`, {
+      const url = statusFilter
+        ? `${API_URL}/api/calls?status=${encodeURIComponent(statusFilter)}`
+        : `${API_URL}/api/calls`
+      const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` }
       })
       setCalls(res.data)
@@ -192,24 +197,61 @@ export default function Dashboard({ onInspectCall }) {
 
       {/* Tabela de Chamadas */}
       <div className="glass-panel overflow-hidden">
-        <div className="p-6 border-b border-black/5 flex items-center justify-between">
-          <h3 className="font-semibold text-textMain">Últimas Monitorias</h3>
+        <div className="p-6 border-b border-black/5 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-textMain mr-2">Últimas Monitorias</h3>
+            {/* Filtros de status */}
+            {['', 'Na Fila', 'Transcrevendo', 'Concluído', 'Erro'].map(s => (
+              <button key={s} onClick={() => setStatusFilter(s)}
+                className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                  statusFilter === s
+                    ? 'bg-primary text-white'
+                    : 'bg-black/5 text-textMuted hover:bg-black/10'
+                }`}
+              >
+                {s || 'Todas'}
+              </button>
+            ))}
+          </div>
+          {selectedIds.length > 0 && (
+            <button
+              onClick={() => { onViewBatch([...selectedIds]); setSelectedIds([]) }}
+              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all"
+            >
+              Ver selecionadas ({selectedIds.length})
+            </button>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-background text-textMuted text-sm">
-                <th className="p-4 font-medium">Arquivo</th>
-                <th className="p-4 font-medium">Data</th>
-                <th className="p-4 font-medium">Status</th>
-                <th className="p-4 font-medium">QA (Op.)</th>
-                <th className="p-4 font-medium">Cliente</th>
-                <th className="p-4 font-medium text-right">Ação</th>
-              </tr>
-            </thead>
+              <thead>
+                <tr className="bg-background text-textMuted text-sm">
+                  <th className="p-4 w-10">
+                    <input type="checkbox" checked={selectedIds.length === calls.length && calls.length > 0}
+                      onChange={(e) => setSelectedIds(e.target.checked ? calls.map(c => c.id || c.call_id).filter(Boolean) : [])}
+                      className="rounded border-black/20" />
+                  </th>
+                  <th className="p-4 font-medium">Arquivo</th>
+                  <th className="p-4 font-medium">Data</th>
+                  <th className="p-4 font-medium">Status</th>
+                  <th className="p-4 font-medium">QA (Op.)</th>
+                  <th className="p-4 font-medium">Cliente</th>
+                  <th className="p-4 font-medium text-right">Ação</th>
+                </tr>
+              </thead>
             <tbody>
-              {calls.map((call) => (
-                <tr key={call.id} className="border-b border-black/5 hover:bg-black/5 transition-colors">
+              {calls.map((call) => {
+                const callId = call.id || call.call_id || ''
+                return (
+                <tr key={callId} className="border-b border-black/5 hover:bg-black/5 transition-colors">
+                  <td className="p-4">
+                    <input type="checkbox" checked={selectedIds.includes(callId)}
+                      onChange={(e) => setSelectedIds(e.target.checked
+                        ? [...selectedIds, callId]
+                        : selectedIds.filter(id => id !== callId)
+                      )}
+                      className="rounded border-black/20" />
+                  </td>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">

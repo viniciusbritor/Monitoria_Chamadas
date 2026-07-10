@@ -24,9 +24,49 @@ function ScoreBadge({ value, max, color = 'primary' }) {
   )
 }
 
+function SentimentBadge({ value }) {
+  if (!value) return null
+  const moodMap = {
+    'Positivo': { bg: 'bg-green-100', text: 'text-green-700', dot: '🟢' },
+    'Neutro': { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: '🟡' },
+    'Irritado': { bg: 'bg-red-100', text: 'text-red-700', dot: '🔴' },
+    'Desinteressado': { bg: 'bg-orange-100', text: 'text-orange-700', dot: '🟠' },
+  }
+  const m = moodMap[value] || { bg: 'bg-gray-100', text: 'text-gray-700', dot: '⚪' }
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${m.bg} ${m.text}`}>
+      <span>{m.dot}</span> {value}
+    </span>
+  )
+}
+
+function MoodBar({ value, label }) {
+  if (!value) return null
+  const moodPct = {
+    'Positivo': 85, 'Neutro': 50, 'Irritado': 15, 'Desinteressado': 30,
+  }
+  const pct = moodPct[value] || 50
+  return (
+    <div className="mt-1">
+      <div className="flex justify-between text-[10px] text-textMuted mb-0.5">
+        <span>{label}</span>
+        <span className="font-medium">{value}</span>
+      </div>
+      <div className="w-full h-2 rounded-full overflow-hidden" style={{
+        background: 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)'
+      }}>
+        <div className="h-full w-1 bg-white rounded-full shadow-md transition-all duration-500"
+          style={{ marginLeft: `calc(${pct}% - 2px)` }} />
+      </div>
+    </div>
+  )
+}
+
 function PhaseCard({ title, icon: Icon, fase }) {
   const qa = fase?.nota_qa || 0
   const nps = fase?.nota_nps || 0
+  const sentCli = fase?.sentimento_cliente
+  const sentOpe = fase?.sentimento_operador
   return (
     <div className="p-5 rounded-2xl bg-surface border border-black/5 space-y-3 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -42,6 +82,20 @@ function PhaseCard({ title, icon: Icon, fase }) {
       <p className="text-sm text-textMuted leading-relaxed">
         {fase?.analise || "Análise não disponível para esta fase."}
       </p>
+      {(sentCli || sentOpe) && (
+        <div className="flex gap-4 pt-3 border-t border-black/10 text-xs">
+          <div className="flex items-center gap-1.5">
+            <User size={12} className="text-textMuted" />
+            <span className="text-textMuted uppercase tracking-wide">Cliente:</span>
+            <SentimentBadge value={sentCli} />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Headphones size={12} className="text-primary" />
+            <span className="text-textMuted uppercase tracking-wide">Atendente:</span>
+            <SentimentBadge value={sentOpe} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -237,7 +291,7 @@ export default function CallInspector({ callId, onBack }) {
         <div className="lg:col-span-1 space-y-6">
           {/* Humor do Cliente */}
           <div className="glass-panel p-5">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-3">
               <User size={18} className="text-textMuted" />
               <h3 className="font-semibold text-textMain">Humor do Cliente</h3>
             </div>
@@ -246,16 +300,15 @@ export default function CallInspector({ callId, onBack }) {
               emptyText="Nenhum sentimento detectado"
             />
             {analysis?.humor_cliente && (
-              <div className="mt-3 pt-3 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificação: </span>
-                <span className="text-sm font-medium text-textMain">{analysis.humor_cliente}</span>
+              <div className="mt-2">
+                <MoodBar value={analysis.humor_cliente} label="Classificação" />
               </div>
             )}
           </div>
 
           {/* Humor do Atendente */}
           <div className="glass-panel p-5">
-            <div className="flex items-center gap-2 mb-4">
+            <div className="flex items-center gap-2 mb-3">
               <Headphones size={18} className="text-primary" />
               <h3 className="font-semibold text-textMain">Humor do Atendente</h3>
             </div>
@@ -264,9 +317,8 @@ export default function CallInspector({ callId, onBack }) {
               emptyText="Nenhum sentimento detectado"
             />
             {analysis?.humor_expert && (
-              <div className="mt-3 pt-3 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificação: </span>
-                <span className="text-sm font-medium text-textMain">{analysis.humor_expert}</span>
+              <div className="mt-2">
+                <MoodBar value={analysis.humor_expert} label="Classificação" />
               </div>
             )}
           </div>

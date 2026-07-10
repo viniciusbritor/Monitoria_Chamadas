@@ -62,7 +62,8 @@ from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, 
 from core.masker import mask_pii
 from core import pubsub_admin
 from core.db import (
-    get_db, get_call, list_calls, update_call_status, cleanup_orphans as cleanup_orphans_db,
+    get_db, get_call, list_calls, list_calls_by_ids, update_call_status,
+    cleanup_orphans as cleanup_orphans_db,
     get_user_settings, upsert_user_settings,
 )
 
@@ -422,11 +423,22 @@ def save_settings(settings: UserSettings, user = Depends(get_current_user)):
 
 
 @app.get("/api/calls")
-def get_calls(user = Depends(get_current_user)):
-    """Lista chamadas do usuario (Firestore list_all com filtro user_id)."""
+def get_calls(user = Depends(get_current_user), ids: Optional[str] = None):
+    """Lista chamadas do usuario (Firestore list_all com filtro user_id).
+
+    Query params:
+      - ids: lista de IDs separados por virgula. Se presente, ignora user_id_filter
+            (retorna exatamente essas chamadas, respeitando ownership).
+    """
+    if ids:
+        id_list = [i.strip() for i in ids.split(",") if i.strip()]
+        calls = list_calls_by_ids(id_list)
+        # Filtra por ownership (user so ve suas proprias, admin ve todas)
+        is_super = user.get("is_super_admin", False)
+        if not is_super:
+            calls = [c for c in calls if c.get("user_id") == user.get("sub")]
+        return calls
     calls = list_calls(limit=100, user_id_filter=user.get("sub"))
-    # Firestore retorna dicts; mantem shape compativel com frontend atual.
-    # O frontend espera camelCase/snake_case misto; mantemos snake_case (original).
     return calls
 
 

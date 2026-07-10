@@ -172,6 +172,20 @@ class ChamadasDB:
             q = q.where("user_id", "==", user_id_filter)
         return [doc.to_dict() for doc in q.stream()]
 
+    def list_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
+        """Busca multiplas chamadas por IDs. Usa batch get (mais eficiente que N queries)."""
+        if not ids:
+            return []
+        refs = [self.collection.document(cid) for cid in ids]
+        docs = self._db.get_all(refs)
+        result = []
+        for doc in docs:
+            if doc.exists:
+                d = doc.to_dict()
+                d["id"] = doc.id
+                result.append(d)
+        return result
+
     def list_by_status(self, status_prefix: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Lista chamadas em status que COMECAM COM prefix. Usa indice status+uploaded_at."""
         # Firestore nao suporta prefix match nativo. Solucao: usar range query com sentinel.
@@ -271,6 +285,11 @@ def get_call(call_id: str) -> Optional[Dict[str, Any]]:
 def list_calls(limit: int = 100, status_filter: Optional[str] = None,
                user_id_filter: Optional[str] = None) -> List[Dict[str, Any]]:
     return get_db().list_all(limit=limit, status_filter=status_filter, user_id_filter=user_id_filter)
+
+
+def list_calls_by_ids(ids: List[str]) -> List[Dict[str, Any]]:
+    """Busca multiplas chamadas por IDs."""
+    return get_db().list_by_ids(ids)
 
 
 def update_call_status(call_id: str, status: str, **extra_fields) -> bool:
