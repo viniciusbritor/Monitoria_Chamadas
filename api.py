@@ -1261,6 +1261,18 @@ def stuck_calls(user: dict = Depends(require_admin_user)):
     return {"stuck_count": len(rows), "stuck_calls": rows}
 
 
+# NEW (09/07/2026): endpoint admin para marcar orfaos como erro.
+# O frontend QueueManager chama este endpoint quando usuario clica em
+# "Marcar N orfao(s) como erro".
+@app.post("/api/admin/cleanup-orphans")
+def admin_cleanup_orphans(user: dict = Depends(require_admin_user)):
+    """Marca chamadas orfas (>30min em estado inicial) como erro. Admin-only."""
+    new_status = "Erro: processamento interrompido (orphaned >30min). Reenvie o audio."
+    cleaned_ids = cleanup_orphans_db(older_than_seconds=15 * 60, new_status=new_status)
+    print(f"[AdminCleanup] admin={user.get('email')} limpou {len(cleaned_ids)} orfaos", flush=True)
+    return {"cleaned": len(cleaned_ids), "orphans": cleaned_ids}
+
+
 # REMOVIDO (07/07/2026 - refactor): endpoints de migracao de status.
 # Função cumprida - 1 doc migrado (230e22e4-...). Bug do accent ja foi
 # corrigido em commits anteriores (worker.py:303, api.py STATUS_NORMALIZATION).

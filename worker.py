@@ -76,11 +76,12 @@ WORKER_STATE = {
 # NEW (09/07/2026 - Batch/Standalone): fila interna para acumular mensagens
 # e processar em batch. Aproveita o concurrency=4 configurado no Cloud Run.
 BATCH_SIZE = 4
-BATCH_TIMEOUT_SEC = 30  # max espera para encher batch
+BATCH_TIMEOUT_SEC = 5  # max espera para encher batch (reduzido 09/07/2026: baixo volume)
 _batch_buffer = []        # lista de (message, data) aguardando
 _batch_buffer_lock = __import__("threading").Lock()
 _batch_buffer_first_at = None  # timestamp da primeira msg no buffer atual
 _batch_timer = None           # referencia ao timer ativo
+_last_restart_at = 0.0        # timestamp do ultimo restart (debounce watchdog)
 
 HEALTHZ_LOCK = __import__("threading").Lock()
 
@@ -395,21 +396,6 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         else:
             # Sem fallback: re-raise para NACK
             raise
-            # Fallback OIDC: monta payload no formato esperado pelo callback handler
-            _notify_test_env_callback(call_id, {
-                "status": "Concluído",
-                "transcript": final_payload["transcricao"],
-                "transcricao_diarizada": final_payload["transcricao_diarizada"],
-                "qa_score": final_payload["nota"],
-                "qa_details": {
-                    "nota_qualidade_operador": nota_qualidade_operador,
-                    "nota_sentimento_cliente": nota_sentimento_cliente,
-                    "raw_evaluation": evaluation,
-                    "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
-                    "sentimentos_operador": evaluation.get("sentimentos_operador", []),
-                    "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
-                },
-            })
 
     # 8. Cleanup
     shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -525,6 +511,7 @@ def _process_single_message(message, data):
             WORKER_STATE["messages_processed"] += 1
             WORKER_STATE["consecutive_errors"] = 0
             WORKER_STATE["current_state"] = "ready"
+            WORKER_STATE["last_msg_received_at"] = time.time()  # FIX: watchdog nao dispara falso STUCK
     except Exception as e:
         print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
         with HEALTHZ_LOCK:
@@ -596,7 +583,14 @@ _STREAMING_LOCK = __import__("threading").Lock()
 
 def _restart_streaming_pull():
     """Cancela streaming_pull atual e recria. Usado pelo watchdog quando trava."""
-    global _streaming_pull_future
+    global _streaming_pull_future, _last_restart_at
+    # Debounce: nao reiniciar mais de uma vez a cada 120s
+    now = time.time()
+    if now - _last_restart_at < 120:
+        return
+    _last_restart_at = now
+    # Descarrega buffer pendente antes de reiniciar
+    _flush_batch()
     with _STREAMING_LOCK:
         if _streaming_pull_future is not None:
             try:
@@ -606,6 +600,16 @@ def _restart_streaming_pull():
         if _subscriber_client is None:
             return  # nao inicializado ainda, nao pode recriar
         try:
+            # Nack das msgs pendentes no buffer (do subscriber antigo)
+            with _batch_buffer_lock:
+                for msg, _ in _batch_buffer:
+                    try:
+                        msg.nack()
+                    except Exception:
+                        pass
+                _batch_buffer = []
+                _batch_buffer_first_at = None
+                _batch_timer = None
             subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
             flow_control = pubsub_v1.types.FlowControl(max_messages=2)
             new_future = _subscriber_client.subscribe(
