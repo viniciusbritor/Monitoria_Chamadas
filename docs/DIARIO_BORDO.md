@@ -174,6 +174,22 @@ Mantidos: Todas, Concluído, Erro.
 ### Deploy
 - test-env 00113: db.py + Dashboard.jsx (id do documento + Volume2 + filtros)
 
+## 10/07/2026 05:00 BRT — Fix filtro 500 + autoScroll audio + min-instances=1
+
+### Filtro 500 (db.py WHERE order)
+WHERE clauses em ordem errada: `status` era chamado antes de `user_id`.
+Firestore precisa de equality (user_id) PRIMEIRO, range (status) DEPOIS.
+Corrigido em `db.py:list_all()` — `user_id` agora vem antes de `status`.
+
+### AutoScroll do player de áudio
+Adicionado `useEffect([autoScroll, audioUrl])` no CallInspector que
+faz scroll suave até `#audio-player` quando o URL de áudio carrega.
+
+### min-instances=1 (worker)
+Regra #16 adicionada ao GUARDRAILS.md: PULL subscription + scale-to-zero
+quebra o pipeline apos horas de inatividade. Solução curto prazo:
+`--min-instances=1`. Solução definitiva: PUSH subscription (pendente).
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 

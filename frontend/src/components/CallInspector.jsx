@@ -102,7 +102,7 @@ function TagList({ items, emptyText = "Nenhum item" }) {
   )
 }
 
-export default function CallInspector({ callId, onBack }) {
+export default function CallInspector({ callId, onBack, autoScroll }) {
   const [call, setCall] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -159,6 +159,16 @@ export default function CallInspector({ callId, onBack }) {
     fetchCall()
     return () => { cancelled = true }
   }, [callId])
+
+  // Auto-scroll para o player de áudio quando audioUrl carregar
+  useEffect(() => {
+    if (autoScroll === 'audio-player' && audioUrl) {
+      const el = document.getElementById('audio-player')
+      if (el) {
+        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300)
+      }
+    }
+  }, [autoScroll, audioUrl])
 
   if (loading) {
     return (

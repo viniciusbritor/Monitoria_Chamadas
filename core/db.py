@@ -166,10 +166,10 @@ class ChamadasDB:
         Para producao, prefira list_by_user_id() ou list_by_status().
         """
         q = self.collection.order_by("uploaded_at", direction=firestore.Query.DESCENDING).limit(limit)
-        if status_filter:
-            q = q.where("status", ">=", status_filter).where("status", "<", status_filter + "\uf8ff")
         if user_id_filter:
             q = q.where("user_id", "==", user_id_filter)
+        if status_filter:
+            q = q.where("status", ">=", status_filter).where("status", "<", status_filter + "\uf8ff")
         result = []
         for doc in q.stream():
             d = doc.to_dict()

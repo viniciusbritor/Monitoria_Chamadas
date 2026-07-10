@@ -49,7 +49,9 @@ steps:
       # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
       - '--no-cpu-throttling'
       - '--concurrency=2'
-      - '--min-instances=0'
+      # (10/07/2026): min-instances=1. PULL subscription + scale-to-zero quebra o pipeline
+      # apos horas de inatividade. Solucao arquitetural correta é PUSH subscription (pendente).
+      - '--min-instances=1'
       # NEW (08/07/2026 - Plano Ultra-Economico): memory 8GiB -> 4GiB,
       # max-instances 3 -> 2. Custo ~$110/mes para 600 calls/dia.
       # Audio max 20MB por arquivo (validado no upload, GUARDRAILS Regra #11).

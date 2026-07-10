@@ -84,6 +84,7 @@ function App() {
   const [currentView, setCurrentView] = useState('dashboard') // 'dashboard' | 'inspector' | 'batch' | 'settings' | 'queue'
   const [selectedCallId, setSelectedCallId] = useState(null)
   const [batchViewIds, setBatchViewIds] = useState([])
+  const [autoScroll, setAutoScroll] = useState(null)
 
   // IMPORTANTE: userToken sempre comeca como null para evitar race condition.
   // O token stale do localStorage (de sessoes anteriores) nao pode interferir
@@ -126,12 +127,7 @@ function App() {
     console.log('[App] navigateTo', { view, callId })
     setSelectedCallId(callId)
     setCurrentView(view)
-    if (opts.playAudio) {
-      setTimeout(() => {
-        const el = document.getElementById('audio-player')
-        if (el) el.scrollIntoView({ behavior: 'smooth' })
-      }, 500)
-    }
+    setAutoScroll(opts?.playAudio ? 'audio-player' : null)
   }
 
   const handleLogout = async () => {
@@ -335,7 +331,8 @@ function App() {
           {currentView === 'inspector' && selectedCallId && (
             console.log('[App] rendering CallInspector', { callId: selectedCallId, currentView }),
             <ErrorBoundary>
-              <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')} userToken={userToken} />
+              <CallInspector callId={selectedCallId} onBack={() => navigateTo('dashboard')}
+                userToken={userToken} autoScroll={autoScroll} />
             </ErrorBoundary>
           )}
           {!selectedCallId && currentView === 'inspector' && console.log('[App] CallInspector NOT rendered: selectedCallId is empty', { currentView })}

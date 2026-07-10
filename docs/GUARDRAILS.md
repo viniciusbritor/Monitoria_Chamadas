@@ -185,4 +185,26 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 3. **Proibido** usar UTC ou qualquer outro fuso para metadados de upload (`uploaded_at`, `updated_at`). Frontend exibe em BRT.
 4. **DIARIO_BORDO.md**: todas as entradas devem ser registradas com timestamp BRT + UTC (ex: `10/07/2026 00:16 BRT`).
 
+## Regra #16 — Resiliência contra Inatividade (Anti-Scale-to-Zero Break)
+
+**Aplicavel a partir de 10/07/2026.**
+
+1. **O pipeline NAO PODE quebrar por inatividade do worker.** O usuario deve poder
+   enviar chamadas a qualquer momento, mesmo apos horas ou dias sem uso.
+
+2. **Streaming PULL subscription e' INCOMPATIVEL com min-instances=0.** Em PULL,
+   o worker inicia a conexao gRPC. Se o container morrer (scale-to-zero), nenhum
+   evento dispara um novo container. Mensagens acumulam eternamente.
+
+3. **Alternativa correta:** PUSH subscription. O Pub/Sub envia HTTP POST para o
+   worker, e o Cloud Run inicia o container automaticamente.
+
+4. **Alternativa aceitavel (curto prazo):** `--min-instances=1`. Mantem 1 container
+   sempre ativo (~$50/mes). PULL subscription funciona enquanto o container vive.
+
+5. **Alternativa paliativa:** Cloud Scheduler keep-warm a cada 5 min. Reduz mas
+   nao elimina o risco (container pode morrer entre pings).
+
+6. **PROIBIDO** manter PULL subscription com `min-instances=0` em producao.
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
