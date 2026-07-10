@@ -424,12 +424,14 @@ def save_settings(settings: UserSettings, user = Depends(get_current_user)):
 
 
 @app.get("/api/calls")
-def get_calls(user = Depends(get_current_user), ids: Optional[str] = None):
+def get_calls(user = Depends(get_current_user), ids: Optional[str] = None,
+              status: Optional[str] = None):
     """Lista chamadas do usuario (Firestore list_all com filtro user_id).
 
     Query params:
       - ids: lista de IDs separados por virgula. Se presente, ignora user_id_filter
             (retorna exatamente essas chamadas, respeitando ownership).
+      - status: prefixo de status para filtrar (ex: "Concluido", "Na Fila", "Erro").
     """
     if ids:
         id_list = [i.strip() for i in ids.split(",") if i.strip()]
@@ -439,7 +441,8 @@ def get_calls(user = Depends(get_current_user), ids: Optional[str] = None):
         if not is_super:
             calls = [c for c in calls if c.get("user_id") == user.get("sub")]
         return calls
-    calls = list_calls(limit=100, user_id_filter=user.get("sub"))
+    calls = list_calls(limit=100, user_id_filter=user.get("sub"),
+                       status_filter=status)
     return calls
 
 

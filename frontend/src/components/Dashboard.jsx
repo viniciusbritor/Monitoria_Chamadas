@@ -52,6 +52,11 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
     return () => clearInterval(intervalRef.current)
   }, [pollMs])
 
+  // Re-fetch imediato quando o filtro de status muda
+  useEffect(() => {
+    fetchCalls()
+  }, [statusFilter])
+
   const calculateRetentionStats = () => {
     let opportunities = 0;
     let successes = 0;

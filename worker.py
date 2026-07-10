@@ -544,6 +544,7 @@ _STREAMING_LOCK = __import__("threading").Lock()
 def _restart_streaming_pull():
     """Cancela streaming_pull atual e recria. Usado pelo watchdog quando trava."""
     global _subscriber_client, _streaming_pull_future, _last_restart_at
+    global _batch_buffer, _batch_buffer_first_at, _batch_timer  # fix UnboundLocalError
     # Debounce: nao reiniciar mais de uma vez a cada 10s
     now = time.time()
     if now - _last_restart_at < 10:

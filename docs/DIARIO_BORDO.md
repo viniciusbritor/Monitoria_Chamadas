@@ -96,6 +96,41 @@ loop re-bloqueava no mesmo future ja completado → hot loop de 1 iteracao/segun
 - Watchdog ativo a cada 30s
 - Pipeline funcional: Whisper base ~30s, DeepSeek ~10s, total <1min
 
+## 10/07/2026 01:48 BRT — Fix UnboundLocalError + filtros do Dashboard + deploy worker+test-env
+
+### F0 — Pipeline bloqueado por UnboundLocalError (bloqueante)
+Commit 6b33fc7 introduziu regressao: `_restart_streaming_pull()` atribui
+`_batch_buffer`, `_batch_buffer_first_at`, `_batch_timer` sem declara-los `global`.
+Python trata como variaveis locais → `UnboundLocalError` ao tentar iterar
+no `for msg, _ in _batch_buffer`.
+
+**Fix:** adicionar `global _batch_buffer, _batch_buffer_first_at, _batch_timer`
+em `_restart_streaming_pull()` (worker.py:547).
+
+**Impacto:** Pipeline ficou bloqueado (hot loop) por ~1h ate este fix. Qualquer
+nova função que atribua variáveis globais deve declara-las como `global`.
+
+### F2a — Filtro ?status= ignorado pelo backend
+Frontend envia `GET /api/calls?status=Concluido` mas `get_calls` endpoint nao
+aceitava o parametro `status`.
+
+**Fix:** adicionado `status: Optional[str] = None` ao endpoint e repassado
+para `list_calls(status_filter=status)` (api.py).
+
+### F2b — Clique no filtro sem resposta imediata (frontend)
+`useEffect` principal depende so de `[pollMs]`. Quando usuario clica em
+`[Concluido]` ou `[Na Fila]`, `statusFilter` muda mas `pollMs` nao muda,
+entao o fetch so acontecia no proximo ciclo de polling (ate 10s).
+
+**Fix:** adicionado `useEffect(() => fetchCalls(), [statusFilter])` no
+Dashboard.jsx. Agora o fetch dispara imediatamente ao mudar o filtro.
+
+### Status final da sessao (10/07/2026)
+- Worker 00076 com fix UnboundLocalError
+- test-env 00109 com filtro status funcional
+- Docs atualizadas: ARQUITETURA, DIARIO_BORDO, HARNESS, GUARDRAILS
+- GitHub: 13 commits no branch test
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 
