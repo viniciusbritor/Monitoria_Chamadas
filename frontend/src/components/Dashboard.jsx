@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search } from 'lucide-react'
+import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, AlertTriangle } from 'lucide-react'
 import axios from 'axios'
 import { fmtDateTimeBR } from '../lib/datetime'
 import { anonymizeFilename, anonymizeTranscript, canSeeFullData } from '../lib/anonymize'
@@ -18,6 +18,7 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
   const intervalRef = useRef(null)
   const [selectedIds, setSelectedIds] = useState([])
   const [statusFilter, setStatusFilter] = useState("")
+  const [fetchError, setFetchError] = useState(null)
 
   // NEW (08/07/2026 - B3): verifica se user pode ver dados completos (LGPD Art. 12).
   const userRole = localStorage.getItem('user_role')
@@ -33,8 +34,14 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
         headers: { Authorization: `Bearer ${token}` }
       })
       setCalls(res.data)
+      setFetchError(null)
     } catch (err) {
       console.error(err)
+      if (err.response?.status === 400) {
+        setFetchError('Índice do Firestore ainda sendo criado. Aguarde 2-5 min e tente novamente.')
+      } else {
+        setFetchError(`Erro: ${err.response?.data?.detail || err.message}`)
+      }
     }
   }
 
@@ -200,6 +207,15 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
         </div>
       </div>
 
+      {fetchError && (
+        <div className="glass-panel p-4 border-l-4 border-yellow-500">
+          <div className="flex items-center gap-2 text-yellow-700">
+            <AlertTriangle size={20} />
+            <span className="font-semibold">{fetchError}</span>
+          </div>
+        </div>
+      )}
+
       {/* Tabela de Chamadas */}
       <div className="glass-panel overflow-hidden">
         <div className="p-6 border-b border-black/5 flex items-center justify-between flex-wrap gap-3">
@@ -217,6 +233,11 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
                 {s || 'Todas'}
               </button>
             ))}
+            <span className="mx-2 text-textMuted text-xs">|</span>
+            <span title="Marque as chamadas com ☐ e clique aqui para ver o painel do grupo"
+              className="text-xs text-textMuted cursor-help">
+              ☐ marque para agrupar
+            </span>
           </div>
           {selectedIds.length > 0 && (
             <button
@@ -343,13 +364,32 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
                     >
                       {call.status?.startsWith('Erro') ? 'Detalhes' : 'Inspecionar'}
                     </button>
+                    <button
+                      onClick={async () => {
+                        const id = call.id || call.call_id || ''
+                        if (!confirm('Deletar permanentemente esta chamada?')) return
+                        try {
+                          const token = localStorage.getItem('auth_token')
+                          await axios.delete(`${API_URL}/api/calls/${id}`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          })
+                          fetchCalls()
+                        } catch (e) {
+                          alert('Falha ao deletar: ' + (e.response?.data?.detail || e.message))
+                        }
+                      }}
+                      className="text-textMuted hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors ml-2"
+                      title="Deletar chamada"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
               )
             })}
               {calls.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="p-8 text-center text-textMuted">Nenhuma chamada processada ainda.</td>
+                  <td colSpan="7" className="p-8 text-center text-textMuted">Nenhuma chamada processada ainda.</td>
                 </tr>
               )}
             </tbody>

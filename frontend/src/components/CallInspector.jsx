@@ -26,40 +26,27 @@ function ScoreBadge({ value, max, color = 'primary' }) {
 
 function SentimentBadge({ value }) {
   if (!value) return null
-  const moodMap = {
-    'Positivo': { bg: 'bg-green-100', text: 'text-green-700', dot: '🟢' },
-    'Neutro': { bg: 'bg-yellow-100', text: 'text-yellow-700', dot: '🟡' },
-    'Irritado': { bg: 'bg-red-100', text: 'text-red-700', dot: '🔴' },
-    'Desinteressado': { bg: 'bg-orange-100', text: 'text-orange-700', dot: '🟠' },
-  }
-  const m = moodMap[value] || { bg: 'bg-gray-100', text: 'text-gray-700', dot: '⚪' }
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${m.bg} ${m.text}`}>
-      <span>{m.dot}</span> {value}
+  // Dinamico: match keywords positivo/negativo para determinar cor
+  const lower = value.toLowerCase()
+  const positivo = ['positivo', 'agradecido', 'calmo', 'paciente', 'alegre', 'empatico', 'empatia',
+    'satisfeito', 'grato', 'feliz', 'otimista', 'confiante', 'esperancoso', 'esperançoso', 'educado']
+  const negativo = ['irritado', 'sarcastico', 'sarcástico', 'raiva', 'triste', 'frustrado',
+    'impaciente', 'agressivo', 'hostil', 'desinteressado', 'indiferente', 'preocupado', 'ansioso',
+    'insatisfeito', 'grosseria', 'grosso', 'reclamacao', 'reclamação']
+  
+  if (positivo.some(p => lower.includes(p))) {
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
+      🟢 {value}
     </span>
-  )
-}
-
-function MoodBar({ value, label }) {
-  if (!value) return null
-  const moodPct = {
-    'Positivo': 85, 'Neutro': 50, 'Irritado': 15, 'Desinteressado': 30,
   }
-  const pct = moodPct[value] || 50
-  return (
-    <div className="mt-1">
-      <div className="flex justify-between text-[10px] text-textMuted mb-0.5">
-        <span>{label}</span>
-        <span className="font-medium">{value}</span>
-      </div>
-      <div className="w-full h-2 rounded-full overflow-hidden" style={{
-        background: 'linear-gradient(90deg, #22c55e 0%, #eab308 50%, #ef4444 100%)'
-      }}>
-        <div className="h-full w-1 bg-white rounded-full shadow-md transition-all duration-500"
-          style={{ marginLeft: `calc(${pct}% - 2px)` }} />
-      </div>
-    </div>
-  )
+  if (negativo.some(n => lower.includes(n))) {
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+      🔴 {value}
+    </span>
+  }
+  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
+    🟡 {value}
+  </span>
 }
 
 function PhaseCard({ title, icon: Icon, fase }) {
@@ -231,6 +218,16 @@ export default function CallInspector({ callId, onBack }) {
           <h2 className="text-xl font-bold text-textMain truncate">{filename}</h2>
           <div className="text-sm text-textMuted mt-1 flex items-center gap-3 flex-wrap">
             <span>{uploadedAt.toLocaleString('pt-BR')}</span>
+            {analysis?.nome_atendente && (
+              <span className="text-xs bg-black/5 px-2 py-0.5 rounded-full">
+                Atendente: <b>{analysis.nome_atendente}</b>
+              </span>
+            )}
+            {analysis?.classificacao_motivo && (
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                {analysis.classificacao_motivo}
+              </span>
+            )}
             {iaUtilizada !== 'IA' && (
               <span className="text-xs bg-black/5 px-2 py-0.5 rounded-full">
                 IA: {iaUtilizada}
@@ -290,7 +287,12 @@ export default function CallInspector({ callId, onBack }) {
         {/* Coluna esquerda — 1fr (Humor Cliente, Humor Atendente, Checklist, Erro Crítico) */}
         <div className="lg:col-span-1 space-y-6">
           {/* Humor do Cliente */}
-          <div className="glass-panel p-5">
+          <div className={`glass-panel p-5 border-l-4 ${
+            !analysis?.humor_cliente ? '' :
+            ['Positivo','Agradecido','Calmo','Paciente'].includes(analysis.humor_cliente) ? 'border-green-400 bg-green-50/50' :
+            analysis.humor_cliente === 'Neutro' ? 'border-yellow-400 bg-yellow-50/50' :
+            'border-red-400 bg-red-50/50'
+          }`}>
             <div className="flex items-center gap-2 mb-3">
               <User size={18} className="text-textMuted" />
               <h3 className="font-semibold text-textMain">Humor do Cliente</h3>
@@ -300,14 +302,21 @@ export default function CallInspector({ callId, onBack }) {
               emptyText="Nenhum sentimento detectado"
             />
             {analysis?.humor_cliente && (
-              <div className="mt-2">
-                <MoodBar value={analysis.humor_cliente} label="Classificação" />
+              <div className="mt-2 pt-2 border-t border-black/5">
+                <span className="text-xs text-textMuted">Classificação: </span>
+                <SentimentBadge value={analysis.humor_cliente} />
               </div>
             )}
           </div>
 
           {/* Humor do Atendente */}
-          <div className="glass-panel p-5">
+          <div className={`glass-panel p-5 border-l-4 ${
+            !analysis?.humor_expert ? '' :
+            ['Positivo','Empatico','Empático','Paciente','Alegre','Calmo'].includes(analysis.humor_expert) ? 'border-green-400 bg-green-50/50' :
+            analysis.humor_expert === 'Neutro' ? 'border-yellow-400 bg-yellow-50/50' :
+            analysis.humor_expert === 'Desinteressado' ? 'border-orange-400 bg-orange-50/50' :
+            'border-red-400 bg-red-50/50'
+          }`}>
             <div className="flex items-center gap-2 mb-3">
               <Headphones size={18} className="text-primary" />
               <h3 className="font-semibold text-textMain">Humor do Atendente</h3>
@@ -317,8 +326,9 @@ export default function CallInspector({ callId, onBack }) {
               emptyText="Nenhum sentimento detectado"
             />
             {analysis?.humor_expert && (
-              <div className="mt-2">
-                <MoodBar value={analysis.humor_expert} label="Classificação" />
+              <div className="mt-2 pt-2 border-t border-black/5">
+                <span className="text-xs text-textMuted">Classificação: </span>
+                <SentimentBadge value={analysis.humor_expert} />
               </div>
             )}
           </div>
