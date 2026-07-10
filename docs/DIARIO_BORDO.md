@@ -190,6 +190,32 @@ Regra #16 adicionada ao GUARDRAILS.md: PULL subscription + scale-to-zero
 quebra o pipeline apos horas de inatividade. Solução curto prazo:
 `--min-instances=1`. Solução definitiva: PUSH subscription (pendente).
 
+## 10/07/2026 11:00 BRT — Docs + layout + player + polaridade LLM + CI/CD
+
+### Estado ANTES das correcoes
+- Docs: GUARDRAILS, HARNESS, ARQUITETURA com 13 conflitos vs realidade
+- Layout CallInspector: Transcrição/Pontos fora da coluna esquerda
+- Player audio: botao 🔊 nao funcionava (mesmo callback do Inspecionar)
+- LLM: notas inconsistentes (Irritado+NPS 85) e vies "Sempre Positivo"
+- CI/CD: zero triggers configurados (deploy 100% manual)
+
+### Mudancas aplicadas
+1. GUARDRAILS: Regra #5 (Firestore, nao SQL), #9 (OMP=6), #12 (min-instances=1)
+2. HARNESS: Stack LLM corrigido, min-instances=1, endpoints adicionados
+3. ARQUITETURA: Worker consolidado, raw_eval corrigido, indices adicionados
+4. CallInspector: Transcrição/Positivos/Melhoria movidos para coluna ESQUERDA
+5. Player modal com 4 camadas de defesa (fetch + loading + catch + onError)
+6. LLM: polaridade numerica (-10 a +10) no prompt (substitui matriz fixa)
+7. Llm_provider: temperature 0.5 -> 0.3
+8. Worker: pós-processamento enforce_dynamic_consistency()
+9. CI/CD: trigger Cloud Build configurado (git push -> auto-build -> auto-deploy)
+
+### Estado DEPOIS
+- Docs alinhados com a realidade
+- Frontend com player modal e layout reorganizado
+- LLM com polaridade dinâmica (qualquer sentimento funciona)
+- Pipeline CI/CD automatico via Cloud Build triggers
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 

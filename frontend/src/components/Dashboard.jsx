@@ -19,6 +19,21 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
   const [selectedIds, setSelectedIds] = useState([])
   const [statusFilter, setStatusFilter] = useState("")
   const [fetchError, setFetchError] = useState(null)
+  const [modalAudio, setModalAudio] = useState(null)
+
+  const handlePlay = async (call) => {
+    const id = call.id || call.call_id || ''
+    if (!id) return
+    try {
+      const token = localStorage.getItem('auth_token')
+      const res = await axios.get(`${API_URL}/api/calls/${id}/audio`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setModalAudio({ url: res.data.audio_url, filename: call.filename })
+    } catch (e) {
+      alert('Áudio não disponível para esta chamada.')
+    }
+  }
 
   // NEW (08/07/2026 - B3): verifica se user pode ver dados completos (LGPD Art. 12).
   const userRole = localStorage.getItem('user_role')
@@ -361,10 +376,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                       {call.status?.startsWith('Erro') ? 'Detalhes' : 'Inspecionar'}
                     </button>
                     <button
-                      onClick={() => {
-                        const id = call.id || call.call_id || ''
-                        if (id && onPlayAudio) onPlayAudio(id)
-                      }}
+                      onClick={() => handlePlay(call)}
                       className="text-textMuted hover:text-primary p-1.5 rounded hover:bg-black/5 transition-colors ml-1"
                       title="Ouvir chamada"
                     >
@@ -402,6 +414,23 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
           </table>
         </div>
       </div>
+
+      {/* Modal de Áudio */}
+      {modalAudio && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+          onClick={() => setModalAudio(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-black/10"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-textMain truncate pr-4">{modalAudio.filename}</h3>
+              <button onClick={() => setModalAudio(null)}
+                className="text-textMuted hover:text-textMain text-xl leading-none p-1 rounded hover:bg-black/5">&times;</button>
+            </div>
+            <audio controls autoPlay className="w-full h-10 outline-none" src={modalAudio.url}
+              onError={() => { alert('Falha ao carregar o áudio'); setModalAudio(null) }} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

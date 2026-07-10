@@ -104,12 +104,19 @@ core/
 ```
 
 ### Worker Cloud Run (monitoria-whisper-worker)
-- CPU: 4 vCPU, RAM: 4 GiB
-- Modelo: Whisper base (74MB, int8, ~0.1x tempo real)
-- max-instances: 4, min-instances: 0 (scale-to-zero)
-- timeout: 3600s, concurrency: 2
-- `--no-cpu-throttling`, `--cpu-boost` ativos
-- Custo: ~$50/mês
+
+| Recurso | Valor |
+|---|---|
+| CPU | 4 vCPU |
+| RAM | 4 GiB |
+| Modelo Whisper | base (74MB, int8, ~0.1x tempo real) |
+| max-instances | 4 |
+| min-instances | 1 (sempre ativo — Regra #16) |
+| timeout | 3600s |
+| concurrency | 2 |
+| `--no-cpu-throttling` | ativo |
+| `--cpu-boost` | ativo |
+| Custo estimado | ~$50/mês |
 
 ## Persistencia - Firestore
 
@@ -126,7 +133,7 @@ fields:
   sentimentos_cliente (string | null) - JSON serializado
   sentimentos_operador (string | null) - JSON serializado
   erros_fatais (string | null) - JSON serializado
-  raw_evaluation (string | null) - JSON serializado (output do MiniMax M3)
+   raw_evaluation (string | null) - JSON serializado (output do DeepSeek / NVIDIA / MiniMax)
   user_id (string) - Firebase sub
   diretrizes_qualidade (string | null)
   nota_sentimento_cliente (number | null)
@@ -159,26 +166,12 @@ fields:
 | `"Concluido"` (com acento) | worker via OIDC callback | Forma canonica |
 | `"Erro: ..."` | worker via OIDC | Falha em qualquer etapa |
 
-## Worker Cloud Run
-
-| Recurso | Valor |
-|---|---|
-| CPU | 4 vCPU |
-| RAM | 4 GiB |
-| Modelo Whisper | base (74MB, int8, ~0.1x tempo real) |
-| max-instances | 4 |
-| min-instances | 0 (scale-to-zero) |
-| timeout | 3600s |
-| concurrency | 2 |
-| `--no-cpu-throttling` | ativo |
-| `--cpu-boost` | ativo (cold start ~15s) |
-| Custo estimado | ~$50/mês |
-
-## Indice Firestore (provisionado em 06/07/2026)
+## Indice Firestore (provisionado indices em 06/07/2026 e 10/07/2026)
 
 | Collection | Fields | Order | Usado por |
 |---|---|---|---|
 | `chamadas` | `user_id`, `uploaded_at` | ASC, DESC | `GET /api/calls` |
+| `chamadas` | `user_id`, `status`, `uploaded_at` | ASC, ASC, DESC | `GET /api/calls?status=...` (criado em 10/07/2026) |
 | `chamadas` | `status`, `uploaded_at` | ASC, DESC | `list_by_status` (admin) |
 | `chamadas` | `status`, `uploaded_at` | ASC, ASC | `list_stale` (recover/cleanup/stuck) |
 

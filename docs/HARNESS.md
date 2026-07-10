@@ -20,7 +20,7 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 |---|---|
 | Frontend | React 19, Vite, TailwindCSS, Lucide Icons, Axios |
 | Backend (API) | Python 3.11, FastAPI, Uvicorn |
-| Worker (processamento) | Python 3.11, `faster-whisper` (CPU, int8), `MiniMax M3` (LLM) |
+| Worker (processamento) | Python 3.11, `faster-whisper` (CPU, int8), **DeepSeek V4 Flash** (primário) → **NVIDIA NIM** → MiniMax M3 |
 | Database | **Firestore** (`coherence-ominichannel-fs`) - source of truth |
 | Queue assincrono | GCP Pub/Sub (`monitoria-whisper-jobs` topic) |
 | Storage audio | GCP Cloud Storage (`coherence-monitoria-audios-tmp` bucket) |
@@ -31,12 +31,12 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 
 ### Publicos (requer Bearer token)
 - `GET /api/auth/me` - Verifica sessao + role
-- `GET /api/calls` - Lista chamadas do user
+- `GET /api/calls` - Lista chamadas do user. Query params: `?status=Concluido`, `?ids=id1,id2`
 - `GET /api/calls/{id}` - Detalhe de uma chamada (com bypass super-admin)
 - `GET /api/calls/{id}/audio` - URL do audio (signed)
 - `GET /api/settings` / `POST /api/settings` - QA settings do user
 - `POST /api/upload` - Upload de 1 audio (cria chamada no Firestore + publica no Pub/Sub)
-- `POST /api/upload-batch` - **NEW (08/07/2026)**: Upload em batch, max 50 arquivos, max 20MB cada
+- `POST /api/upload-batch` - Upload em batch, max 50 arquivos, max 20MB cada
 
 ### Service-to-service (requer OIDC)
 - `POST /api/internal/calls/{id}/status` - Callback OIDC do worker
@@ -93,7 +93,7 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | CPU | 4 vCPU |
 | Memory | 4 GiB |
 | max-instances | 4 |
-| min-instances | 0 (scale-to-zero) |
+| min-instances | 1 (sempre ativo) |
 | concurrency | 2 |
 | `--no-cpu-throttling` | ativo |
 | `--cpu-boost` | ativo |
@@ -126,10 +126,15 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 
 | Build | Trigger | Resultado |
 |---|---|---|
-| `cloudbuild-test.yaml` | push em `test` | Build + push imagem + deploy `monitoria-test-env` |
-| `cloudbuild-worker.yaml` | manual | Build + push imagem + deploy `monitoria-whisper-worker` |
+| `cloudbuild-test.yaml` | `git push origin test` (via Cloud Build trigger) | Build + push imagem + deploy `monitoria-test-env` |
+| `cloudbuild-worker.yaml` | `git push origin test` (via Cloud Build trigger) | Build + push imagem + deploy `monitoria-whisper-worker` |
 
 **IMPORTANTE:** deployar test-env e worker simultaneamente para evitar inconsistencias.
+Ambos disparam em paralelo com o mesmo `git push`.
+
+### Script auxiliar
+- `scripts/deploy.ps1` - Deploy seletivo: detecta quais arquivos mudaram e deploya apenas necessario.
+  Uso: `.\scripts\deploy.ps1 -Target auto`
 
 ## Build do Frontend
 

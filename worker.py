@@ -197,6 +197,36 @@ def _get_cloud_run_identity_token(audience: str) -> str | None:
         return None
 
 
+def enforce_dynamic_consistency(evaluation):
+    """Pós-processamento: garante que notas (NPS, QA) sejam coerentes com a polaridade atribuida.
+    Substitui matriz fixa de palavras por correlação da polaridade numerica com os scores.
+    """
+    fases = evaluation.get("fases", {})
+    for fase in fases.values():
+        pol_cli = fase.get("polaridade_cliente", 0)
+        pol_op = fase.get("polaridade_operador", 0)
+
+        # Calcula NPS a partir da polaridade do CLIENTE
+        nps_calc = max(1, min(10, round((pol_cli + 10) / 2)))
+        # Calcula QA a partir da polaridade do OPERADOR
+        qa_calc = max(10, min(100, round((pol_op + 10) * 4.5 + 10)))
+
+        # Se divergir > 3, corrige
+        if abs(fase.get("nota_nps", 0) - nps_calc) > 3:
+            fase["nota_nps"] = nps_calc
+        if abs(fase.get("nota_qa", 0) - qa_calc) > 3:
+            fase["nota_qa"] = qa_calc
+
+    # Recalcula agregados como media das 3 fases
+    fases_list = list(fases.values())
+    if fases_list:
+        evaluation["nota_geral"] = round(sum(f["nota_qa"] for f in fases_list) / len(fases_list))
+        evaluation["nota_qualidade_operador"] = evaluation["nota_geral"]
+        evaluation["nota_sentimento_cliente"] = round(sum(f["nota_nps"] for f in fases_list) / len(fases_list))
+
+    return evaluation
+
+
 def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audio_duration_sec: float = None):
     """
     Processa uma chamada: baixa do GCS, transcreve, diariza, avalia.
@@ -305,6 +335,8 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         )
         diarized_transcript = result["diarized_transcript"]
         evaluation = result["evaluation"]
+        # Pós-processamento: força consistência entre polaridade e notas
+        evaluation = enforce_dynamic_consistency(evaluation)
         print(f"[Worker {WORKER_ID}] Batch LLM OK ({eval_.client.last_provider_used or 'IA'}): nota={evaluation.get('nota_geral')}", flush=True)
     except Exception as e:
         update_status(call_id, f"Erro: avaliacao LLM falhou: {e}")

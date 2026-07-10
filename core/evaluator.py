@@ -95,16 +95,28 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
         # de paragrafos. Output esperado: mesma nota_geral +/-5.
         system_prompt = f"""Auditor Sênior CX. Avalie o atendimento abaixo.
 
---- REGRAS DE CONSISTENCIA (OBRIGATORIO - DESCUMPRIR INVALIDA A AVALIACAO) ---
-A nota de cada fase DEVE refletir o sentimento do cliente naquela fase.
-NAO existe cliente "Irritado" com NPS 10. Isso e' impossivel.
+--- REGRAS DE CONSISTENCIA (OBRIGATORIO) ---
+Para cada fase, atribua polaridade numerica (-10 a +10):
+- CLIENTE: estado emocional (-10=irritado/raiva, 0=neutro, +10=satisfeito/grato)
+- OPERADOR: qualidade da postura (-10=pessimo/sarcastico, 0=profissional, +10=empatico/excelente)
 
-Exemplos CORRETOS (siga exatamente):
-- Se sentimento_cliente="Irritado"  → nota_qa entre 20-55, nota_nps entre 1-3
-- Se sentimento_cliente="Neutro"    → nota_qa entre 55-80, nota_nps entre 4-7
-- Se sentimento_cliente="Positivo"  → nota_qa entre 75-100, nota_nps entre 7-10
+A polaridade e o campo mais importante. NOTAS (QA/NPS) SAO DERIVADAS DA POLARIDADE.
 
-Exemplo de fase CORRETA: {{"sentimento_cliente":"Irritado","nota_nps":2,"nota_qa":42}}
+Cliente:
+- gritando, xingando, reclamando → polaridade_cliente = -8 a -10
+- frustrado, impaciente, preocupado → polaridade_cliente = -4 a -6
+- neutro, objetivo → polaridade_cliente = -1 a +1
+- satisfeito, agradecendo, aliviado → polaridade_cliente = +6 a +8
+
+Operador:
+- ironico, sarcastico, desinteressado → polaridade_operador = -6 a -8
+- profissional, correto → polaridade_operador = -1 a +4
+- paciente, empatico, alegre → polaridade_operador = +5 a +8
+
+NAO atribua polaridade positiva a cliente irritado.
+NAO atribua polaridade negativa a operador educado.
+
+Exemplo CORRETO: {{"sentimento_cliente":"Irritado","polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
 NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} ← INACEITAVEL
 
 --- CONTEXTO POP ---
@@ -128,11 +140,14 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 "motivo_contato": "Descricao do motivo da chamada",
 "classificacao_motivo": "Cobrança Indevida|Suporte Técnico|Assistência Técnica|Cancelamento|Informações|Reclamação|Vendas|Outros",
 "fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
 "resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
 "fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}}}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
 "recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
 "humor_expert": "Positivo|Neutro|Desinteressado",
@@ -214,11 +229,29 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
---- REGRAS DE CONSISTENCIA SENTIMENTO-NOTA ---
-As notas DEVEM ser consistentes com os sentimentos de cada fase:
-- Se sentimento_cliente for "Irritado": nota_qa <= 60, nota_nps <= 3
-- Se sentimento_cliente for "Neutro": nota_qa entre 60-80, nota_nps entre 4-7
-- Se sentimento_cliente for "Positivo": nota_qa >= 80, nota_nps >= 7
+--- REGRAS DE CONSISTENCIA (OBRIGATORIO) ---
+Para cada fase, atribua polaridade numerica (-10 a +10):
+- CLIENTE: estado emocional (-10=irritado/raiva, 0=neutro, +10=satisfeito/grato)
+- OPERADOR: qualidade da postura (-10=pessimo/sarcastico, 0=profissional, +10=empatico/excelente)
+
+A polaridade e' o campo mais importante. NOTAS (QA/NPS) SAO DERIVADAS DA POLARIDADE.
+
+Cliente:
+- gritando, xingando, reclamando -> polaridade_cliente = -8 a -10
+- frustrado, impaciente, preocupado -> polaridade_cliente = -4 a -6
+- neutro, objetivo -> polaridade_cliente = -1 a +1
+- satisfeito, agradecendo, aliviado -> polaridade_cliente = +6 a +8
+
+Operador:
+- ironico, sarcastico, desinteressado -> polaridade_operador = -6 a -8
+- profissional, correto -> polaridade_operador = -1 a +4
+- paciente, empatico, alegre -> polaridade_operador = +5 a +8
+
+NAO atribua polaridade positiva a cliente irritado.
+NAO atribua polaridade negativa a operador educado.
+
+Exemplo CORRETO: {{"sentimento_cliente":"Irritado","polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
+NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} <- INACEITAVEL
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
@@ -226,11 +259,14 @@ As notas DEVEM ser consistentes com os sentimentos de cada fase:
 "motivo_contato": "Descricao do motivo da chamada",
 "classificacao_motivo": "Cobrança Indevida|Suporte Técnico|Assistência Técnica|Cancelamento|Informações|Reclamação|Vendas|Outros",
 "fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
 "resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
 "fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": "Positivo|Neutro|Irritado", "sentimento_operador": "Positivo|Neutro|Desinteressado"}}}},
+  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
+  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
 "recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
 "humor_expert": "Positivo|Neutro|Desinteressado",

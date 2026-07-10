@@ -64,7 +64,7 @@ Variaveis aceitas: `Concluido`, `concluido`, `concluido`, `CONCLUIDO`, `CONCLUID
 
 ## Regra #5 - Worker Idempotency Check
 
-1. Worker DEVE consultar `SELECT status FROM chamadas WHERE id = ?` ANTES de processar qualquer mensagem Pub/Sub.
+1. Worker DEVE consultar `get_call(call_id)` (Firestore) ANTES de processar qualquer mensagem Pub/Sub.
 2. Comportamento:
    - Linha ausente -> ack + log `[Worker] ORPHAN: ...` (poison-ack, NAO nack)
    - Status `Concluido` ou `Erro:...` -> ack + log idempotente
@@ -102,7 +102,7 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 ## Regra #9 - Regras de Ouro (o que SEMPRE fazer)
 
 1. **Feedback na UI obrigatorio**: qualquer operacao async DEVE fornecer feedback visual (status, progress bars).
-2. **Em Cloud Run**: `OMP_NUM_THREADS=2` e `PYTHONUNBUFFERED=1` sao mandatorios.
+2. **Em Cloud Run**: `OMP_NUM_THREADS=2` (test-env) e `PYTHONUNBUFFERED=1` sao mandatorios. Worker usa `OMP_NUM_THREADS=6` para acelerar Whisper.
 3. **Injecao de segredos no deploy**: ao trocar engine de IA, NAO esquecer de injetar a chave de API via `gcloud run services update`.
 4. **Sanitizacao de arquivos**: todo upload DEVE ter pasta de destino criada antes.
 
@@ -121,15 +121,15 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 3. Justificativa: worker reduzido de 8 GiB para 4 GiB (custo). 20MB cobre audio de ~10min em WAV 16kHz mono (cenario tipico de monitoria). Audio maior deve ser dividido em chunks ou convertido para MP3.
 4. **Risco de OOM**: arquivo > 20MB pode crashar o worker por falta de memoria. Validacao dupla (frontend + backend) e obrigatoria.
 
-## Regra #12 - Cold Start Aceitavel (worker scale-to-zero)
+## Regra #12 — Cold Start (worker min-instances=1)
 
-**Aplicavel desde 08/07/2026. Atualizado 10/07/2026 (modelo base).**
+**Aplicavel desde 08/07/2026. Atualizado 10/07/2026 (min-instances=1).**
 
-1. **min-instances=0** no worker significa que **cold start de ~15s** ocorre na primeira chamada apos periodo idle.
-2. Cold start e' o tempo de carregar modelo Whisper base (~74MB) na memoria (era 1.5GB com large-v3).
-3. **Mitigacao disponivel**: `--cpu-boost` ja ativo (Cloud Run aloca ate 4x mais CPU nos primeiros 10s). Custo $0.
-4. **Mitigacao opcional**: Cloud Scheduler job `monitoria-warmup` para acordar worker seg-sex 7h BRT (custo ~$0.10/mes).
-5. **Plano de contingencia**: se cold start for problema, ativar `min-instances=1` (~+$50-75/mes com CPU=4, RAM=4Gi).
+1. **min-instances=1** no worker garante que nao haja cold start (1 container sempre ativo).
+2. Custo estimado: ~$50/mes (4 vCPU, 4 GiB).
+3. Cold start de ~15s ocorre APENAS em caso de crash/reinicio forcado do container.
+4. **Ver Regra #16** para detalhes arquiteturais sobre PULL vs PUSH.
+5. Solucao definitiva: migracao para PUSH subscription (elimina necessidade de min-instances).
 
 ## Regra #13 - Integracao com Portal Coherence (08/07/2026)
 
