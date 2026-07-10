@@ -1,6 +1,6 @@
 # Arquitetura do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 07/07/2026 (refactor total)
+> Ultima atualizacao: 10/07/2026 (base model + BatchDashboard + subscriber fix)
 
 ## Visao Geral
 
@@ -73,39 +73,43 @@ sequenceDiagram
 
 ### Frontend (React 19 + Vite)
 ```
-frontend/src/
-  App.jsx                 # Rotas + SSO + auth
-  main.jsx                # entry point
-  index.css               # estilos globais
-  components/
-    Dashboard.jsx         # lista de chamadas + upload
-    CallInspector.jsx     # detalhe com 4 abas:
-                           #   1. Relatorio (3 fases, QA, NPS)
-                           #   2. Transcricao (diarizada)
-                           #   3. Sentimentos (operador/cliente)
-                           #   4. Audio (player)
-    SettingsPanel.jsx     # QA settings do user
-    QueueManager.jsx      # admin: gerenciar fila Pub/Sub
+  frontend/src/
+    App.jsx                 # Rotas + SSO + auth
+    main.jsx                # entry point
+    index.css               # estilos globais
+    components/
+      Dashboard.jsx         # lista de chamadas + upload + filtros + checkbox
+      BatchDashboard.jsx    # visao agregada de grupo selecionado
+      CallInspector.jsx     # detalhe com 4 abas:
+                             #   1. Relatorio (3 fases, QA, NPS, sentimento por fase)
+                             #   2. Transcricao (diarizada)
+                             #   3. Sentimentos (operador/cliente)
+                             #   4. Audio (player)
+      SettingsPanel.jsx     # QA settings do user
+      QueueManager.jsx      # admin: gerenciar fila Pub/Sub
 ```
 
 ### Backend test-env (FastAPI + Firestore)
 ```
 api.py                     # rotas principais
 core/
-  transcriber.py           # wrapper faster-whisper
-  evaluator.py             # wrapper MiniMax M3 (diarize + evaluate)
-  llm_provider.py          # cliente LLM centralizado
+  transcriber.py           # wrapper faster-whisper (modelo base, int8)
+  evaluator.py             # wrapper DeepSeek/NVIDIA/MiniMax (diarize + evaluate)
+  llm_provider.py          # cliente LLM multi-provider (DeepSeek -> NVIDIA -> MiniMax)
+  masker.py                # PII masking (LGPD)
   db.py                    # wrapper Firestore (ChamadasDB + UserSettingsDB)
   portal_auth.py           # SSO via Portal
   portal_audit.py          # audit logs
   pubsub_admin.py          # helpers admin Pub/Sub
 ```
 
-### Backend worker (Pub/Sub consumer)
-```
-worker.py                  # loop principal, callback, watchdog
-core/ (mesmo do test-env)
-```
+### Worker Cloud Run (monitoria-whisper-worker)
+- CPU: 4 vCPU, RAM: 4 GiB
+- Modelo: Whisper base (74MB, int8, ~0.1x tempo real)
+- max-instances: 4, min-instances: 0 (scale-to-zero)
+- timeout: 3600s, concurrency: 2
+- `--no-cpu-throttling`, `--cpu-boost` ativos
+- Custo: ~$50/mês
 
 ## Persistencia - Firestore
 
@@ -149,12 +153,26 @@ fields:
 | Status | Quem seta | Significado |
 |---|---|---|
 | `"Na Fila de Processamento..."` | api.py | INSERT inicial apos upload |
-| `"Baixando audio do storage..."` | worker | Worker baixando do GCS |
-| `"Transcrevendo Audio (Whisper)..."` | worker | Em transcricao (com progress_pct 0-100%) |
-| `"Separando falas (Diarizacao MiniMax)..."` | worker | Diarizacao via LLM |
-| `"Analisando Qualidade e Sentimento (MiniMax M3)..."` | worker | Avaliacao final via LLM |
-| `"Concluido"` (com acento) | worker via callback | Forma canonica |
-| `"Erro: ..."` | worker | Falha em qualquer etapa |
+| `"Baixando audio do storage..."` | worker via OIDC | Worker baixando do GCS |
+| `"Transcrevendo Audio (Whisper)..."` | worker via OIDC | Em transcricao (com progress_pct 0-100%) |
+| `"Processando IA (DeepSeek)..."` | worker via OIDC | Diarizacao + avaliacao via DeepSeek |
+| `"Concluido"` (com acento) | worker via OIDC callback | Forma canonica |
+| `"Erro: ..."` | worker via OIDC | Falha em qualquer etapa |
+
+## Worker Cloud Run
+
+| Recurso | Valor |
+|---|---|
+| CPU | 4 vCPU |
+| RAM | 4 GiB |
+| Modelo Whisper | base (74MB, int8, ~0.1x tempo real) |
+| max-instances | 4 |
+| min-instances | 0 (scale-to-zero) |
+| timeout | 3600s |
+| concurrency | 2 |
+| `--no-cpu-throttling` | ativo |
+| `--cpu-boost` | ativo (cold start ~15s) |
+| Custo estimado | ~$50/mês |
 
 ## Indice Firestore (provisionado em 06/07/2026)
 
@@ -181,18 +199,31 @@ fields:
 4. Disk I/O error (FUSE cache invalidation)
 
 **Fix:** Firestore gerenciado (zero I/O race conditions, queries indexadas).
-Ver `docs/DIARIO_BORDO.md` 06/07/2026 23:30 BRT e `docs/GUARDRAILS.md` REGRA #11.
+
+### Plano Ultra-Economico (08/07/2026): large-v3 + Firestore direto → Revertido (10/07/2026)
+**Causa:** Tentativa de reduzir custos substituindo OIDC callback por escrita direta no Firestore.
+**Problema:** Timeout de processamento (840s) estourava com large-v3 (2.5x tempo real),
+deixando o subscriber gRPC em estado inconsistente.
+**Revertido em 10/07/2026:** Worker voltou a usar OIDC callback (como funcionava antes).
+Modelo large-v3 substituido por base (74MB, ~0.1x tempo real).
+
+### Subscriber auto-recovery (10/07/2026)
+**Problema:** Stream gRPC do Pub/Sub encerra apos ~15 min de idle. Worker entrava em hot loop.
+**Fix:** Main loop recria subscriber (com novo SubscriberClient) sempre que o future completa
+(com ou sem excecao). Debounce de 10s.
 
 ## Capability check
 
 - Audio formats: MP3, WAV, MPEG
-- Transcricao: faster-whisper base (PT-BR)
-- Avaliacao: MiniMax M3
+- Transcricao: faster-whisper base (PT-BR, int8, ~0.1x tempo real)
+- Avaliacao: DeepSeek V4 Flash (primario) → NVIDIA NIM (fallback) → MiniMax M3 (ultimo recurso)
 - Worker: monitoria-whisper-worker (Pub/Sub consumer)
-- Persistencia: Firestore
+- Persistencia: Firestore (escrita exclusiva pelo test-env via OIDC callback)
 - Callback OIDC: worker → test-env (audience alinhado)
 - RBAC: super-admin bypass em `GET /api/calls/{id}`
 - Status normalization: `STATUS_NORMALIZATION` no callback OIDC
+- BatchDashboard: selecao multipla + visao agregada por grupo
+- Sentimento por fase: LLM prompt inclui sentimento_cliente e sentimento_operador por fase
 
 ## Ver tambem
 

@@ -46,6 +46,8 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 ### Admin (requer super-admin)
 - `GET /api/queue/*` - Gerenciar fila Pub/Sub
 - `GET /api/admin/stuck-calls` - Listar chamadas stuck
+- `POST /api/admin/cleanup-orphans` - Marcar orfaos como erro
+- `GET /api/calls?ids=id1,id2` - Buscar multiplas chamadas por ID
 
 ## Fluxo E2E (sequencia completa)
 

@@ -77,6 +77,25 @@ Sessão intensiva de debugging e otimização. Pipeline estava quebrado (chamada
 - Visual: ████████▓▓▓░░░ com indicador na posição correspondente
 - Aplicado em Humor do Cliente e Humor do Atendente
 
+## 10/07/2026 01:35 BRT — Fix subscriber restart loop (regressao 6b33fc7)
+
+### Contexto
+Commit 6b33fc7 removeu `_restart_streaming_pull()` do caminho de sucesso do main loop
+para evitar restart loop. Mas isso criou uma regressao: quando o Pub/Sub encerra
+o stream gRPC apos ~15 min de idle, `future.result()` retorna SEM excecao, e o main
+loop re-bloqueava no mesmo future ja completado → hot loop de 1 iteracao/segundo.
+
+### Fix (commit 714d20d)
+- Restaurado `_restart_streaming_pull()` no caminho de sucesso (quando future termina)
+- Adicionado `_subscriber_client.close()` antes de criar novo SubscriberClient
+  (fecha gRPC channel do cliente velho para evitar interferencia)
+- Debounce reduzido de 120s para 10s (restart mais rapido)
+
+### Estado atual (worker 00075)
+- Worker rodando sem hot loop, aguardando mensagens
+- Watchdog ativo a cada 30s
+- Pipeline funcional: Whisper base ~30s, DeepSeek ~10s, total <1min
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 
