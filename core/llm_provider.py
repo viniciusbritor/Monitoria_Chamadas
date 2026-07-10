@@ -71,9 +71,9 @@ class DeepSeekClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.1  # NEW (08/07/2026): fixo (era 0.3 json / 0.1 texto)
+            temperature = 0.3  # (10/07/2026): aumentado de 0.1 para 0.3 (mais variacao nas notas)
         if max_tokens is None:
-            max_tokens = 1000  # NEW (08/07/2026): fixo (era 1500 json / 2000 texto)
+            max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000 (prompt expandido)
 
         sp = system_prompt
         if json_mode and "json" not in sp.lower():
@@ -128,8 +128,8 @@ class DeepSeekClient:
             )
             payload = {
                 "model": self.model,
-                "temperature": 0.1,
-                "max_tokens": 1000,
+                "temperature": 0.3,
+                "max_tokens": 3000,
                 "messages": [
                     {"role": "system", "content": combined_system},
                     {"role": "user", "content": combined_user},
@@ -214,9 +214,9 @@ class NvidiaNimClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.1  # NEW (08/07/2026): fixo
+            temperature = 0.3  # (10/07/2026): aumentado de 0.1 para 0.3
         if max_tokens is None:
-            max_tokens = 1000  # NEW (08/07/2026): fixo
+            max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000
 
         payload = {
             "model": self.model,
@@ -283,9 +283,9 @@ class MiniMaxClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.1  # NEW (08/07/2026): fixo
+            temperature = 0.3  # (10/07/2026): aumentado de 0.1 para 0.3
         if max_tokens is None:
-            max_tokens = 1000  # NEW (08/07/2026): fixo (era 1500 json / 400 texto)
+            max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000 (era 1500 json / 400 texto)
 
         payload = {
             "model": self.model,

@@ -170,7 +170,14 @@ class ChamadasDB:
             q = q.where("status", ">=", status_filter).where("status", "<", status_filter + "\uf8ff")
         if user_id_filter:
             q = q.where("user_id", "==", user_id_filter)
-        return [doc.to_dict() for doc in q.stream()]
+        try:
+            return [doc.to_dict() for doc in q.stream()]
+        except Exception as e:
+            err_str = str(e)
+            if "requires an index" in err_str or "FAILED_PRECONDITION" in err_str:
+                logger.warning(f"Firestore query requer indice (ainda provisionando): {err_str[:100]}")
+                return []
+            raise
 
     def list_by_ids(self, ids: List[str]) -> List[Dict[str, Any]]:
         """Busca multiplas chamadas por IDs. Usa batch get (mais eficiente que N queries)."""

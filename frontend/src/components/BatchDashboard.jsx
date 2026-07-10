@@ -9,7 +9,7 @@ function fmtDateTimeBR(iso) {
   try { return new Date(iso).toLocaleString('pt-BR') } catch { return iso }
 }
 
-export default function BatchDashboard({ callIds, onBack }) {
+export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
   const [calls, setCalls] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -161,7 +161,7 @@ export default function BatchDashboard({ callIds, onBack }) {
                     </td>
                     <td className="p-4 font-bold">{call.status === 'Concluído' ? (call.nota_qualidade_operador || call.nota || '-') : '-'}</td>
                     <td className="p-4 text-right">
-                      <button onClick={() => onBack && onBack()}
+                      <button onClick={() => onInspectCall && onInspectCall(cid)}
                         className="text-primary text-sm font-medium hover:text-primary/80">
                         Inspecionar
                       </button>

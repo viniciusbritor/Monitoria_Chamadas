@@ -110,6 +110,12 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 
+--- REGRAS DE CONSISTENCIA SENTIMENTO-NOTA ---
+As notas DEVEM ser consistentes com os sentimentos de cada fase:
+- Se sentimento_cliente for "Irritado": nota_qa <= 60, nota_nps <= 3
+- Se sentimento_cliente for "Neutro": nota_qa entre 60-80, nota_nps entre 4-7
+- Se sentimento_cliente for "Positivo": nota_qa >= 80, nota_nps >= 7
+
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
 "nome_atendente": "Nome do atendente" | null,
@@ -201,6 +207,12 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
 --- AVALIACAO EM 3 FASES ---
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
+
+--- REGRAS DE CONSISTENCIA SENTIMENTO-NOTA ---
+As notas DEVEM ser consistentes com os sentimentos de cada fase:
+- Se sentimento_cliente for "Irritado": nota_qa <= 60, nota_nps <= 3
+- Se sentimento_cliente for "Neutro": nota_qa entre 60-80, nota_nps entre 4-7
+- Se sentimento_cliente for "Positivo": nota_qa >= 80, nota_nps >= 7
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,

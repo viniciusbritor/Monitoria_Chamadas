@@ -301,12 +301,6 @@ export default function CallInspector({ callId, onBack }) {
               items={analysis?.sentimentos_cliente || []}
               emptyText="Nenhum sentimento detectado"
             />
-            {analysis?.humor_cliente && (
-              <div className="mt-2 pt-2 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificação: </span>
-                <SentimentBadge value={analysis.humor_cliente} />
-              </div>
-            )}
           </div>
 
           {/* Humor do Atendente */}
@@ -325,12 +319,6 @@ export default function CallInspector({ callId, onBack }) {
               items={analysis?.sentimentos_operador || []}
               emptyText="Nenhum sentimento detectado"
             />
-            {analysis?.humor_expert && (
-              <div className="mt-2 pt-2 border-t border-black/5">
-                <span className="text-xs text-textMuted">Classificação: </span>
-                <SentimentBadge value={analysis.humor_expert} />
-              </div>
-            )}
           </div>
 
           {/* Checklist de Conformidade (POP) */}
