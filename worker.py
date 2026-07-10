@@ -496,8 +496,8 @@ def callback(message):
     try:
         data = json.loads(message.data.decode("utf-8"))
     except Exception as e:
-        print(f"[Worker {WORKER_ID}] ERRO parse JSON: {e}", flush=True)
-        message.nack()
+        print(f"[Worker {WORKER_ID}] ERRO parse JSON: {e}. Ack (poison).", flush=True)
+        message.ack()  # poison: mensagem invalida nunca sera viavel, ack imediato
         return
 
     # Acumula no buffer para batch

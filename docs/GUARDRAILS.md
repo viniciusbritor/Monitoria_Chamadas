@@ -1,6 +1,6 @@
 # Guardrails e Regras Inegociáveis
 
-> Ultima atualizacao: 07/07/2026 (refactor total)
+> Ultima atualizacao: 10/07/2026 (base model + BRT timezone)
 > Este arquivo dita as regras DURAS que todos os agentes IA devem obedecer neste projeto.
 
 ## Regra #0 (mais alta prioridade) - Acesso EXCLUSIVO via Portal Coherence
@@ -69,8 +69,8 @@ Variaveis aceitas: `Concluido`, `concluido`, `concluido`, `CONCLUIDO`, `CONCLUID
    - Linha ausente -> ack + log `[Worker] ORPHAN: ...` (poison-ack, NAO nack)
    - Status `Concluido` ou `Erro:...` -> ack + log idempotente
    - Status intermediario -> continuar (retomada)
-3. **NUNCA** nack uma mensagem sem antes validar que a falha e' transient. Nack causa redelivery infinito em poison messages.
-4. **Timeout em process_call**: 14 minutos (`PROCESSING_TIMEOUT_SEC=840`). Se exceder, marca como erro e faz nack para redelivery em outra instancia.
+ 3. **NUNCA** nack uma mensagem sem antes validar que a falha e' transient. Nack causa redelivery infinito em poison messages.
+ 4. **Timeout em process_call**: 30 minutos (`PROCESSING_TIMEOUT_SEC=1800`). Se exceder, marca como erro e faz nack para redelivery em outra instancia.
 
 ## Regra #6 - Sem Animacoes no Frontend (evita tela em branco)
 
@@ -123,12 +123,13 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 
 ## Regra #12 - Cold Start Aceitavel (worker scale-to-zero)
 
-**Aplicavel desde 08/07/2026**.
+**Aplicavel desde 08/07/2026. Atualizado 10/07/2026 (modelo base).**
 
-1. **min-instances=0** no worker significa que **cold start de 60s** ocorre na primeira chamada apos periodo idle (geralmente 1x por dia).
-2. Cold start e' o tempo de carregar modelo Whisper base (~1.5GB) na memoria.
-3. **Mitigacao automatica**: Cloud Scheduler job `monitoria-warmup` acorda worker seg-sex 7h BRT (custo ~$0.10/mes). Fora do horario comercial, cold start e' aceito.
-4. **Plano de contingencia**: se cold start for problema em outros horarios, considerar upgrade para `min-instances=1` (~+$228/mes).
+1. **min-instances=0** no worker significa que **cold start de ~15s** ocorre na primeira chamada apos periodo idle.
+2. Cold start e' o tempo de carregar modelo Whisper base (~74MB) na memoria (era 1.5GB com large-v3).
+3. **Mitigacao disponivel**: `--cpu-boost` ja ativo (Cloud Run aloca ate 4x mais CPU nos primeiros 10s). Custo $0.
+4. **Mitigacao opcional**: Cloud Scheduler job `monitoria-warmup` para acordar worker seg-sex 7h BRT (custo ~$0.10/mes).
+5. **Plano de contingencia**: se cold start for problema, ativar `min-instances=1` (~+$50-75/mes com CPU=4, RAM=4Gi).
 
 ## Regra #13 - Integracao com Portal Coherence (08/07/2026)
 
@@ -174,4 +175,14 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 6. **Skill `lgpd_compliance` obrigatoria** ao trabalhar com dados pessoais. Ver `~/.config/opencode/skills/lgpd_compliance/`.
 
 7. **CI check `check_lgpd_compliance.py`** DEVE rodar em todo `cloudbuild-*.yaml` (Fase 2 pendente).
+
+## Regra #15 — Timezone Obrigatorio BRT (America/Sao_Paulo)
+
+**Aplicavel a partir de 10/07/2026.**
+
+1. **Todas as maquinas Cloud Run** (worker, test-env, Portal) operam em UTC internamente (padrao GCP), mas **logs, timestamps no Firestore e UI** devem refletir horario de Brasilia (GMT-3, America/Sao_Paulo).
+2. **Cloud Scheduler**: jobs de mantenção (warmup, cleanup) devem usar timezone `America/Sao_Paulo`.
+3. **Proibido** usar UTC ou qualquer outro fuso para metadados de upload (`uploaded_at`, `updated_at`). Frontend exibe em BRT.
+4. **DIARIO_BORDO.md**: todas as entradas devem ser registradas com timestamp BRT + UTC (ex: `10/07/2026 00:16 BRT`).
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

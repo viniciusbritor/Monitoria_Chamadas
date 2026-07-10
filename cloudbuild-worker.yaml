@@ -39,8 +39,8 @@ steps:
       - 'us-central1'
       - '--execution-environment=gen2'
       - '--no-allow-unauthenticated'
-      - '--cpu=8'
-      - '--memory=8Gi'
+      - '--cpu=4'
+      - '--memory=4Gi'
       - '--port=8080'
       - '--timeout=3600'
       # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
