@@ -5,7 +5,7 @@ steps:
     dir: '.'
     args:
       - '-c'
-      - 'curl -sL https://raw.githubusercontent.com/viniciusbritor/workspace_antigravity/main/OmniChannel/scripts/check_lgpd_compliance.py | python - --repo . || (echo "WARN: LGPD check falhou (verifique acesso ao repo OmniChannel)" && exit 0)'
+      - 'python -c "import urllib.request; exec(urllib.request.urlopen(\"https://raw.githubusercontent.com/viniciusbritor/workspace_antigravity/main/OmniChannel/scripts/check_lgpd_compliance.py\").read())" -- --repo . || (echo "WARN: LGPD check falhou (verifique acesso ao repo OmniChannel)" && exit 0)'
 
   # Etapa 1: Instala dependências do Frontend
   - name: 'node:20'

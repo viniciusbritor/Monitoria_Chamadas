@@ -37,11 +37,7 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
       setFetchError(null)
     } catch (err) {
       console.error(err)
-      if (err.response?.status === 400) {
-        setFetchError('Índice do Firestore ainda sendo criado. Aguarde 2-5 min e tente novamente.')
-      } else {
-        setFetchError(`Erro: ${err.response?.data?.detail || err.message}`)
-      }
+      setFetchError(`Erro ao carregar: ${err.response?.data?.detail || err.message}`)
     }
   }
 

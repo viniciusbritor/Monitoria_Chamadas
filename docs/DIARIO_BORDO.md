@@ -131,6 +131,28 @@ Dashboard.jsx. Agora o fetch dispara imediatamente ao mudar o filtro.
 - Docs atualizadas: ARQUITETURA, DIARIO_BORDO, HARNESS, GUARDRAILS
 - GitHub: 13 commits no branch test
 
+## 10/07/2026 03:30 BRT — Fix filtros + notas consistentes + temperature 0.5 + BatchCards
+
+### P1 — Filtros (db.py e frontend)
+- Removido try/except genérico do `list_all()` (db.py:173). Índice Firestore já READY.
+- Frontend: `setCalls([])` removido do `catch(err)`. Dados atuais permanecem na tela.
+
+### P2 — Notas consistentes (evaluator.py + llm_provider.py)
+- Regras de consistência sentimento-nota movidas para o TOPO do system prompt.
+- Tom imperativo: "OBRIGATORIO - DESCUMPRIR INVALIDA A AVALIACAO".
+- Exemplo concreto de fase CORRETA vs INACEITAVEL.
+- `temperature:` 0.3 → 0.5 (DeepSeek, batch_chat, NVIDIA, MiniMax).
+- `max_tokens=3000` mantido.
+- DeepSeek cache: considerado e rejeitado — inviabiliza testes com chamadas repetidas.
+
+### P4 — BatchDashboard redesign
+- Tabela substituída por cards compactos por chamada.
+- Cada card: nome, status, QA, NPS, indicador das 3 fases (🟢🟡🔴),
+  sentimentos, atendente, motivo. Stats no topo mantidos.
+
+### P5 — LGPD curl fix
+- cloudbuild-test.yaml Step 0: curl substituído por python urllib.request.
+
 ### Contexto
 Owner solicitou otimização para reduzir custo mensal de ~$411 (Plano A completo) para ≤$150, mantendo cobertura para 600 chamadas/dia均匀. Após análise de cenários, aprovado **Plano Ultra-Econômico** com 6 itens de otimização + batch upload.
 
