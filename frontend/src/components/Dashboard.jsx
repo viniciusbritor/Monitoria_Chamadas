@@ -340,7 +340,8 @@ export default function Dashboard({ onInspectCall, onViewBatch }) {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )
+            })}
               {calls.length === 0 && (
                 <tr>
                   <td colSpan="6" className="p-8 text-center text-textMuted">Nenhuma chamada processada ainda.</td>
