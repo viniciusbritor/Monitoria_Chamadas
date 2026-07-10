@@ -35,7 +35,7 @@ steps:
       - '--cpu=8'
       - '--memory=8Gi'
       - '--port=8080'
-      - '--timeout=900'
+      - '--timeout=3600'
       # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
       # sem isso, default Cloud Run so libera ~20% CPU fora de requests,
       # fazendo transcricao ficar 5-10x mais lenta. Producao ja tem.
@@ -66,7 +66,7 @@ steps:
       - '--update-env-vars=PUBSUB_SUBSCRIPTION=monitoria-whisper-jobs-worker'
       - '--update-env-vars=AUDIO_BUCKET=coherence-monitoria-audios-tmp'
       - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app'
-      - '--update-env-vars=OMP_NUM_THREADS=2'
+      - '--update-env-vars=OMP_NUM_THREADS=6'
       - '--update-env-vars=PYTHONUNBUFFERED=1'
       - '--update-env-vars=WHISPER_DOWNLOAD_ROOT=/app/whisper_models'
       - '--quiet'

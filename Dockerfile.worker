@@ -16,12 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia o código fonte
 COPY . .
 
-# PRE-BAIXA modelo Whisper large-v3 (~1.5GB) durante o build
-# Assim o runtime não precisa baixar. Modelo fica em /app/whisper_models
-# NEW (09/07/2026 - Batch/Standalone): trocado de 'base' (74MB) para 'large-v3' (~1.5GB).
-# large-v3 e' ~2x mais rapido em CPU que 'base' e melhor qualidade.
+# PRE-BAIXA modelo Whisper base (~74MB) durante o build
+# Modelo base: ~0.1x tempo real, ideal para pipeline <1min em audios tipicos
+# (10/07/2026): revertido de large-v3 para base. large-v3 era 2.5x real-time,
+# inviabilizando pipeline rapido. base mantem qualidade suficiente para QA.
 ENV WHISPER_DOWNLOAD_ROOT=/app/whisper_models
-RUN python -c "from faster_whisper import WhisperModel; m = WhisperModel('large-v3', device='cpu', compute_type='int8', download_root='/app/whisper_models'); print('Modelo Whisper large-v3 baixado com sucesso')"
+RUN python -c "from faster_whisper import WhisperModel; m = WhisperModel('base', device='cpu', compute_type='int8', download_root='/app/whisper_models'); print('Modelo Whisper base baixado com sucesso')"
 
 # Expõe a porta (worker nao usa, mas Cloud Run exige)
 EXPOSE 8080

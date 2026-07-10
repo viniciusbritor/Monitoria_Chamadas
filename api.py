@@ -666,7 +666,10 @@ async def upload_audio(
         message_id = future.result(timeout=10)
         print(f"[Upload] Job publicado no Pub/Sub: {message_id}", flush=True)
     except Exception as e:
-        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}. Marcando para recover.", flush=True)
+        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}. Marcando chamada como erro.", flush=True)
+        get_db().update(call_id, {
+            "status": "Erro: falha ao publicar no Pub/Sub. Reenvie o audio.",
+        })
 
     # 6. Cleanup arquivo local
     try:

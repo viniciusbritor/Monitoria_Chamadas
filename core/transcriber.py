@@ -22,14 +22,14 @@ class Transcriber:
           Loss de qualidade <1% WER segundo docs faster-whisper.
         """
         if model_size is None:
-            # NEW (09/07/2026 - Batch/Standalone): default alterado de 'base' para 'large-v3'.
-            # large-v3 e' ~2x mais rapido em CPU que 'base' e melhor qualidade.
-            model_size = get_secret("WHISPER_MODEL", "large-v3")
+            # (10/07/2026): revertido de 'large-v3' para 'base'.
+            # base: ~0.1x tempo real, 74MB. Suficiente para QA de call center.
+            model_size = get_secret("WHISPER_MODEL", "base")
 
         # Otimização: paralelismo CPU via OMP_NUM_THREADS e cpu_threads
         # faster-whisper usa CTranslate2 que paraleliza em CPU.
-        # CRITICO: manter OMP_NUM_THREADS=2 mesmo com int8 (evita hang historico).
-        cpu_threads = int(os.getenv("OMP_NUM_THREADS", "2"))
+        # (10/07/2026): threads aumentado de 2 para 6 (8 vCPU disponiveis).
+        cpu_threads = int(os.getenv("OMP_NUM_THREADS", "6"))
 
         print(f"[Transcriber] Carregando modelo Whisper ({model_size}) no {device} (compute_type={compute_type}, threads={cpu_threads})...", flush=True)
         start_time = time.time()
@@ -38,7 +38,7 @@ class Transcriber:
             device=device,
             compute_type=compute_type,
             cpu_threads=cpu_threads,
-            num_workers=2,  # Otimização A: paralelismo de decode em CPU
+            num_workers=4,  # Otimização A: paralelismo de decode em CPU (10/07/2026: 2→4)
             download_root=os.getenv("WHISPER_DOWNLOAD_ROOT", None),  # Cache local (pre-build)
         )
         print(f"[Transcriber] Modelo carregado em {time.time() - start_time:.2f}s", flush=True)
@@ -166,7 +166,7 @@ class Transcriber:
 
         segments, info = self.model.transcribe(
             processed_path,
-            beam_size=5,
+            beam_size=1,  # Greedy decoding (~30% mais rapido, perda minima)
             language="pt",
             vad_filter=True,  # Filtro de silencio (otimizacao bonus)
             vad_parameters=dict(min_silence_duration_ms=500),

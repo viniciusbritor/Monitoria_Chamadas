@@ -105,14 +105,12 @@ def get_evaluator():
 
 
 def update_status(call_id: str, status_text: str, **extra):
-    """Atualiza status da chamada. Escrita DIRETA no Firestore.
+    """Atualiza status da chamada via OIDC callback para test-env.
 
-    Historico:
-    - Pre-06/07/2026: escrevia em SQLite (GCS FUSE mount) E chamava callback OIDC.
-    - 06/07/2026 (Plano A++): SQLite removido. Apenas callback OIDC permanece.
-    - 08/07/2026 (Plano Ultra-Economico): Worker grava DIRETO no Firestore,
-      eliminando 7 callbacks OIDC por chamada (-3-5s latencia). Callback OIDC
-      fica disponivel como fallback via env var LEGACY_CALLBACK=true.
+    (10/07/2026): Revertido de Firestore direto para OIDC callback.
+    O Firestore direto (Plano Ultra-Economico, 08/07/2026) causava timeouts
+    e dead locks no watchdog quando o processamento excedia o timeout.
+    OIDC callback é o mecanismo original que funcionou de 03/07 a 08/07.
 
     Args:
         call_id: UUID da chamada
@@ -120,15 +118,7 @@ def update_status(call_id: str, status_text: str, **extra):
         **extra: campos extras para gravar (ex: progress_pct=42.5)
     """
     payload = {"status": status_text, **extra}
-    try:
-        get_db().update_or_create(call_id, payload)
-        with HEALTHZ_LOCK:
-            WORKER_STATE["last_callback_ok"] = time.time()
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] Firestore write FALHOU: {e}", flush=True)
-        # Fallback: callback OIDC legado (defesa em profundidade)
-        if LEGACY_CALLBACK:
-            _notify_test_env_callback(call_id, payload)
+    _notify_test_env_callback(call_id, payload)
 
 
 def _notify_test_env_callback(call_id: str, payload: dict):
@@ -187,10 +177,7 @@ def _notify_test_env_callback(call_id: str, payload: dict):
 # callback do test-env retorna 404 (call_id nao existe no DB).
 _ORPHAN_CALL_ID = None
 
-# NEW (08/07/2026 - Plano Ultra-Economico): Flag de rollback para callback OIDC legado.
-# Quando true, worker cai de volta no callback HTTP via test-env em vez de gravar
-# direto no Firestore. Util se o item 1.1 (worker direto Firestore) causar regressao.
-LEGACY_CALLBACK = os.getenv("LEGACY_CALLBACK", "false").lower() == "true"
+# (10/07/2026): removido LEGACY_CALLBACK. Worker sempre usa OIDC callback.
 
 
 def _get_cloud_run_identity_token(audience: str) -> str | None:
@@ -344,58 +331,29 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     print(f"[Worker {WORKER_ID}] {call_id} CONCLUIDO em {elapsed:.1f}s (nota={nota})", flush=True)
     # Persistencia: feita pelo test-env via callback OIDC abaixo (api.py refatora para Firestore).
 
-    # 7b. Callback final com resultado completo (transcript + qa + diarizacao + sentimentos)
-    # NEW (08/07/2026): escrita DIRETA no Firestore via update_or_create.
-    # Substitui _notify_test_env_callback (callback OIDC). Veja Fase 1 do plano.
+    # 7b. Callback final via OIDC com resultado completo
+    # (10/07/2026): Revertido de Firestore direto para OIDC callback.
+    # Firestore direto causava dead locks quando timeout estourava.
     raw_text = "\n".join(seg.get("text", "") for seg in segments)
-    final_payload = {
-        "status": "Concluído",
-        "nota": nota,
-        "transcricao": mask_pii(raw_text),
-        "transcricao_diarizada": mask_pii(diarized_transcript),
-        "nota_qualidade_operador": nota_qualidade_operador,
-        "nota_sentimento_cliente": nota_sentimento_cliente,
-        "raw_evaluation": evaluation,
-        "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
-        "sentimentos_operador": evaluation.get("sentimentos_operador", []),
-        "erros_fatais": evaluation.get("erros_fatais_identificados", []),
-        "progress_pct": 100.0,
-    }
     try:
-        get_db().update_or_create(call_id, final_payload)
-        print(f"[Worker {WORKER_ID}] Firestore write OK: {call_id[:8]}... status=Concluido", flush=True)
+        _notify_test_env_callback(call_id, {
+            "status": "Concluído",
+            "transcript": mask_pii(raw_text),
+            "transcricao_diarizada": mask_pii(diarized_transcript),
+            "qa_score": nota,
+            "qa_details": {
+                "nota_qualidade_operador": nota_qualidade_operador,
+                "nota_sentimento_cliente": nota_sentimento_cliente,
+                "raw_evaluation": evaluation,
+                "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
+                "sentimentos_operador": evaluation.get("sentimentos_operador", []),
+                "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
+            },
+        })
+        print(f"[Worker {WORKER_ID}] OIDC callback OK: {call_id[:8]}... status=Concluido", flush=True)
     except Exception as e:
-        print(f"[Worker {WORKER_ID}] Firestore write FALHOU (final): {e}", flush=True)
-        # NEW (08/07/2026 - A1): Re-raise para que callback() faca NACK
-        # e a mensagem seja reprocessada por outra instancia.
-        # Isso evita perda de trabalho quando Firestore tem permissao
-        # negada, network blip, etc. Veja DIARIO_BORDO.md A1.
-        if LEGACY_CALLBACK:
-            # Fallback OIDC: monta payload no formato esperado pelo callback handler
-            try:
-                _notify_test_env_callback(call_id, {
-                    "status": "Concluído",
-                    "transcript": final_payload["transcricao"],
-                    "transcricao_diarizada": final_payload["transcricao_diarizada"],
-                    "qa_score": final_payload["nota"],
-                    "qa_details": {
-                        "nota_qualidade_operador": nota_qualidade_operador,
-                        "nota_sentimento_cliente": nota_sentimento_cliente,
-                        "raw_evaluation": evaluation,
-                        "sentimentos_cliente": evaluation.get("sentimentos_cliente", []),
-                        "sentimentos_operador": evaluation.get("sentimentos_operador", []),
-                        "erros_fatais_identificados": evaluation.get("erros_fatais_identificados", []),
-                    },
-                })
-                # Fallback OIDC deu certo - mensagem pode ser ack
-                print(f"[Worker {WORKER_ID}] Firestore falhou mas OIDC fallback OK: {call_id[:8]}...", flush=True)
-            except Exception as e2:
-                # Fallback OIDC TAMBEM falhou - re-raise para NACK
-                print(f"[Worker {WORKER_ID}] Firestore + OIDC fallback ambos falharam: {e2}", flush=True)
-                raise RuntimeError(f"Firestore write failed and OIDC fallback also failed: {e2}") from e
-        else:
-            # Sem fallback: re-raise para NACK
-            raise
+        print(f"[Worker {WORKER_ID}] OIDC callback FALHOU: {e}. Nack.", flush=True)
+        raise RuntimeError(f"OIDC callback failed: {e}") from e
 
     # 8. Cleanup
     shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -489,7 +447,9 @@ def _process_single_message(message, data):
             WORKER_STATE["current_state"] = "processing"
 
         # NEW (07/07/2026): timeout explicito em process_call.
-        PROCESSING_TIMEOUT_SEC = int(os.getenv("PROCESSING_TIMEOUT_SEC", "840"))
+        # (10/07/2026): aumentado de 840 para 1800 (30 min) para suportar
+        # audios longos sem limitador.
+        PROCESSING_TIMEOUT_SEC = int(os.getenv("PROCESSING_TIMEOUT_SEC", "1800"))
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 process_call, call_id, gcs_uri, user_id, diretrizes, audio_duration_sec
@@ -707,79 +667,68 @@ def watchdog_loop():
     ERROR_THRESHOLD = 5
 
     while True:
-        time.sleep(INTERVAL_SEC)
-        with HEALTHZ_LOCK:
-            now = time.time()
-            uptime = now - WORKER_STATE["started_at"]
-            last_msg_age = (now - WORKER_STATE["last_msg_received_at"]) if WORKER_STATE["last_msg_received_at"] else None
-            state = WORKER_STATE["current_state"]
-            errs = WORKER_STATE["consecutive_errors"]
-            msgs = WORKER_STATE["messages_processed"]
+        try:
+            time.sleep(INTERVAL_SEC)
+            with HEALTHZ_LOCK:
+                now = time.time()
+                uptime = now - WORKER_STATE["started_at"]
+                last_msg_age = (now - WORKER_STATE["last_msg_received_at"]) if WORKER_STATE["last_msg_received_at"] else None
+                state = WORKER_STATE["current_state"]
+                errs = WORKER_STATE["consecutive_errors"]
+                msgs = WORKER_STATE["messages_processed"]
 
-        # Log periodico de saude
-        age_str = f"{last_msg_age:.0f}s" if last_msg_age is not None else "nunca"
-        print(
-            f"[WATCHDOG] worker={WORKER_ID} uptime={uptime:.0f}s state={state} "
-            f"msgs={msgs} last_msg_age={age_str} errors={errs}",
-            flush=True,
-        )
-
-        # Alerta: muitos erros consecutivos
-        if errs >= ERROR_THRESHOLD:
+            # Log periodico de saude
+            age_str = f"{last_msg_age:.0f}s" if last_msg_age is not None else "nunca"
             print(
-                f"[WATCHDOG] ALERTA: {errs} erros consecutivos no callback",
+                f"[WATCHDOG] worker={WORKER_ID} uptime={uptime:.0f}s state={state} "
+                f"msgs={msgs} last_msg_age={age_str} errors={errs}",
                 flush=True,
             )
 
-        # Auto-restart: detecta trava do streaming_pull.
-        # Criterios para considerar travado:
-        #  - Worker esta em estado "ready" (nao processando)
-        #  - Ja passou do startup (uptime > 3min)
-        #  - OU ha mais de 5min sem receber mensagem
-        #  - OU nunca recebeu mensagem (initial connect falha)
-        #
-        # FIX (06/07/2026 - rev 2): removido check `sub_info.message_count`
-        # que nao existe no proto Subscription (Unknown field error).
-        # Agora detecta STUCK via last_msg_age/uptime apenas.
-        if (
-            state == "ready"
-            and uptime > 180
-            and _subscriber_client is not None
-        ):
-            # Caso A: nunca recebeu msg E ja passou do startup (initial connect falha)
-            stuck_initial = last_msg_age is None and uptime > 240
-            # Caso B: idle > 5min sem receber
-            stuck_idle = last_msg_age is not None and last_msg_age > 300
-            if stuck_initial or stuck_idle:
-                motivo = (
-                    f"last_msg_age=nunca, uptime={uptime:.0f}s"
-                    if stuck_initial
-                    else f"last_msg_age={last_msg_age:.0f}s, uptime={uptime:.0f}s"
-                )
+            # Alerta: muitos erros consecutivos
+            if errs >= ERROR_THRESHOLD:
                 print(
-                    f"[WATCHDOG] STUCK detectado ({motivo}). "
-                    f"Reiniciando streaming_pull...",
+                    f"[WATCHDOG] ALERTA: {errs} erros consecutivos no callback",
                     flush=True,
                 )
-                _restart_streaming_pull()
 
-        # NEW (05/07/2026): detecta processing travado (msg recebida mas
-        # process_call() nunca retornou). Cancela streaming_pull para que o
-        # Pub/Sub reentregue a mensagem para outra instancia.
-        # Critério: state=processing ha mais de 15min sem conclusao.
-        PROCESSING_STUCK_SEC = 900  # 15min processando = claramente travado
-        if state == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
-            print(
-                f"[WATCHDOG] STUCK-PROCESSING detectado: state=processing ha "
-                f"{last_msg_age:.0f}s sem conclusao. Reiniciando streaming_pull "
-                f"para forcar redelivery da mensagem...",
-                flush=True,
-            )
-            # Reset estado para forcar nova puxada
-            with HEALTHZ_LOCK:
-                WORKER_STATE["current_state"] = "ready"
-                WORKER_STATE["consecutive_errors"] += 1
-            _restart_streaming_pull()
+            # Auto-restart: detecta trava do streaming_pull.
+            if (
+                state == "ready"
+                and uptime > 180
+                and _subscriber_client is not None
+            ):
+                stuck_initial = last_msg_age is None and uptime > 240
+                stuck_idle = last_msg_age is not None and last_msg_age > 300
+                if stuck_initial or stuck_idle:
+                    motivo = (
+                        f"last_msg_age=nunca, uptime={uptime:.0f}s"
+                        if stuck_initial
+                        else f"last_msg_age={last_msg_age:.0f}s, uptime={uptime:.0f}s"
+                    )
+                    print(
+                        f"[WATCHDOG] STUCK detectado ({motivo}). "
+                        f"Reiniciando streaming_pull...",
+                        flush=True,
+                    )
+                    _restart_streaming_pull()
+
+            # Detecta processing travado
+            PROCESSING_STUCK_SEC = 900
+            if state == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
+                print(
+                    f"[WATCHDOG] STUCK-PROCESSING detectado: state=processing ha "
+                    f"{last_msg_age:.0f}s sem conclusao. Reiniciando streaming_pull "
+                    f"para forcar redelivery da mensagem...",
+                    flush=True,
+                )
+                with HEALTHZ_LOCK:
+                    WORKER_STATE["current_state"] = "ready"
+                    WORKER_STATE["consecutive_errors"] += 1
+                _restart_streaming_pull()
+        except Exception as e:
+            print(f"[WATCHDOG] Erro no loop (continuando): {type(e).__name__}: {e}", flush=True)
+            time.sleep(5)
 
 
 def main():
@@ -847,10 +796,10 @@ def main():
         WORKER_STATE["current_state"] = "ready"
     print(f"[Worker {WORKER_ID}] Aguardando mensagens... (Ctrl+C para parar)", flush=True)
 
-    # FIX (06/07/2026 - v3): main thread agora LOOPA sobre o future global.
-    # O restart (_restart_streaming_pull) cancela o future antigo e atribui
-    # um novo a _streaming_pull_future. O loop abaixo detecta isso e re-bloqueia.
-    # Sem isso, o .cancel() do restart matava o container inteiro (exit 0).
+    # (10/07/2026 - v4): main thread agora recria o subscriber automaticamente
+    # quando o streaming_pull future morre. Antes, entrava em hot loop infinito
+    # (future.result() → excecao → sleep(1) → repetir). Agora chama
+    # _restart_streaming_pull() que recria o subscriber e atribui um novo future.
     while True:
         with _STREAMING_LOCK:
             current_future = _streaming_pull_future
@@ -858,6 +807,7 @@ def main():
             current_future.result(timeout=None)  # bloqueia ate cancelamento/excecao
             # Se chegou aqui sem exception, o future terminou OK (improvavel)
             print(f"[Worker {WORKER_ID}] streaming_pull future terminou limpo, criando novo...", flush=True)
+            _restart_streaming_pull()
         except KeyboardInterrupt:
             print(f"[Worker {WORKER_ID}] Parando worker (KeyboardInterrupt)...", flush=True)
             try:
@@ -867,9 +817,10 @@ def main():
             break
         except Exception as e:
             # Restart cancelou nosso future OU exception no gRPC.
-            # Se o watchdog fez cancel(), o global ja tem um NOVO future.
-            # Se o cancel veio de outro lugar, vamos re-criar no proximo loop.
-            print(f"[Worker {WORKER_ID}] streaming_pull future resolvido ({type(e).__name__}: {str(e)[:100]}). Loop...", flush=True)
+            # Recria subscriber automaticamente (fix 10/07/2026).
+            err_name = type(e).__name__
+            print(f"[Worker {WORKER_ID}] streaming_pull future morreu ({err_name}: {str(e)[:100]}). Recriando subscriber...", flush=True)
+            _restart_streaming_pull()
 
         # Pequena pausa para nao entrar em hot loop se algo estiver muito errado
         time.sleep(1)
