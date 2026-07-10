@@ -1,8 +1,15 @@
 steps:
-  # Etapa 1: Build da imagem Docker do WORKER
+  # Etapa 0: Puxa imagem anterior como cache (reduz build de 5min para ~1min)
+  # Se falhar (primeiro build), continua mesmo assim.
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['pull', 'gcr.io/$PROJECT_ID/monitoria-whisper-worker:latest']
+    allowFailure: true
+
+  # Etapa 1: Build com cache das camadas anteriores
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
+      '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-whisper-worker:latest',
       '-f', 'Dockerfile.worker',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-whisper-worker:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-whisper-worker:latest',

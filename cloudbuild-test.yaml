@@ -21,11 +21,16 @@ steps:
       - '-c'
       - 'rm -rf dist && touch .cache-bust && date > .cache-bust && export VITE_API_URL=$_VITE_API_URL VITE_FIREBASE_API_KEY=$_VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$_VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$_VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET=$_VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID=$_VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID=$_VITE_FIREBASE_APP_ID VITE_PORTAL_URL=$_VITE_PORTAL_URL && npm run build'
 
-  # Etapa 3: Build da imagem Docker
+  # Etapa 0: Puxa imagem anterior como cache
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['pull', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest']
+    allowFailure: true
+
+  # Etapa 3: Build da imagem Docker (com cache)
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '--no-cache',  # NEW (07/07/2026): forca rebuild sem usar cache. Cache antigo tinha dist/ com mojibake em 'Concluido'. Sem isso, bundle deployed nao atualizava.
+      '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '.'
