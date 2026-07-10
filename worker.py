@@ -543,7 +543,7 @@ _STREAMING_LOCK = __import__("threading").Lock()
 
 def _restart_streaming_pull():
     """Cancela streaming_pull atual e recria. Usado pelo watchdog quando trava."""
-    global _streaming_pull_future, _last_restart_at
+    global _subscriber_client, _streaming_pull_future, _last_restart_at
     # Debounce: nao reiniciar mais de uma vez a cada 120s
     now = time.time()
     if now - _last_restart_at < 120:
@@ -570,6 +570,9 @@ def _restart_streaming_pull():
                 _batch_buffer = []
                 _batch_buffer_first_at = None
                 _batch_timer = None
+            # Cria NOVO cliente Pub/Sub (gRPC channel pode estar corrompido
+            # apos cancel do streaming_pull anterior)
+            _subscriber_client = pubsub_v1.SubscriberClient()
             subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
             flow_control = pubsub_v1.types.FlowControl(max_messages=2)
             new_future = _subscriber_client.subscribe(
@@ -806,8 +809,7 @@ def main():
         try:
             current_future.result(timeout=None)  # bloqueia ate cancelamento/excecao
             # Se chegou aqui sem exception, o future terminou OK (improvavel)
-            print(f"[Worker {WORKER_ID}] streaming_pull future terminou limpo, criando novo...", flush=True)
-            _restart_streaming_pull()
+            print(f"[Worker {WORKER_ID}] streaming_pull future terminou, re-bloqueando...", flush=True)
         except KeyboardInterrupt:
             print(f"[Worker {WORKER_ID}] Parando worker (KeyboardInterrupt)...", flush=True)
             try:
