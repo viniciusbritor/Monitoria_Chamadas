@@ -31,6 +31,7 @@ import uuid
 import shutil
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from typing import Optional
 
 # NEW (08/07/2026 - Fuso GMT-3): helper para timestamps em Brasil/Sao_Paulo
 BRT = ZoneInfo("America/Sao_Paulo")
