@@ -93,6 +93,7 @@ ALLOWED_PORTAL_REFERERS = frozenset([
     for u in os.getenv(
         "ALLOWED_PORTAL_REFERERS",
         "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,"
+        "https://portal-omnichannel.coherenceai.com.br,"
         "https://monitoria.coherenceai.com.br,"
         "https://coherence-portal-prod-c5nbfc5meq-uc.a.run.app,"
         "http://localhost:5173,"  # dev local (Vite)

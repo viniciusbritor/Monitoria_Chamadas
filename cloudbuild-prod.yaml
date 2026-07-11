@@ -22,7 +22,7 @@ steps:
     dir: 'frontend'
     args:
       - '-c'
-      - 'rm -rf dist && touch .cache-bust && date > .cache-bust && export VITE_API_URL=$_VITE_API_URL VITE_FIREBASE_API_KEY=$_VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$_VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$_VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET=$_VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID=$_VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID=$_VITE_FIREBASE_APP_ID VITE_PORTAL_URL=$_VITE_PORTAL_URL && npm run build'
+      - 'rm -rf dist && touch .cache-bust && date > .cache-bust && export VITE_API_URL=$_VITE_API_URL VITE_FIREBASE_API_KEY=$_VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$_VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$_VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET=$_VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID=$_VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID=$_VITE_FIREBASE_APP_ID VITE_PORTAL_URL=$_VITE_PORTAL_URL VITE_GOOGLE_CLIENT_ID=$_VITE_GOOGLE_CLIENT_ID && npm run build'
 
   # Puxa imagem anterior como cache
   - name: 'gcr.io/cloud-builders/docker'
@@ -62,7 +62,7 @@ steps:
       - '--memory=8Gi'
       - '--port=8080'
       - '--no-cpu-throttling'
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs-prod,PORTAL_API_URL=https://coherence-portal-test-453yjxgtta-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs-prod,PORTAL_API_URL=https://portal-omnichannel.coherenceai.com.br,TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 
   # Notifica Portal Coherence (producao)
@@ -74,7 +74,7 @@ steps:
         set -e
         SERVICE_URL=$$(gcloud run services describe monitoria --region=us-central1 --format="value(status.url)")
         REVISION=$$(gcloud run services describe monitoria --region=us-central1 --format="value(status.latestReadyRevisionName)")
-        PORTAL_URL="https://coherence-portal-test-453yjxgtta-uc.a.run.app"
+        PORTAL_URL="https://portal-omnichannel.coherenceai.com.br"
         TOKEN=$$(curl -s -H "Metadata-Flavor: Google" \
           "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=$$PORTAL_URL")
         if [ -z "$$TOKEN" ]; then
@@ -105,7 +105,8 @@ substitutions:
   _VITE_FIREBASE_STORAGE_BUCKET: 'coherence-ominichannel-fs.firebasestorage.app'
   _VITE_FIREBASE_MESSAGING_SENDER_ID: '894828119087'
   _VITE_FIREBASE_APP_ID: '1:894828119087:web:3cb2164c2d1efd80e2f2da'
-  _VITE_PORTAL_URL: 'https://coherence-portal-test-453yjxgtta-uc.a.run.app'
+  _VITE_GOOGLE_CLIENT_ID: '4105010761-t3s393nba2m4asemki2k1ffotqeh5ep4.apps.googleusercontent.com'
+  _VITE_PORTAL_URL: 'https://portal-omnichannel.coherenceai.com.br'
 
 images:
   - 'gcr.io/$PROJECT_ID/monitoria:$_COMMIT_SHA'
