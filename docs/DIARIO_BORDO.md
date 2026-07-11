@@ -2344,7 +2344,80 @@ if (!res.ok) {
   - Bundle antigo cacheado no navegador do usuário fazia parecer que o SSO não funcionava. Solução: cache-busting via `?v=<sha>`.
   - Comportamento confuso ao acessar Monitoria direto sem `?token=`. Solução: auto-redirect para Portal.
 
-## Inicialização - Setup do Harness Global
+## 10/07/2026 - Unificacao para coherence-ominichannel-fs + CI/CD Completo
+
+### Hotfix: HTML comment quebrava Vite build
+- **Sintoma:** `gcloud builds submit` falhou com `Unexpected token` em `CallInspector.jsx:537`.
+- **Causa:** Havia HTML comments (`<!-- fecha coluna direita -->`) dentro do JSX. Vite production build nao aceita.
+- **Fixa:** Removidos os HTML comments. Trocados por nada (nao precisavam estar la).
+- **Impacto:** Build do `cloudbuild-prod.yaml` passou a funcionar.
+
+### Pipeline de Producao (Esteira CI/CD)
+- **cloudbuild-prod.yaml:** Criado a partir do `cloudbuild-test.yaml`, alterando:
+  - Service name: `monitoria` (antes `monitoria-test-env`)
+  - Image tags: `gcr.io/\$PROJECT_ID/monitoria`
+  - Env vars: `PUBSUB_TOPIC=monitoria-whisper-jobs-prod`, `PORTAL_API_URL` apontando para producao, `TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br`
+  - Portal notification: aponta para `coherence-portal-test-453yjxgtta-uc.a.run.app` (Portal de producao)
+  - Substituicoes `_VITE_*`: Firebase config idem (mesmo projeto), `VITE_API_URL=https://monitoria.coherenceai.com.br`, `VITE_PORTAL_URL=https://coherence-portal-test-453yjxgtta-uc.a.run.app`
+  - Usa `$_COMMIT_SHA` em vez de `\$COMMIT_SHA` (compativel com `gcloud builds submit` local e triggers)
+
+- **cloudbuild-worker-prod.yaml:** Criado a partir do `cloudbuild-worker.yaml`, alterando:
+  - Service name: `monitoria-worker` (antes `monitoria-whisper-worker`)
+  - Env vars: `PUBSUB_TOPIC=monitoria-whisper-jobs-prod`, `PUBSUB_SUBSCRIPTION=monitoria-whisper-jobs-worker-prod`, `WORKER_CALLBACK_URL=https://monitoria.coherenceai.com.br`
+  - Usa `$_COMMIT_SHA`
+
+### Pub/Sub de Producao
+- Topic `monitoria-whisper-jobs-prod` criado em `coherence-ominichannel-fs` (projeto compartilhado, pois codigo usa `FIRESTORE_PROJECT_ID` como projeto Pub/Sub).
+- Subscription PULL `monitoria-whisper-jobs-worker-prod` com `ack-deadline=600`.
+
+### Migracao do consultoria-bess-mme136 para coherence-ominichannel-fs
+- **Motivo:** Unificar todos os recursos em 1 projeto so (Firestore, Pub/Sub, GCS, Cloud Run ja compartilhavam o mesmo projeto `coherence-ominichannel-fs`).
+- **Acoes:**
+  1. Deletado servico `monitoria` (prod API) de `consultoria-bess-mme136`
+  2. Deletado servico `monitoria-worker` (prod Worker) de `consultoria-bess-mme136`
+  3. Deletado domain mapping `monitoria.coherenceai.com.br` de `consultoria-bess-mme136`
+  4. Deletado trigger `monitoria-test` de `consultoria-bess-mme136`
+  5. Deploy manual `cloudbuild-prod.yaml` em `coherence-ominichannel-fs` → servico `monitoria` criado
+  6. Deploy manual `cloudbuild-worker-prod.yaml` em `coherence-ominichannel-fs` → servico `monitoria-worker` criado
+  7. IAM: `allUsers → roles/run.invoker` no servico `monitoria`
+  8. Domain mapping `monitoria.coherenceai.com.br` recriado em `coherence-ominichannel-fs`
+
+### Triggers CI/CD finais (4 no total)
+| Trigger | Projeto | Branch | Arquivo | Servico |
+|---|---|---|---|---|
+| `deploy-monitoria-test-env` | `coherence-ominichannel-fs` | `^test$` | `cloudbuild-test.yaml` | `monitoria-test-env` |
+| `deploy-monitoria-whisper-worker` | `coherence-ominichannel-fs` | `^test$` | `cloudbuild-worker.yaml` | `monitoria-whisper-worker` |
+| `deploy-monitoria-prod` | `coherence-ominichannel-fs` | `^main$` | `cloudbuild-prod.yaml` | `monitoria` |
+| `deploy-monitoria-worker-prod` | `coherence-ominichannel-fs` | `^main$` | `cloudbuild-worker-prod.yaml` | `monitoria-worker` |
+
+- Trigger `deploy-monitoria-prod` tem substituicao `_COMMIT_SHA=\$COMMIT_SHA`.
+- Trigger `deploy-monitoria-worker-prod` tem substituicao `_COMMIT_SHA=\$COMMIT_SHA`.
+- Triggers `deploy-monitoria-test-env` e `deploy-monitoria-whisper-worker` usam `\$COMMIT_SHA` direto (padrao do trigger).
+
+### Limpeza de triggers antigos
+- `deploy-monitoria-test-env` (antigo, `coherence-ominichannel-fs`, usava `cloudbuild.yaml` deprecated com Secret Manager) → DELETADO e recriado com `cloudbuild-test.yaml` limpo.
+- `monitoria-test` (`consultoria-bess-mme136`, duplicata moderna) → DELETADO.
+- `monitoria-prod` (`consultoria-bess-mme136`, apontava para `cloudbuild.yaml`) → FOI DELETADO durante a sessao e recriado no projeto correto.
+
+### Novas Skills
+- `test_workflow_manager`: Fluxo de trabalho em test: checkout → ajustes → commit → push → deploy automatico.
+- `test_to_prod_promoter`: Fluxo de publicacao: checkout main → merge test → push → deploy automatico em prod.
+- Ambas sincronizadas entre OpenCode e Antigravity.
+
+### Regra #19 — Operacao Exclusiva em Test
+- Adicionada ao `GUARDRAILS.md`.
+- Proibido deploy em prod sem autorizacao explicita do usuario.
+- Fluxo padrao: `test_workflow_manager` (branch test). Apenas `test_to_prod_promoter` quando autorizado.
+
+### Estado Final dos Servicos (coherence-ominichannel-fs)
+| Servico | Tipo | URL |
+|---|---|---|
+| `monitoria-test-env` | API test | `https://monitoria-test-env-894828119087.us-central1.run.app` |
+| `monitoria-whisper-worker` | Worker test | `https://monitoria-whisper-worker-894828119087.us-central1.run.app` |
+| `monitoria` | API prod | `https://monitoria.coherenceai.com.br` |
+| `monitoria-worker` | Worker prod | `https://monitoria-worker-894828119087.us-central1.run.app` |
+
+### Inicialização - Setup do Harness Global
 - Injeção da estrutura padrão de documentação (Harness, Guardrails e Diário de Bordo).
 
 ---

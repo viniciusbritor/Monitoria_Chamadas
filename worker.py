@@ -197,24 +197,77 @@ def _get_cloud_run_identity_token(audience: str) -> str | None:
         return None
 
 
+def _infer_polarity_from_sentiment(sentimento_text: str) -> int | None:
+    """Infere polaridade (-10 a +10) a partir do texto de sentimento quando o LLM omite.
+
+    Usado como fallback em enforce_dynamic_consistency().
+    """
+    if not sentimento_text:
+        return None
+    lower = sentimento_text.lower()
+    if any(w in lower for w in ("irritado", "gritando", "xingando", "raiva", "hostil", "agressivo", "grosso")):
+        return -8
+    if any(w in lower for w in ("frustrado", "impaciente", "preocupado", "ansioso", "insatisfeito")):
+        return -5
+    if any(w in lower for w in ("sarcastico", "sarcástico", "desinteressado", "indiferente")):
+        return -5
+    if any(w in lower for w in ("neutro", "objetivo", "profissional", "calmo", "normal")):
+        return 0
+    if any(w in lower for w in ("satisfeito", "agradecido", "grato", "alegre", "feliz", "otimista")):
+        return 7
+    if any(w in lower for w in ("paciente", "empatico", "empatia", "educado", "confiante", "esperancoso", "esperançoso")):
+        return 7
+    return None
+
+
 def enforce_dynamic_consistency(evaluation):
     """Pós-processamento: garante que notas (NPS, QA) sejam coerentes com a polaridade atribuida.
-    Substitui matriz fixa de palavras por correlação da polaridade numerica com os scores.
+
+    1. Se polaridade estiver ausente, infere do sentimento textual
+    2. Se houver conflito polaridade vs sentimento, força correcao
+    3. Recalcula NPS/QA da polaridade com tolerancia 1
     """
     fases = evaluation.get("fases", {})
     for fase in fases.values():
-        pol_cli = fase.get("polaridade_cliente", 0)
-        pol_op = fase.get("polaridade_operador", 0)
+        sent_cli = fase.get("sentimento_cliente", "")
+        sent_op = fase.get("sentimento_operador", "")
+
+        pol_cli = fase.get("polaridade_cliente")
+        pol_op = fase.get("polaridade_operador")
+
+        # Se polaridade ausente ou 0 com sentimento nao-neutro, infere
+        neutral_words = ("neutro", "profissional", "objetivo", "calmo", "normal", "")
+        needs_cli_infer = (pol_cli is None or not isinstance(pol_cli, (int, float))) or (pol_cli == 0 and sent_cli not in neutral_words)
+        needs_op_infer = (pol_op is None or not isinstance(pol_op, (int, float))) or (pol_op == 0 and sent_op not in neutral_words)
+
+        if needs_cli_infer:
+            inferred = _infer_polarity_from_sentiment(sent_cli)
+            if inferred is not None:
+                pol_cli = inferred
+                fase["polaridade_cliente"] = pol_cli
+
+        if needs_op_infer:
+            inferred = _infer_polarity_from_sentiment(sent_op)
+            if inferred is not None:
+                pol_op = inferred
+                fase["polaridade_operador"] = pol_op
+
+        # Garante que sao numeros
+        pol_cli = pol_cli if isinstance(pol_cli, (int, float)) else 0
+        pol_op = pol_op if isinstance(pol_op, (int, float)) else 0
 
         # Calcula NPS a partir da polaridade do CLIENTE
         nps_calc = max(1, min(10, round((pol_cli + 10) / 2)))
         # Calcula QA a partir da polaridade do OPERADOR
         qa_calc = max(10, min(100, round((pol_op + 10) * 4.5 + 10)))
 
-        # Se divergir > 3, corrige
-        if abs(fase.get("nota_nps", 0) - nps_calc) > 3:
+        # Forca correcao se polaridade extrema conflita com nota
+        nps_atual = fase.get("nota_nps", 0)
+        qa_atual = fase.get("nota_qa", 0)
+
+        if abs(nps_atual - nps_calc) > 1:
             fase["nota_nps"] = nps_calc
-        if abs(fase.get("nota_qa", 0) - qa_calc) > 3:
+        if abs(qa_atual - qa_calc) > 1:
             fase["nota_qa"] = qa_calc
 
     # Recalcula agregados como media das 3 fases
@@ -309,11 +362,6 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     except Exception as e:
         update_status(call_id, f"Erro: transcricao falhou: {e}")
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        # Cleanup GCS
-        try:
-            blob.delete()
-        except Exception:
-            pass
         return
 
     # Marca Whisper como 100% ao terminar (NEW 08/07/2026: escrita direta)
@@ -341,10 +389,6 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     except Exception as e:
         update_status(call_id, f"Erro: avaliacao LLM falhou: {e}")
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        try:
-            blob.delete()
-        except Exception:
-            pass
         return
 
     # 6. Parse nota

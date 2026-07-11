@@ -304,6 +304,9 @@ NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} <- INACEITAVEL
                 else:
                     evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
 
+                # Valida polaridade em todas as fases (log warning se ausente)
+                self._validate_polaridade(evaluation)
+
                 return {
                     "diarized_transcript": diarized,
                     "evaluation": evaluation,
@@ -314,10 +317,20 @@ NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} <- INACEITAVEL
         # Fallback: chamadas separadas (codigo original)
         diarized = self.diarize(transcript)
         evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
+        self._validate_polaridade(evaluation)
         return {
             "diarized_transcript": diarized,
             "evaluation": evaluation,
         }
+
+    def _validate_polaridade(self, evaluation: dict) -> None:
+        """Loga warning se alguma fase estiver sem polaridade_cliente/operador."""
+        fases = evaluation.get("fases", {})
+        for nome, fase in fases.items():
+            if "polaridade_cliente" not in fase or fase.get("polaridade_cliente") is None:
+                print(f"[Evaluator] WARN: fase '{nome}' sem polaridade_cliente. worker.py fara inferencia via sentimento.", flush=True)
+            if "polaridade_operador" not in fase or fase.get("polaridade_operador") is None:
+                print(f"[Evaluator] WARN: fase '{nome}' sem polaridade_operador. worker.py fara inferencia via sentimento.", flush=True)
 
 if __name__ == "__main__":
     # Teste rápido

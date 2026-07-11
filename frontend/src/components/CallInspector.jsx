@@ -108,6 +108,7 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
   const [error, setError] = useState(null)
   const [showTranscript, setShowTranscript] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
+  const [audioError, setAudioError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -143,7 +144,12 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
             headers: { Authorization: `Bearer ${token}` }
           })
           if (!cancelled) setAudioUrl(audioRes.data.audio_url)
-        } catch (_) {}
+        } catch (e) {
+          const status = e.response?.status
+          if (status === 404) setAudioError('Audio expirado ou deletado (retencao de 30 dias).')
+          else if (status === 403) setAudioError('Sem permissao para ouvir este audio.')
+          else setAudioError('Audio nao disponivel no momento.')
+        }
       } catch (err) {
         if (!cancelled) {
           console.error('[CallInspector] fetch ERROR', { status: err.response?.status, message: err.message, data: err.response?.data })
@@ -534,20 +540,30 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
               )}
             </div>
           )}
-        </div> <!-- fecha coluna direita -->
-      </div> <!-- fecha grid 2 colunas -->
+        </div>
+      </div>
 
 
       {/* Player de Áudio — abaixo do grid */}
-      {audioUrl && (
-        <div id="audio-player" className="bg-primary/5 p-4 rounded-2xl border border-primary/20 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <Headphones size={16} className="text-primary" />
-            <span className="font-bold text-sm text-textMain">Gravação da Chamada</span>
+      <div id="audio-player">
+        {audioUrl ? (
+          <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 shadow-sm">
+            <div className="flex items-center gap-2 mb-2">
+              <Headphones size={16} className="text-primary" />
+              <span className="font-bold text-sm text-textMain">Gravação da Chamada</span>
+            </div>
+            <audio controls className="w-full h-10 outline-none" src={audioUrl} />
           </div>
-          <audio controls className="w-full h-10 outline-none" src={audioUrl} />
-        </div>
-      )}
+        ) : audioError ? (
+          <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-2xl text-sm text-yellow-800 flex items-start gap-3">
+            <AlertTriangle size={18} className="shrink-0 mt-0.5 text-yellow-600" />
+            <div>
+              <span className="font-semibold">{audioError}</span>
+              <p className="text-yellow-700/70 mt-1">A transcricao e avaliacao continuam disponiveis abaixo.</p>
+            </div>
+          </div>
+        ) : null}
+      </div>
 
     </div>
   )

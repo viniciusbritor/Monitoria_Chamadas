@@ -207,4 +207,15 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 
 6. **PROIBIDO** manter PULL subscription com `min-instances=0` em producao.
 
+## Regra #19 — Operacao Exclusiva em Test (Proibido Deploy em Prod sem Ordem)
+
+**Aplicavel a partir de 10/07/2026.**
+
+1. **Trabalhamos EXCLUSIVAMENTE na branch `test`.** Todo commit, ajuste e deploy deve ser feito em test.
+2. **PROIBIDO fazer `git push` na branch `main`** ou qualquer operacao que acione os triggers de producao sem autorizacao explicita do usuario.
+3. **PROIBIDO executar `git merge test` para `main`** sem que o usuario diga expressamente "publique em prod" ou "promova para producao".
+4. **PROIBIDO usar `git push --force`** em qualquer branch compartilhada.
+5. A unica excecao: quando o usuario solicitar explicitamente a publicacao em producao, usar a skill `test_to_prod_promoter`.
+6. O fluxo padrao de trabalho e: `git checkout test` → ajustes → `git push origin test` → deploy automatico em test. Usar a skill `test_workflow_manager`.
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

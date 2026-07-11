@@ -162,10 +162,13 @@ class ChamadasDB:
                  user_id_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """Lista chamadas, mais recentes primeiro. Opcionalmente filtra por status/user_id.
 
-        ATENCAO: filtros nao-indexaveis fazem scan completo (caro para N grande).
-        Para producao, prefira list_by_user_id() ou list_by_status().
+        ATENCAO: filtrar por status (range query) exige que o primeiro ORDER BY
+        seja o campo de filtro (Regra Firestore: range filter = first order_by).
         """
-        q = self.collection.order_by("uploaded_at", direction=firestore.Query.DESCENDING).limit(limit)
+        if status_filter:
+            q = self.collection.order_by("status").order_by("uploaded_at", direction=firestore.Query.DESCENDING).limit(limit)
+        else:
+            q = self.collection.order_by("uploaded_at", direction=firestore.Query.DESCENDING).limit(limit)
         if user_id_filter:
             q = q.where("user_id", "==", user_id_filter)
         if status_filter:

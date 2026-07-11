@@ -1,16 +1,24 @@
 # Arquitetura do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 10/07/2026 (base model + BatchDashboard + subscriber fix)
+> Ultima atualizacao: 10/07/2026 (CI/CD completo + producao unificado)
 
 ## Visao Geral
 
-3 servicos GCP Cloud Run + Firestore + Pub/Sub:
+4 servicos Cloud Run + Firestore + Pub/Sub em 1 unico projeto GCP (`coherence-ominichannel-fs`):
 
-| Servico | Cloud Run | Responsabilidade |
+| Servico | Tipo | Acesso | Responsabilidade |
+|---|---|---|---|
+| `monitoria-test-env` | API test | Publico via Portal | API FastAPI, upload, settings |
+| `monitoria-whisper-worker` | Worker test | `--no-allow-unauthenticated` (OIDC) | Consumer Pub/Sub test, transcricao, LLM |
+| `monitoria` | API prod | Publico via Portal (`monitoria.coherenceai.com.br`) | API FastAPI, upload, settings |
+| `monitoria-worker` | Worker prod | `--no-allow-unauthenticated` (OIDC) | Consumer Pub/Sub prod, transcricao, LLM |
+
+### Topicos Pub/Sub
+
+| Topico | Subscription | Uso |
 |---|---|---|
-| `monitoria-test-env` | Publico via Portal | API FastAPI, upload, settings, endpoints admin |
-| `monitoria-whisper-worker` | `--no-allow-unauthenticated` (OIDC) | Consumer Pub/Sub, transcricao, avaliacao LLM |
-| `coherence-portal-test` | (projeto separado) | SSO, RBAC, audit logs |
+| `monitoria-whisper-jobs` | `monitoria-whisper-jobs-worker` (PULL, ack=600s) | Test: API test publica, worker test consome |
+| `monitoria-whisper-jobs-prod` | `monitoria-whisper-jobs-worker-prod` (PULL, ack=600s) | Prod: API prod publica, worker prod consome |
 
 ## Fluxo E2E (Diagrama Mermaid)
 

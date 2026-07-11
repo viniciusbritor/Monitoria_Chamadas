@@ -1,0 +1,60 @@
+steps:
+  # Puxa imagem anterior como cache
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['pull', 'gcr.io/$PROJECT_ID/monitoria-worker:latest']
+    allowFailure: true
+
+  # Build com cache
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-worker:latest',
+      '-f', 'Dockerfile.worker',
+      '-t', 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/monitoria-worker:latest',
+      '.'
+    ]
+
+  # Push das imagens
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-worker:latest']
+
+  # Deploy no Cloud Run (Worker producao)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'monitoria-worker'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--execution-environment=gen2'
+      - '--no-allow-unauthenticated'
+      - '--cpu=4'
+      - '--memory=4Gi'
+      - '--port=8080'
+      - '--timeout=3600'
+      - '--no-cpu-throttling'
+      - '--concurrency=2'
+      - '--min-instances=1'
+      - '--max-instances=4'
+      - '--cpu-boost'
+      - '--startup-probe=httpGet.path=/healthz,initialDelaySeconds=15,periodSeconds=5,timeoutSeconds=3,failureThreshold=18'
+      - '--liveness-probe=httpGet.path=/healthz,periodSeconds=30,timeoutSeconds=3,failureThreshold=3'
+      - '--update-env-vars=GCP_PROJECT=coherence-ominichannel-fs'
+      - '--update-env-vars=PUBSUB_TOPIC=monitoria-whisper-jobs-prod'
+      - '--update-env-vars=PUBSUB_SUBSCRIPTION=monitoria-whisper-jobs-worker-prod'
+      - '--update-env-vars=AUDIO_BUCKET=coherence-monitoria-audios-tmp'
+      - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria.coherenceai.com.br'
+      - '--update-env-vars=OMP_NUM_THREADS=6'
+      - '--update-env-vars=PYTHONUNBUFFERED=1'
+      - '--update-env-vars=WHISPER_DOWNLOAD_ROOT=/app/whisper_models'
+      - '--quiet'
+
+images:
+  - 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/monitoria-worker:latest'

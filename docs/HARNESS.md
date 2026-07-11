@@ -1,6 +1,6 @@
 # HARNESS do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 10/07/2026 (base model + OIDC callback + BatchDashboard)
+> Ultima atualizacao: 10/07/2026 (CI/CD completo + producao unificado)
 
 ## Objetivo Principal
 
@@ -87,7 +87,28 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | `OMP_NUM_THREADS` | `6` |
 | `WHISPER_DOWNLOAD_ROOT` | `/app/whisper_models` |
 
-### worker Cloud Run (recursos atuais)
+### Prod: API (Cloud Run monitoria)
+| Variavel | Default | Origem |
+|---|---|---|
+| `FIRESTORE_PROJECT_ID` | `coherence-ominichannel-fs` | cloudbuild-prod.yaml |
+| `PUBSUB_TOPIC` | `monitoria-whisper-jobs-prod` | cloudbuild-prod.yaml |
+| `PORTAL_API_URL` | `https://coherence-portal-test-453yjxgtta-uc.a.run.app` | cloudbuild-prod.yaml |
+| `TEST_ENV_AUDIENCE` | `https://monitoria.coherenceai.com.br` | cloudbuild-prod.yaml |
+| `PERM_CACHE_TTL_SEC` | `300` | cloudbuild-prod.yaml |
+| `OMP_NUM_THREADS` | `2` | cloudbuild-prod.yaml |
+| `PYTHONUNBUFFERED` | `1` | cloudbuild-prod.yaml |
+
+### Prod: Worker (Cloud Run monitoria-worker)
+| Variavel | Default | Origem |
+|---|---|---|
+| `GCP_PROJECT` | `coherence-ominichannel-fs` | cloudbuild-worker-prod.yaml |
+| `PUBSUB_TOPIC` | `monitoria-whisper-jobs-prod` | cloudbuild-worker-prod.yaml |
+| `PUBSUB_SUBSCRIPTION` | `monitoria-whisper-jobs-worker-prod` | cloudbuild-worker-prod.yaml |
+| `AUDIO_BUCKET` | `coherence-monitoria-audios-tmp` | cloudbuild-worker-prod.yaml |
+| `WORKER_CALLBACK_URL` | `https://monitoria.coherenceai.com.br` | cloudbuild-worker-prod.yaml |
+| `OMP_NUM_THREADS` | `6` | cloudbuild-worker-prod.yaml |
+
+### Worker Cloud Run (recursos vigentes)
 | Recurso | Valor |
 |---|---|
 | CPU | 4 vCPU |
@@ -101,8 +122,10 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 
 ## URL canonica
 
-- **Producao**: `https://monitoria.coherenceai.com.br`
-- **Test (este projeto)**: `https://monitoria-test-env-894828119087.us-central1.run.app`
+- **Producao (API)**: `https://monitoria.coherenceai.com.br`
+- **Test (API)**: `https://monitoria-test-env-894828119087.us-central1.run.app`
+- **Worker prod**: `https://monitoria-worker-894828119087.us-central1.run.app` (privado, sem allow-unauthenticated)
+- **Worker test**: `https://monitoria-whisper-worker-894828119087.us-central1.run.app` (privado)
 - **Portal Coherence (referencia)**: `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app`
 
 ## Acesso ao Modulo - SEMPRE via Portal Coherence
@@ -124,17 +147,30 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 
 ## Workflow de Deploy
 
-| Build | Trigger | Resultado |
-|---|---|---|
-| `cloudbuild-test.yaml` | `git push origin test` (via Cloud Build trigger) | Build + push imagem + deploy `monitoria-test-env` |
-| `cloudbuild-worker.yaml` | `git push origin test` (via Cloud Build trigger) | Build + push imagem + deploy `monitoria-whisper-worker` |
+### Test (branch test)
 
-**IMPORTANTE:** deployar test-env e worker simultaneamente para evitar inconsistencias.
+| Trigger | Arquivo | Servico |
+|---|---|---|
+| `deploy-monitoria-test-env` | `cloudbuild-test.yaml` | `monitoria-test-env` |
+| `deploy-monitoria-whisper-worker` | `cloudbuild-worker.yaml` | `monitoria-whisper-worker` |
+
+**Ativacao:** `git push origin test` → ambos disparam em paralelo.
+
+### Producao (branch main)
+
+| Trigger | Arquivo | Servico |
+|---|---|---|
+| `deploy-monitoria-prod` | `cloudbuild-prod.yaml` | `monitoria` |
+| `deploy-monitoria-worker-prod` | `cloudbuild-worker-prod.yaml` | `monitoria-worker` |
+
+**Ativacao:** `git push origin main` → ambos disparam em paralelo.
+
+**IMPORTANTE:** deployar API e Worker simultaneamente para evitar inconsistencias.
 Ambos disparam em paralelo com o mesmo `git push`.
 
-### Script auxiliar
-- `scripts/deploy.ps1` - Deploy seletivo: detecta quais arquivos mudaram e deploya apenas necessario.
-  Uso: `.\scripts\deploy.ps1 -Target auto`
+### Skills auxiliares
+- `test_workflow_manager` — fluxo de trabalho na branch `test` (checkout → ajustes → commit → push)
+- `test_to_prod_promoter` — publicacao de `test` para `main` (checkout main → merge test → push)
 
 ## Build do Frontend
 
