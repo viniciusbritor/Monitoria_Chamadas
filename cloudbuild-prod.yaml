@@ -1,3 +1,6 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 steps:
   # CI check LGPD (bloqueia merge se houver violacao).
   - name: 'python:3.11-slim'

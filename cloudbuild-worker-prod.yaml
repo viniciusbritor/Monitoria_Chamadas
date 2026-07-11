@@ -1,3 +1,6 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 steps:
   # Puxa imagem anterior como cache
   - name: 'gcr.io/cloud-builders/docker'

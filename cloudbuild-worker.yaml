@@ -1,3 +1,6 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 steps:
   # Etapa 0: Puxa imagem anterior como cache (reduz build de 5min para ~1min)
   # Se falhar (primeiro build), continua mesmo assim.
