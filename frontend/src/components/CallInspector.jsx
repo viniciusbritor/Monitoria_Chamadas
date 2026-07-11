@@ -380,89 +380,41 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
               </ul>
             )}
           </div>
-        </div>
 
-        {/* Transcrição (Collapsible) — abaixo de Erro Crítico na esquerda */}
-        <div className="glass-panel p-5">
-          <button
-            onClick={() => setShowTranscript(!showTranscript)}
-            className="flex items-center justify-between w-full"
-          >
-            <div className="flex items-center gap-2">
-              <MessageSquare size={18} className="text-textMuted" />
-              <h3 className="font-semibold text-textMain">Transcrição</h3>
+          {/* Pontos Positivos — coluna esquerda */}
+          {Array.isArray(analysis?.pontos_positivos) && analysis.pontos_positivos.length > 0 && (
+            <div className="glass-panel p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <CheckCircle2 size={18} className="text-green-500" />
+                <h3 className="font-semibold text-textMain">Pontos Positivos</h3>
+              </div>
+              <ul className="space-y-2">
+                {analysis.pontos_positivos.map((p, i) => (
+                  <li key={i} className="text-sm text-textMain flex items-start gap-2">
+                    <span className="text-green-500 mt-1 shrink-0">•</span> {p}
+                  </li>
+                ))}
+              </ul>
             </div>
-            {showTranscript ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-          </button>
+          )}
 
-          {showTranscript && (
-            <div className="mt-4 pt-4 border-t border-black/5 space-y-3 max-h-[500px] overflow-y-auto">
-              {(call && call.transcricao_diarizada) ? (
-                call.transcricao_diarizada.split('\n\n').map((block, i) => {
-                  const isOp = block.toLowerCase().startsWith('operador:')
-                  const isClient = block.toLowerCase().startsWith('cliente:')
-                  if (!block.trim()) return null
-                  let textContent = block
-                  if (isOp) textContent = block.substring(9).trim()
-                  if (isClient) textContent = block.substring(8).trim()
-                  return (
-                    <div key={i} className={`flex gap-3 ${isOp ? 'flex-row' : 'flex-row-reverse'}`}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                        isOp ? 'bg-primary text-white' : 'bg-surface text-textMuted border border-black/10'
-                      }`}>
-                        {isOp ? <Headphones size={14} /> : <User size={14} />}
-                      </div>
-                      <div className={`p-3 rounded-2xl max-w-[85%] text-sm leading-relaxed ${
-                        isOp ? 'bg-surface border border-black/5 text-textMain rounded-tl-sm'
-                             : 'bg-black/5 text-textMain rounded-tr-sm'
-                      }`}>
-                        {textContent}
-                      </div>
-                    </div>
-                  )
-                })
-              ) : (
-                <p className="text-sm text-textMuted italic text-center py-4">
-                  Transcrição não disponível para esta chamada.
-                </p>
-              )}
+          {/* Pontos de Melhoria — coluna esquerda */}
+          {Array.isArray(analysis?.pontos_melhoria) && analysis.pontos_melhoria.length > 0 && (
+            <div className="glass-panel p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <AlertTriangle size={18} className="text-yellow-500" />
+                <h3 className="font-semibold text-textMain">Pontos de Melhoria</h3>
+              </div>
+              <ul className="space-y-2">
+                {analysis.pontos_melhoria.map((p, i) => (
+                  <li key={i} className="text-sm text-textMain flex items-start gap-2">
+                    <span className="text-yellow-500 mt-1 shrink-0">•</span> {p}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
-
-        {/* Pontos Positivos */}
-        {Array.isArray(analysis?.pontos_positivos) && analysis.pontos_positivos.length > 0 && (
-          <div className="glass-panel p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <CheckCircle2 size={18} className="text-green-500" />
-              <h3 className="font-semibold text-textMain">Pontos Positivos</h3>
-            </div>
-            <ul className="space-y-2">
-              {analysis.pontos_positivos.map((p, i) => (
-                <li key={i} className="text-sm text-textMain flex items-start gap-2">
-                  <span className="text-green-500 mt-1 shrink-0">•</span> {p}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Pontos de Melhoria */}
-        {Array.isArray(analysis?.pontos_melhoria) && analysis.pontos_melhoria.length > 0 && (
-          <div className="glass-panel p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle size={18} className="text-yellow-500" />
-              <h3 className="font-semibold text-textMain">Pontos de Melhoria</h3>
-            </div>
-            <ul className="space-y-2">
-              {analysis.pontos_melhoria.map((p, i) => (
-                <li key={i} className="text-sm text-textMain flex items-start gap-2">
-                  <span className="text-yellow-500 mt-1 shrink-0">•</span> {p}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* Coluna direita — 2fr (3 Fases + Recomendação + Oportunidade) */}
         <div className="lg:col-span-2 space-y-6">
@@ -500,7 +452,51 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
             )
           )}
 
-          {/* Recomendação de Treinamento (coluna direita, abaixo das fases) */}
+          {/* Transcrição (collapsible) — abaixo da Avaliação 3 Fases na direita */}
+          {call?.transcricao_diarizada && (
+            <div className="glass-panel p-5">
+              <button
+                onClick={() => setShowTranscript(!showTranscript)}
+                className="flex items-center justify-between w-full"
+              >
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={18} className="text-textMuted" />
+                  <h3 className="font-semibold text-textMain">Transcrição</h3>
+                </div>
+                {showTranscript ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              </button>
+
+              {showTranscript && (
+                <div className="mt-4 pt-4 border-t border-black/5 space-y-3 max-h-[500px] overflow-y-auto">
+                  {call.transcricao_diarizada.split('\n\n').map((block, i) => {
+                    const isOp = block.toLowerCase().startsWith('operador:')
+                    const isClient = block.toLowerCase().startsWith('cliente:')
+                    if (!block.trim()) return null
+                    let textContent = block
+                    if (isOp) textContent = block.substring(9).trim()
+                    if (isClient) textContent = block.substring(8).trim()
+                    return (
+                      <div key={i} className={`flex gap-3 ${isOp ? 'flex-row' : 'flex-row-reverse'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                          isOp ? 'bg-primary text-white' : 'bg-surface text-textMuted border border-black/10'
+                        }`}>
+                          {isOp ? <Headphones size={14} /> : <User size={14} />}
+                        </div>
+                        <div className={`p-3 rounded-2xl max-w-[85%] text-sm leading-relaxed ${
+                          isOp ? 'bg-surface border border-black/5 text-textMain rounded-tl-sm'
+                               : 'bg-black/5 text-textMain rounded-tr-sm'
+                        }`}>
+                          {textContent}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Recomendação de Treinamento (coluna direita, abaixo da Transcrição) */}
           {analysis?.recomendacao_treinamento && (
             <div className="glass-panel p-5">
               <div className="flex items-center gap-2 mb-3">

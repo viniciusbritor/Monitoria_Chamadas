@@ -490,29 +490,34 @@ def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Sem permissão para esta chamada")
             
     gcs_uri = call_data["gcs_uri"]
+    print(f"[API] audio.call_id={call_id[:12]} gcs_uri={gcs_uri}", flush=True)
     try:
         bucket_name = gcs_uri.split("/")[2]
         blob_name = "/".join(gcs_uri.split("/")[3:])
-        
+        print(f"[API] audio.bucket={bucket_name} blob={blob_name}", flush=True)
+
         from google.cloud import storage as gcs_storage
         gcs_client = gcs_storage.Client()
         bucket = gcs_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
-        
-        if not blob.exists():
+
+        exists = blob.exists()
+        print(f"[API] audio.blob_exists={exists}", flush=True)
+        if not exists:
             raise HTTPException(status_code=404, detail="Arquivo deletado do storage")
-            
+
         import datetime
         url = blob.generate_signed_url(
             version="v4",
             expiration=datetime.timedelta(minutes=120),
             method="GET"
         )
+        print(f"[API] audio.signed_url_ok para {call_id[:12]}", flush=True)
         return {"audio_url": url}
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[API] Erro gerando signed_url para {gcs_uri}: {e}")
+        print(f"[API] audio.erro call_id={call_id[:12]} tipo={type(e).__name__} msg={e}", flush=True)
         raise HTTPException(status_code=500, detail="Erro ao gerar link do áudio")
 
 

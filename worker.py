@@ -258,8 +258,18 @@ def enforce_dynamic_consistency(evaluation):
 
         # Calcula NPS a partir da polaridade do CLIENTE
         nps_calc = max(1, min(10, round((pol_cli + 10) / 2)))
-        # Calcula QA a partir da polaridade do OPERADOR
-        qa_calc = max(10, min(100, round((pol_op + 10) * 4.5 + 10)))
+        # Calcula QA base a partir da polaridade do OPERADOR
+        qa_base = max(10, min(100, round((pol_op + 10) * 4.5 + 10)))
+        # Multiplicador de contexto: cliente dificil (NPS baixo) valoriza operador
+        difficulty_mult = 1 + max(0, (10 - nps_calc) * 0.045)
+        # Bonus por checklist cumprido (global da avaliacao, nao por fase)
+        checklist = evaluation.get("checklist_conformidade", [])
+        checklist_bonus = 0
+        if checklist:
+            cumpridos = sum(1 for item in checklist if item.get("cumprido"))
+            if len(checklist) > 0:
+                checklist_bonus = (cumpridos / len(checklist)) * 10
+        qa_calc = max(10, min(100, round(qa_base * difficulty_mult + checklist_bonus)))
 
         # Forca correcao se polaridade extrema conflita com nota
         nps_atual = fase.get("nota_nps", 0)
