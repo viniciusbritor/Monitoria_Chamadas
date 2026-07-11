@@ -73,8 +73,11 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | `PORTAL_API_URL` | `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app` | cloudbuild-test.yaml |
 | `TEST_ENV_AUDIENCE` | URL com project number | cloudbuild-test.yaml |
 | `PERM_CACHE_TTL_SEC` | `300` | cloudbuild-test.yaml |
+| `AUDIO_BUCKET` | `coherence-monitoria-audios-tmp` (default, sem env var explicita) | api.py:596 |
 | `OMP_NUM_THREADS` | `2` | cloudbuild-test.yaml |
 | `PYTHONUNBUFFERED` | `1` | cloudbuild-test.yaml |
+
+**IMPORTANTE:** A SA da API (`894828119087-compute@...`) precisa de `roles/iam.serviceAccountTokenCreator` (auto-binding) para gerar signed URLs V4. Sem isso, `GET /api/calls/{id}/audio` retorna 500.
 
 ### worker (Cloud Run monitoria-whisper-worker)
 | Variavel | Default |

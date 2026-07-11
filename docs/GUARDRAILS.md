@@ -218,4 +218,19 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 5. A unica excecao: quando o usuario solicitar explicitamente a publicacao em producao, usar a skill `test_to_prod_promoter`.
 6. O fluxo padrao de trabalho e: `git checkout test` → ajustes → `git push origin test` → deploy automatico em test. Usar a skill `test_workflow_manager`.
 
+## Regra #20 — Signed URL requer signBlob no SA da API
+
+**Aplicavel a partir de 11/07/2026.**
+
+1. A SA que executa a API (`894828119087-compute@developer.gserviceaccount.com`) DEVE ter `roles/iam.serviceAccountTokenCreator` como auto-binding (`iam.serviceAccounts.signBlob`).
+2. Sem essa permissao, `blob.generate_signed_url()` retorna 500 e o frontend exibe "Audio nao disponivel".
+3. `roles/editor` no projeto NAO inclui `signBlob`. A permissao deve ser adicionada explicitamente:
+   ```bash
+   gcloud iam service-accounts add-iam-policy-binding \
+     894828119087-compute@... \
+     --member=serviceAccount:894828119087-compute@... \
+     --role=roles/iam.serviceAccountTokenCreator
+   ```
+4. **Verificar apos cada reset de projeto** se a permissao ainda esta presente.
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

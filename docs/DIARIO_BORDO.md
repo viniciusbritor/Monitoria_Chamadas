@@ -2344,6 +2344,42 @@ if (!res.ok) {
   - Bundle antigo cacheado no navegador do usuário fazia parecer que o SSO não funcionava. Solução: cache-busting via `?v=<sha>`.
   - Comportamento confuso ao acessar Monitoria direto sem `?token=`. Solução: auto-redirect para Portal.
 
+## 11/07/2026 - Fix Audio (signBlob) + Layout CallInspector + QA Context Formula
+
+### Audio: signed URL falhava por falta de signBlob
+- **Sintoma:** "Audio nao disponivel para esta chamada." e "Audio nao disponivel no momento." em todas as chamadas processadas.
+- **Investigacao:** Rastreamento completo do fluxo (upload → Firestore gcs_uri → GCS blob → signed URL). Confirmado:
+  - `gcs_uri` persiste corretamente no Firestore pela API de upload
+  - Callback OIDC nao sobrescreve `gcs_uri` (Firestore `update()` com merge)
+  - Blob existe no bucket (`coherence-monitoria-audios-tmp`) com arquivos visiveis
+  - `blob.generate_signed_url()` falhava com 500
+- **Causa raiz:** A SA `894828119087-compute@...` nao tinha permissao `iam.serviceAccounts.signBlob`. O `roles/editor` nao inclui `signBlob`. `generate_signed_url()` V4 precisa dessa permissao no proprio SA.
+- **Correcao:** `roles/iam.serviceAccountTokenCreator` adicionado como auto-binding no SA `894828119087-compute@developer.gserviceaccount.com`.
+- **Prevencao:** Adicionados logs detalhados no endpoint `GET /api/calls/{id}/audio` (gcs_uri, blob.exists, exception type + message). Documentado em GUARDRAILS.md nova Regra #20.
+
+### Layout CallInspector (aprovado pelo usuario)
+- **Antes:** Transcricao, Pontos Positivos e Pontos de Melhoria estavam FORA do grid 2 colunas (renderizavam largura total abaixo do layout). Layout desorganizado.
+- **Depois:**
+  - Pontos Positivos e Pontos de Melhoria → coluna esquerda (abaixo de Erro Critico)
+  - Transcricao → coluna direita (abaixo de Avaliacao em 3 Fases, antes de Recomendacao)
+  - Estrutura agora respeita o `<div className="grid-cols-1 lg:grid-cols-3">`
+
+### QA Score: multiplicador de contexto
+- **Problema:** Operador profissional em chamada extremamente dificil recebia QA 55 (mesmo que um operador neutro em chamada trivial). Formula linear nao considerava contexto do cliente.
+- **Correcao em `worker.py:enforce_dynamic_consistency()`:**
+  - `difficulty_mult = 1 + max(0, (10 - nps_calc) * 0.045)` — cliente mais irritado = maior multiplicador
+  - `checklist_bonus = (itens_cumpridos / total) * 10` — bonus por checklist do POP
+  - `qa_final = qa_base * difficulty_mult + checklist_bonus`
+  - Exemplo: cliente irritado (NPS=1), operador profissional (polaridade=0): QA passa de 55 → ~80
+
+### Migracao da Service Account
+- Criada SA `admin-omnichannel@coherence-ominichannel-fs.iam.gserviceaccount.com`
+- Copiadas 6 roles do projeto + 2 roles do Artifact Registry
+- Cloud Build trigger `deploy-monitoria-whisper-worker` atualizado
+- Cloud Run `monitoria-whisper-worker` atualizado
+- SA antiga `monitoria-whisper-worker@...` deletada
+- Roles adicionadas: `roles/artifactregistry.writer` (repo), `roles/artifactregistry.reader` (projeto), `roles/run.admin` (projeto), `roles/iam.serviceAccountUser` (auto-self)
+
 ## 10/07/2026 - Unificacao para coherence-ominichannel-fs + CI/CD Completo
 
 ### Hotfix: HTML comment quebrava Vite build
