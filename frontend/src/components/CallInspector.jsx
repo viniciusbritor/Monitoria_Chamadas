@@ -61,8 +61,10 @@ function PhaseCard({ title, icon: Icon, fase }) {
           {Icon && <Icon size={20} className="text-primary shrink-0" />}
           <h4 className="font-bold text-textMain text-base">{title}</h4>
         </div>
-        <div className="flex gap-2 text-xs shrink-0">
+        <div className="flex gap-2 text-xs shrink-0 items-center">
+          <span className="px-1.5 py-0.5 rounded font-semibold text-[10px] uppercase tracking-wider bg-gray-100 text-gray-600">QA</span>
           <ScoreBadge value={qa} max={100} />
+          <span className="px-1.5 py-0.5 rounded font-semibold text-[10px] uppercase tracking-wider bg-gray-100 text-gray-600">NPS</span>
           <ScoreBadge value={nps} max={10} />
         </div>
       </div>
