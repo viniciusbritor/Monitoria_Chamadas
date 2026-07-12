@@ -72,9 +72,9 @@ steps:
       - '-c'
       - |
         set -e
-        SERVICE_URL=$$(gcloud run services describe monitoria --region=us-central1 --format="value(status.url)")
         REVISION=$$(gcloud run services describe monitoria --region=us-central1 --format="value(status.latestReadyRevisionName)")
         PORTAL_URL="https://portal-omnichannel.coherenceai.com.br"
+        MODULE_URL="https://monitoria.coherenceai.com.br"
         TOKEN=$$(curl -s -H "Metadata-Flavor: Google" \
           "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=$$PORTAL_URL")
         if [ -z "$$TOKEN" ]; then
@@ -87,7 +87,7 @@ steps:
           "$$PORTAL_URL/api/admin/modules/monitoria-chamadas?admin_email=$$ADMIN_EMAIL" \
           -H "Authorization: Bearer $$TOKEN" \
           -H "Content-Type: application/json" \
-          -d "{\"name\":\"Monitoria de Chamadas\",\"url\":\"$$SERVICE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
+          -d "{\"name\":\"Monitoria de Chamadas\",\"url\":\"$$MODULE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
         echo "Portal notify response: $$RESPONSE"
         HTTP_STATUS=$$(echo "$$RESPONSE" | grep -oP 'HTTP_STATUS:\K[0-9]+' || echo "unknown")
         if [ "$$HTTP_STATUS" != "200" ]; then
