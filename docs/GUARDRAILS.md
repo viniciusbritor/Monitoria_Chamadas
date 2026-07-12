@@ -245,4 +245,16 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
    ```
 4. **Verificar apos cada reset de projeto** se a permissao ainda esta presente.
 
+## Regra #23 — Fluxo de Desenvolvimento: TUDO em Test, NUNCA em Prod
+
+**Aplicavel a partir de 12/07/2026. Regra absoluta.**
+
+1. **Todo desenvolvimento, commit e deploy DEVE ser na branch `test`.**
+2. **PRODUÇÃO recebe APENAS merge da `test`** (`test → main`), e somente **após aprovação explícita do usuário**.
+3. **PROIBIDO** commitar diretamente em `main`.
+4. **PROIBIDO** fazer `git push origin main` exceto via `git merge test` autorizado.
+5. **Testes de verificação** (upload, inspeção, LLM) devem ser feitos no ambiente `monitoria-test-env`.
+6. **O ambiente de produção** (`monitoria.coherenceai.com.br`) só recebe deploy quando o usuário disser "publique em prod" ou equivalente.
+7. **Exceção:** correções críticas (crash, security, dados corrompidos) podem pular a fila com autorização explícita do usuário.
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
