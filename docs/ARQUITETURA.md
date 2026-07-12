@@ -1,6 +1,6 @@
 # Arquitetura do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 10/07/2026 (CI/CD completo + producao unificado)
+> Ultima atualizacao: 12/07/2026 (Deploy producao + LLM via GCP Secret Manager)
 
 ## Visao Geral
 
@@ -8,10 +8,10 @@
 
 | Servico | Tipo | Acesso | Responsabilidade |
 |---|---|---|---|
-| `monitoria-test-env` | API test | Publico via Portal | API FastAPI, upload, settings |
-| `monitoria-whisper-worker` | Worker test | `--no-allow-unauthenticated` (OIDC) | Consumer Pub/Sub test, transcricao, LLM |
-| `monitoria` | API prod | Publico via Portal (`monitoria.coherenceai.com.br`) | API FastAPI, upload, settings |
-| `monitoria-worker` | Worker prod | `--no-allow-unauthenticated` (OIDC) | Consumer Pub/Sub prod, transcricao, LLM |
+| `monitoria-test-env` | API test | `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app` | API FastAPI, upload, settings |
+| `monitoria-whisper-worker` | Worker test | Privado (OIDC) | Consumer Pub/Sub test, transcricao, LLM |
+| `monitoria` | API prod | `https://monitoria.coherenceai.com.br` (dominio customizado) | API FastAPI, upload, settings |
+| `monitoria-worker` | Worker prod | Privado (OIDC) | Consumer Pub/Sub prod, transcricao, LLM |
 
 ### Topicos Pub/Sub
 
@@ -215,6 +215,7 @@ Modelo large-v3 substituido por base (74MB, ~0.1x tempo real).
 
 ## Capability check
 
+- LLM secrets: GCP Secret Manager (`google-cloud-secret-manager` no requirements.txt). Cloud Run SA precisa de `roles/secretmanager.secretAccessor`.
 - Audio formats: MP3, WAV, MPEG
 - Transcricao: faster-whisper base (PT-BR, int8, ~0.1x tempo real)
 - Avaliacao: DeepSeek V4 Flash (primario) → NVIDIA NIM (fallback) → MiniMax M3 (ultimo recurso)

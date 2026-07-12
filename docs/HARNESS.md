@@ -1,6 +1,6 @@
 # HARNESS do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 10/07/2026 (CI/CD completo + producao unificado)
+> Ultima atualizacao: 12/07/2026 (Deploy producao + dominio customizado + LLM via Secret Manager)
 
 ## Objetivo Principal
 
@@ -95,7 +95,7 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 |---|---|---|
 | `FIRESTORE_PROJECT_ID` | `coherence-ominichannel-fs` | cloudbuild-prod.yaml |
 | `PUBSUB_TOPIC` | `monitoria-whisper-jobs-prod` | cloudbuild-prod.yaml |
-| `PORTAL_API_URL` | `https://coherence-portal-test-453yjxgtta-uc.a.run.app` | cloudbuild-prod.yaml |
+| `PORTAL_API_URL` | `https://portal-omnichannel.coherenceai.com.br` | cloudbuild-prod.yaml |
 | `TEST_ENV_AUDIENCE` | `https://monitoria.coherenceai.com.br` | cloudbuild-prod.yaml |
 | `PERM_CACHE_TTL_SEC` | `300` | cloudbuild-prod.yaml |
 | `OMP_NUM_THREADS` | `2` | cloudbuild-prod.yaml |
@@ -112,24 +112,22 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 | `OMP_NUM_THREADS` | `6` | cloudbuild-worker-prod.yaml |
 
 ### Worker Cloud Run (recursos vigentes)
-| Recurso | Valor |
-|---|---|
-| CPU | 4 vCPU |
-| Memory | 4 GiB |
-| max-instances | 4 |
-| min-instances | 1 (sempre ativo) |
-| concurrency | 2 |
-| `--no-cpu-throttling` | ativo |
-| `--cpu-boost` | ativo |
-| Custo estimado | ~$50/mês (modelo base, OIDC callback) |
+| Ambiente | CPU | Memory | min-instances | max-instances | concurrency |
+|---|---|---|---|---|---|
+| Test | 4 vCPU | 4 GiB | **0** (sob demanda) | 4 | 2 |
+| Prod | 4 vCPU | 4 GiB | 1 (sempre ativo) | 4 | 2 |
+
+Ambos: `--no-cpu-throttling`, `--cpu-boost`, custo test ~$0 idle, prod ~$50/mês.
 
 ## URL canonica
 
 - **Producao (API)**: `https://monitoria.coherenceai.com.br`
-- **Test (API)**: `https://monitoria-test-env-894828119087.us-central1.run.app`
-- **Worker prod**: `https://monitoria-worker-894828119087.us-central1.run.app` (privado, sem allow-unauthenticated)
-- **Worker test**: `https://monitoria-whisper-worker-894828119087.us-central1.run.app` (privado)
-- **Portal Coherence (referencia)**: `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app`
+- **Producao (API Cloud Run)**: `https://monitoria-c5nbfc5meq-uc.a.run.app` (redirect do dominio)
+- **Test (API)**: `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app`
+- **Worker prod**: `https://monitoria-worker-c5nbfc5meq-uc.a.run.app` (privado, sem allow-unauthenticated)
+- **Worker test**: `https://monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app` (privado)
+- **Portal Producao**: `https://portal-omnichannel.coherenceai.com.br`
+- **Portal Test (ref)**: `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app`
 
 ## Acesso ao Modulo - SEMPRE via Portal Coherence
 
@@ -181,6 +179,14 @@ Ambos disparam em paralelo com o mesmo `git push`.
 - **NUNCA** criar `frontend/.env.local` (seu conteudo e' embutido no bundle).
 - Para desenvolvimento local: copiar `.env.example` para `.env.local`.
 - **Cache-bust:** o `cloudbuild-test.yaml` cria `frontend/.cache-bust` antes do build.
+
+## Dependencias Críticas (requirements.txt)
+
+**NEW (12/07/2026):** `google-cloud-secret-manager` adicionado ao `requirements.txt`.
+
+O `secrets_manager.py` usa GCP Secret Manager (via `google.cloud.secretmanager`) para ler chaves de API (DeepSeek, NVIDIA, MiniMax). Sem essa lib, o fallback tenta SQLite local (nao existe em Cloud Run) e retorna vazio, causando erro "Todos provedores LLM falharam".
+
+IAM necessario: Cloud Run SA precisa de `roles/secretmanager.secretAccessor` no projeto.
 
 ## Ver tambem
 

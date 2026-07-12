@@ -1,13 +1,13 @@
 # Guardrails e Regras Inegociáveis
 
-> Ultima atualizacao: 10/07/2026 (base model + BRT timezone)
+> Ultima atualizacao: 12/07/2026 (Secret Manager + dominio producao + LLM keys)
 > Este arquivo dita as regras DURAS que todos os agentes IA devem obedecer neste projeto.
 
 ## Regra #0 (mais alta prioridade) - Acesso EXCLUSIVO via Portal Coherence
 
 **A URL `https://monitoria-test-env-894828119087.us-central1.run.app/` NAO e' publica.**
 
-1. **Unico caminho valido**: usuario loga no **Portal Coherence** (`https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`), clica no card "Monitoria de Chamadas", e o Portal abre o modulo via `window.open(module.url + '?token=' + firebase_id_token, '_blank')`.
+1. **Unico caminho valido**: usuario loga no **Portal Coherence** (producao: `https://portal-omnichannel.coherenceai.com.br/` ou test: `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app/`), clica no card "Monitoria de Chamadas", e o Portal abre o modulo via `window.open(module.url + '?token=' + firebase_id_token, '_blank')`.
 2. **Acesso direto** (colar URL no navegador, bookmark, link direto) e' PROIBIDO. Mostra a tela "Acesso via Portal Coherence" com botao de redirect.
 3. **Nao reintroduzir** formulario de login proprio (Google, email/senha, magic-link).
 4. **Nao compartilhar** a URL do modulo como ponto de entrada.
@@ -121,12 +121,12 @@ Classes Tailwind permitidas: `transition-all`, `transition-colors`, `transition-
 3. Justificativa: worker reduzido de 8 GiB para 4 GiB (custo). 20MB cobre audio de ~10min em WAV 16kHz mono (cenario tipico de monitoria). Audio maior deve ser dividido em chunks ou convertido para MP3.
 4. **Risco de OOM**: arquivo > 20MB pode crashar o worker por falta de memoria. Validacao dupla (frontend + backend) e obrigatoria.
 
-## Regra #12 — Cold Start (worker min-instances=1)
+## Regra #12 — Cold Start (worker min-instances)
 
-**Aplicavel desde 08/07/2026. Atualizado 10/07/2026 (min-instances=1).**
+**Aplicavel desde 08/07/2026. Atualizado 12/07/2026 (test min-instances=0, prod min-instances=1).**
 
-1. **min-instances=1** no worker garante que nao haja cold start (1 container sempre ativo).
-2. Custo estimado: ~$50/mes (4 vCPU, 4 GiB).
+1. **Producao**: `min-instances=1` no worker `monitoria-worker` garante sem cold start (1 container sempre ativo). Custo ~$50/mes.
+2. **Test**: `min-instances=0` no worker `monitoria-whisper-worker` — sob demanda, escala a zero quando ocioso (custo $0 idle). Ativado via `git push origin test` ou `scripts/dev.ps1 up`.
 3. Cold start de ~15s ocorre APENAS em caso de crash/reinicio forcado do container.
 4. **Ver Regra #16** para detalhes arquiteturais sobre PULL vs PUSH.
 5. Solucao definitiva: migracao para PUSH subscription (elimina necessidade de min-instances).
@@ -187,25 +187,24 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 
 ## Regra #16 — Resiliência contra Inatividade (Anti-Scale-to-Zero Break)
 
-**Aplicavel a partir de 10/07/2026.**
+**Aplicavel a partir de 10/07/2026. Atualizado 12/07/2026 (test = excecao).**
 
 1. **O pipeline NAO PODE quebrar por inatividade do worker.** O usuario deve poder
    enviar chamadas a qualquer momento, mesmo apos horas ou dias sem uso.
 
-2. **Streaming PULL subscription e' INCOMPATIVEL com min-instances=0.** Em PULL,
+2. **Producao: PROIBIDO** `min-instances=0`. Worker `monitoria-worker` usa `min-instances=1`.
+
+3. **Test: ACEITO** `min-instances=0` (worker `monitoria-whisper-worker`). Justificativa:
+   - Ambiente de teste fica idle quando nao usado (custo $0).
+   - Ao pushar (`git push origin test`), Cloud Build deploya e worker fica ativo.
+   - Script `scripts/dev.ps1 up` reativa manualmente.
+
+4. **Streaming PULL subscription e' INCOMPATIVEL com min-instances=0.** Em PULL,
    o worker inicia a conexao gRPC. Se o container morrer (scale-to-zero), nenhum
    evento dispara um novo container. Mensagens acumulam eternamente.
 
-3. **Alternativa correta:** PUSH subscription. O Pub/Sub envia HTTP POST para o
+5. **Alternativa correta:** PUSH subscription. O Pub/Sub envia HTTP POST para o
    worker, e o Cloud Run inicia o container automaticamente.
-
-4. **Alternativa aceitavel (curto prazo):** `--min-instances=1`. Mantem 1 container
-   sempre ativo (~$50/mes). PULL subscription funciona enquanto o container vive.
-
-5. **Alternativa paliativa:** Cloud Scheduler keep-warm a cada 5 min. Reduz mas
-   nao elimina o risco (container pode morrer entre pings).
-
-6. **PROIBIDO** manter PULL subscription com `min-instances=0` em producao.
 
 ## Regra #19 — Operacao Exclusiva em Test (Proibido Deploy em Prod sem Ordem)
 
@@ -218,7 +217,20 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 5. A unica excecao: quando o usuario solicitar explicitamente a publicacao em producao, usar a skill `test_to_prod_promoter`.
 6. O fluxo padrao de trabalho e: `git checkout test` → ajustes → `git push origin test` → deploy automatico em test. Usar a skill `test_workflow_manager`.
 
-## Regra #20 — Signed URL requer signBlob no SA da API
+## Regra #21 — LLM Keys via GCP Secret Manager (obrigatorio em Cloud Run)
+
+**Aplicavel a partir de 12/07/2026.**
+
+1. **Todas as chaves de API LLM** (DEEPSEEK_API_KEY, NVIDIA_API_KEY, MINIMAX_API_KEY) DEVEM estar no **GCP Secret Manager** do projeto `coherence-ominichannel-fs`.
+2. O `requirements.txt` DEVE conter `google-cloud-secret-manager` — sem ela, o `secrets_manager.py` nao consegue ler as chaves e todos os providers falham.
+3. A SA do Cloud Run (`894828119087-compute@developer.gserviceaccount.com`) DEVE ter `roles/secretmanager.secretAccessor` no projeto.
+4. **NUNCA** injetar chaves LLM como env vars no `cloudbuild-*.yaml` (vazamento via logs do Cloud Build).
+5. **NUNCA** depender de SQLite local em Cloud Run (armazenamento efemero — chaves desaparecem apos restart).
+6. Ao adicionar novo provider LLM, criar a secret no GCP SM antes do merge.
+
+**Historico:** Bug critico em 12/07/2026: DEEPSEEK_API_KEY foi corrompida ao subir para GCP SM (caracteres non-latin1). Fix: reupload com `gcloud secrets versions add`.
+
+## Regra #22 — Signed URL requer signBlob no SA da API
 
 **Aplicavel a partir de 11/07/2026.**
 

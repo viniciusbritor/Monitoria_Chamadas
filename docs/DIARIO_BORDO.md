@@ -2458,6 +2458,56 @@ if (!res.ok) {
 
 ---
 
+## 12/07/2026 — Deploy Producao + LLM Fix + QA/NPS Labels
+
+### Deploy da Producao (monitoria.coherenceai.com.br)
+- Merge `test` → `main` e push para trigger do `cloudbuild-prod.yaml`.
+- **cloudbuild-prod.yaml**: Alterado `PORTAL_API_URL` para `https://portal-omnichannel.coherenceai.com.br` (Portal producao) e `_VITE_PORTAL_URL` para o mesmo.
+- Notificacao ao Portal producao registrou modulo com URL `https://monitoria-c5nbfc5meq-uc.a.run.app`.
+- IAM: `allUsers → roles/run.invoker` precisou ser adicionado manualmente (gcloud beta run).
+- **cloudbuild-worker-prod.yaml**: `WORKER_CALLBACK_URL=https://monitoria.coherenceai.com.br` ja estava correto.
+
+### Dominio Customizado
+- Domain mapping `monitoria.coherenceai.com.br` ja existia e estava `Ready=True, CertificateProvisioned=True, DomainRoutable=True`.
+- Notificacao ao Portal atualizada para usar `https://monitoria.coherenceai.com.br` (hardcoded `MODULE_URL`).
+- `cloudbuild-prod.yaml`: Substituido `SERVICE_URL` (Cloud Run URL) por `MODULE_URL=https://monitoria.coherenceai.com.br`.
+
+### Bug: LLM falhou — "Todos provedores LLM falharam" (12/07/2026)
+**Causa raiz:** 2 problemas simultaneos:
+
+**Problema A: `google-cloud-secretmanager` ausente no `requirements.txt`.**
+- O `secrets_manager.py` tenta `from google.cloud import secretmanager`, falha silenciosamente (`except Exception: pass`), e cai no fallback SQLite → `os.getenv` → vazio.
+- **Fix:** Adicionado `google-cloud-secret-manager` ao `requirements.txt`.
+- **Nota:** O nome correto do pacote e' `google-cloud-secret-manager` (com hifen), nao `google-cloud-secretmanager`. O build inicial falhou com nome errado.
+
+**Problema B: SA do Cloud Run sem permissao `secretmanager.secretAccessor`.**
+- A SA `894828119087-compute@developer.gserviceaccount.com` (default do Cloud Run) nao tinha permissao para ler secrets.
+- **Fix:** `gcloud projects add-iam-policy-binding --role=roles/secretmanager.secretAccessor`.
+
+**Problema C: Chaves corrompidas no GCP Secret Manager.**
+- A `DEEPSEEK_API_KEY` foi armazenada com caracteres non-latin1, causando `'latin-1' codec can't encode characters` no header HTTP.
+- **Fix:** Re-upload das 3 chaves (`DEEPSEEK_API_KEY`, `NVIDIA_API_KEY`, `MINIMAX_API_KEY`) como versao 2 via `gcloud secrets versions add`.
+- Worker reiniciado (`gcloud run services update --update-env-vars=RESTART_TS=...`) para forçar reload das chaves.
+
+### Worker test: min-instances=0 (sob demanda)
+- `cloudbuild-worker.yaml`: `min-instances` alterado de 1 para 0.
+- Worker test escala a zero quando ocioso (custo $0/mes idle).
+- Script `scripts/dev.ps1` criado para gerenciar up/down do ambiente test.
+- Producao continua com `min-instances=1`.
+
+### UI: Rotulos QA/NPS nas 3 Fases
+- `CallInspector.jsx` `PhaseCard`: Adicionados labels `[QA]` e `[NPS]` antes de cada `ScoreBadge`.
+- Labels: uppercase tracking-wider, fundo cinza claro, texto escuro.
+- Agora cada card das fases mostra: `[QA] [85/100] [NPS] [7/10]`.
+
+### Docs Atualizados
+- `HARNESS.md`: URLs atualizadas, tabela worker test x prod, secao `google-cloud-secret-manager`.
+- `GUARDRAILS.md`: Regra #21 (LLM Keys via GCP Secret Manager), Regra #12 e #16 atualizadas (min-instances test).
+- `ARQUITETURA.md`: Tabela servicos com URLs, nota sobre Secret Manager.
+- `DIARIO_BORDO.md`: Esta entrada.
+
+---
+
 ## 29/06/2026 - Lançamento da Versão 2 (Ambiente de Testes) e Suporte MPEG
 - **O que foi construído:**
   - **Homologação/V2:** Criação e deploy do novo serviço Cloud Run `monitoria-cx-v2` (`https://monitoria-cx-v2-4105010761.us-central1.run.app`) para testar melhorias sem impactar a produção.
