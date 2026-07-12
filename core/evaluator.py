@@ -133,7 +133,7 @@ NUNCA produza: {{"nota_nps":10}} ← INACEITAVEL (falta sentimento e polaridade)
 --- AVALIACAO EM 3 FASES ---
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
-Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: "sentimentos_cliente": [{"sentimento":"Irritado","probabilidade":0.7},{"sentimento":"Frustrado","probabilidade":0.3}]. Probabilidades devem somar ~1.0 dentro de cada fase.
+Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentimentos_cliente": [{{"sentimento":"Irritado","probabilidade":0.7}},{{"sentimento":"Frustrado","probabilidade":0.3}}]}}. Probabilidades devem somar ~1.0 dentro de cada fase.
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
@@ -236,7 +236,7 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
 --- AVALIACAO EM 3 FASES ---
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
-Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: "sentimentos_cliente": [{"sentimento":"Irritado","probabilidade":0.7},{"sentimento":"Frustrado","probabilidade":0.3}]. Probabilidades devem somar ~1.0 dentro de cada fase.
+Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentimentos_cliente": [{{"sentimento":"Irritado","probabilidade":0.7}},{{"sentimento":"Frustrado","probabilidade":0.3}}]}}. Probabilidades devem somar ~1.0 dentro de cada fase.
 
 --- REGRAS DE CONSISTENCIA (OBRIGATORIO) ---
 Para cada fase, atribua polaridade numerica (-10 a +10):
