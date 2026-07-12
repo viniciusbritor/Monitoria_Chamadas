@@ -49,11 +49,36 @@ function SentimentBadge({ value }) {
   </span>
 }
 
+function SentimentList({ sentiments, emptyText = "Nenhum sentimento" }) {
+  if (!Array.isArray(sentiments) || sentiments.length === 0) {
+    return <span className="text-xs text-textMuted italic">{emptyText}</span>
+  }
+  return (
+    <div className="flex flex-wrap gap-2">
+      {sentiments.map((s, i) => {
+        const label = typeof s === 'string' ? s : s?.sentimento || s?.label || ''
+        const prob = typeof s === 'object' ? s?.probabilidade : null
+        const pct = prob ? Math.round(prob * 100) : null
+        return (
+          <span key={i} className="inline-flex items-center gap-1.5 bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
+            {label}
+            {pct !== null && (
+              <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded-md">
+                {pct}%
+              </span>
+            )}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 function PhaseCard({ title, icon: Icon, fase }) {
   const qa = fase?.nota_qa || 0
   const nps = fase?.nota_nps || 0
-  const sentCli = fase?.sentimento_cliente
-  const sentOpe = fase?.sentimento_operador
+  const sentCliArr = fase?.sentimentos_cliente || (fase?.sentimento_cliente ? [{ sentimento: fase.sentimento_cliente }] : null)
+  const sentOpeArr = fase?.sentimentos_operador || (fase?.sentimento_operador ? [{ sentimento: fase.sentimento_operador }] : null)
   return (
     <div className="p-5 rounded-2xl bg-surface border border-black/5 space-y-3 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -71,35 +96,28 @@ function PhaseCard({ title, icon: Icon, fase }) {
       <p className="text-sm text-textMuted leading-relaxed">
         {fase?.analise || "Análise não disponível para esta fase."}
       </p>
-      {(sentCli || sentOpe) && (
-        <div className="flex gap-4 pt-3 border-t border-black/10 text-xs">
-          <div className="flex items-center gap-1.5">
-            <User size={12} className="text-textMuted" />
-            <span className="text-textMuted uppercase tracking-wide">Cliente:</span>
-            <SentimentBadge value={sentCli} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Headphones size={12} className="text-primary" />
-            <span className="text-textMuted uppercase tracking-wide">Atendente:</span>
-            <SentimentBadge value={sentOpe} />
-          </div>
+      {(sentCliArr || sentOpeArr) && (
+        <div className="space-y-2 pt-3 border-t border-black/10">
+          {sentCliArr && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <User size={12} className="text-textMuted" />
+                <span className="text-[10px] text-textMuted uppercase tracking-wide font-semibold">Cliente:</span>
+              </div>
+              <SentimentList sentiments={sentCliArr} />
+            </div>
+          )}
+          {sentOpeArr && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Headphones size={12} className="text-primary" />
+                <span className="text-[10px] text-textMuted uppercase tracking-wide font-semibold">Atendente:</span>
+              </div>
+              <SentimentList sentiments={sentOpeArr} />
+            </div>
+          )}
         </div>
       )}
-    </div>
-  )
-}
-
-function TagList({ items, emptyText = "Nenhum item" }) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return <span className="text-xs text-textMuted italic">{emptyText}</span>
-  }
-  return (
-    <div className="flex flex-wrap gap-2">
-      {items.map((item, i) => (
-        <span key={i} className="bg-surface text-textMain px-3 py-1 rounded-full text-sm font-medium border border-black/10">
-          {item}
-        </span>
-      ))}
     </div>
   )
 }
@@ -313,8 +331,8 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
               <User size={18} className="text-textMuted" />
               <h3 className="font-semibold text-textMain">Humor do Cliente</h3>
             </div>
-            <TagList
-              items={analysis?.sentimentos_cliente || []}
+            <SentimentList
+              sentiments={analysis?.sentimentos_cliente || []}
               emptyText="Nenhum sentimento detectado"
             />
           </div>
@@ -331,8 +349,8 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
               <Headphones size={18} className="text-primary" />
               <h3 className="font-semibold text-textMain">Humor do Atendente</h3>
             </div>
-            <TagList
-              items={analysis?.sentimentos_operador || []}
+            <SentimentList
+              sentiments={analysis?.sentimentos_operador || []}
               emptyText="Nenhum sentimento detectado"
             />
           </div>

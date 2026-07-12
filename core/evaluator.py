@@ -116,8 +116,8 @@ Operador:
 NAO atribua polaridade positiva a cliente irritado.
 NAO atribua polaridade negativa a operador educado.
 
-Exemplo CORRETO: {{"sentimento_cliente":"Irritado","polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
-NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} ← INACEITAVEL
+Exemplo CORRETO: {{"sentimentos_cliente":[{{"sentimento":"Irritado","probabilidade":0.85}},{{"sentimento":"Frustrado","probabilidade":0.15}}],"polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
+NUNCA produza: {{"nota_nps":10}} ← INACEITAVEL (falta sentimento e polaridade)
 
 --- CONTEXTO POP ---
 {pop_context if pop_context else "1. Cordialidade. 2. Resolucao. 3. Empatia. 4. Clareza."}
@@ -133,6 +133,7 @@ NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} ← INACEITAVEL
 --- AVALIACAO EM 3 FASES ---
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
+Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: "sentimentos_cliente": [{"sentimento":"Irritado","probabilidade":0.7},{"sentimento":"Frustrado","probabilidade":0.3}]. Probabilidades devem somar ~1.0 dentro de cada fase.
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
@@ -140,18 +141,25 @@ Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
 "motivo_contato": "Descricao do motivo da chamada",
 "classificacao_motivo": "Cobrança Indevida|Suporte Técnico|Assistência Técnica|Cancelamento|Informações|Reclamação|Vendas|Outros",
 "fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}},
 "resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}},
 "fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}}}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
-"recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
-"humor_expert": "Positivo|Neutro|Desinteressado",
-"sentimentos_cliente": [str], "sentimentos_operador": [str],
+"recomendacao_treinamento": str, "humor_cliente": string,
+"humor_expert": string,
+"sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+"sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
 "erros_fatais_identificados": [str],
 "checklist_conformidade": [{{"item": str, "cumprido": bool}}],
 "oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
@@ -228,6 +236,7 @@ Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
 --- AVALIACAO EM 3 FASES ---
 Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
 Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
+Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: "sentimentos_cliente": [{"sentimento":"Irritado","probabilidade":0.7},{"sentimento":"Frustrado","probabilidade":0.3}]. Probabilidades devem somar ~1.0 dentro de cada fase.
 
 --- REGRAS DE CONSISTENCIA (OBRIGATORIO) ---
 Para cada fase, atribua polaridade numerica (-10 a +10):
@@ -250,8 +259,8 @@ Operador:
 NAO atribua polaridade positiva a cliente irritado.
 NAO atribua polaridade negativa a operador educado.
 
-Exemplo CORRETO: {{"sentimento_cliente":"Irritado","polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
-NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} <- INACEITAVEL
+Exemplo CORRETO: {{"sentimentos_cliente":[{{"sentimento":"Irritado","probabilidade":0.85}},{{"sentimento":"Frustrado","probabilidade":0.15}}],"polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
+NUNCA produza: {{"nota_nps":10}} <- INACEITAVEL (falta sentimento e polaridade)
 
 --- SAIDA (JSON ESTRITO) ---
 {{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
@@ -259,18 +268,25 @@ NUNCA produza: {{"sentimento_cliente":"Irritado","nota_nps":10}} <- INACEITAVEL
 "motivo_contato": "Descricao do motivo da chamada",
 "classificacao_motivo": "Cobrança Indevida|Suporte Técnico|Assistência Técnica|Cancelamento|Informações|Reclamação|Vendas|Outros",
 "fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}},
 "resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}},
 "fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimento_cliente": string, "polaridade_cliente": int (-10 a +10),
-  "sentimento_operador": string, "polaridade_operador": int (-10 a +10)}}}},
+  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_cliente": int (-10 a +10),
+  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
+  "polaridade_operador": int (-10 a +10)}}}},
 "erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
-"recomendacao_treinamento": str, "humor_cliente": "Positivo|Neutro|Irritado",
-"humor_expert": "Positivo|Neutro|Desinteressado",
-"sentimentos_cliente": [str], "sentimentos_operador": [str],
+"recomendacao_treinamento": str, "humor_cliente": string,
+"humor_expert": string,
+"sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
+"sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
 "erros_fatais_identificados": [str],
 "checklist_conformidade": [{{"item": str, "cumprido": bool}}],
 "oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
