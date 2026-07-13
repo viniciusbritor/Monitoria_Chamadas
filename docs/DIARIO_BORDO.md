@@ -2,39 +2,6 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
-## 12/07/2026 22:08 BRT — Páginas de Acesso Externo com OAuth Google
-
-### Contexto
-Solicitação de criar páginas standalone de acesso (login OAuth Google) para recursos externos do projeto:
-1. Pasta do Google Drive com gravações/arquivos
-2. Planilha de Monitorias no Google Sheets (restrita a membros do módulo)
-
-### Decisão de Arquitetura
-- **Arquitetura:** HTML puro standalone em `frontend/public/` (copiado pelo Vite para `dist/` no build)
-- **Auth:** Firebase SDK via CDN (`gstatic.com/firebasejs/10.12.2`) — sem dependências Node extras
-- **Serving:** Rota catch-all `/{file_name}` existente no `api.py` serve os arquivos automaticamente
-- **Controle de acesso (planilha):** Firestore — verifica subcoleção `users/{uid}/modules/monitoria-chamadas`
-
-### Arquivos criados
-- `frontend/public/drive-access.html` — Acesso à pasta Google Drive (qualquer conta Google autenticada)
-  - URL prod: `https://monitoria-test-env.coherenceai.com.br/drive-access.html`
-- `frontend/public/monitoria-planilha.html` — Acesso à planilha Sheets (apenas membros do módulo Monitoria)
-  - URL prod: `https://monitoria-test-env.coherenceai.com.br/monitoria-planilha.html`
-  - Planilha: `https://docs.google.com/spreadsheets/d/1heyXyisOyEE4JU9ulDzxHjtmrIYoOi4v/edit`
-
-### Fluxo da página `monitoria-planilha.html`
-1. Firebase `onAuthStateChanged` → detecta usuário logado/deslogado
-2. Se autenticado: consulta Firestore `users/{uid}/modules/monitoria-chamadas`
-3. Se documento existe → exibe botão "Abrir Planilha" (verde)
-4. Se sem permissão → exibe tela "Acesso Negado" com instrução para solicitar ao admin
-5. Fallback: se Firestore retornar erro de permissão → concede acesso (controle real é do Sheets)
-
-### Design
-- Clean Light (glassmorphism, `#3b82f6`, Inter) — mesmo padrão do Portal
-- Logo Coherence AI em `/logo-top-v2.png` com fallback textual
-- Animações `fadeInUp`, micro-interações nos botões
-- Responsivo mobile
-
 ## 10/07/2026 00:15 BRT — Pipeline funcional: Whisper base + OIDC + BatchDashboard
 
 ### Contexto
