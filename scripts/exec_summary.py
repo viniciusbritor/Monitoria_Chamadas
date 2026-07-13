@@ -11,7 +11,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 OUT = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\docs\Custos_OmniChannel_Executivo.xlsx"
-FID = "1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt"
+FID = "1Nb_OLbJS0012keYcXW58EMz4F1evMz6w"  # Custos/ dentro de Omnichannel/
+from datetime import date
+DT = date.today().isoformat()
+FNAME = f"Custos_OmniChannel_{DT}.xlsx"
 TKN = os.path.expanduser(r"~\.gemini\config\skills\google_calendar_manager\resources\token_drive.json")
 
 # Styles
@@ -209,9 +212,10 @@ from googleapiclient.http import MediaFileUpload
 
 with open(TKN) as f: cr=Credentials.from_authorized_user_info(json.load(f),scopes=["https://www.googleapis.com/auth/drive"])
 svc=build("drive","v3",credentials=cr)
-old=svc.files().list(q=f"name='Custos_OmniChannel_Executivo.xlsx' and '{FID}' in parents",fields="files(id)").execute()
+# Upload dated version to Custos/
+old=svc.files().list(q=f"name='{FNAME}' and '{FID}' in parents",fields="files(id)").execute()
 for f in old.get("files",[]): svc.files().delete(fileId=f["id"]).execute()
-up=svc.files().create(body={"name":"Custos_OmniChannel_Executivo.xlsx","parents":[FID]},
+up=svc.files().create(body={"name":FNAME,"parents":[FID]},
     media_body=MediaFileUpload(OUT,mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
     fields="id,webViewLink").execute()
 print(f"Excel Drive: {up['webViewLink']}")

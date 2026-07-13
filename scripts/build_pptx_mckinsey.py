@@ -15,7 +15,10 @@ from pptx.enum.shapes import MSO_SHAPE
 OUT = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\docs\Custos_Projecao_OmniChannel.pptx"
 LOGO = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\frontend\public\logo-top-v2.png"
 QR = r"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\docs\pix_qr.png"
-FID = "1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt"
+FID = "1Nb_OLbJS0012keYcXW58EMz4F1evMz6w"  # Custos/ dentro de Omnichannel/
+from datetime import date
+DT = date.today().isoformat()
+FNAME = f"Custos_Projecao_OmniChannel_{DT}.pptx"
 TKN = os.path.expanduser(r"~\.gemini\config\skills\google_calendar_manager\resources\token_drive.json")
 
 # McKinsey colors
@@ -299,7 +302,10 @@ svc = build("drive", "v3", credentials=cr)
 for nm in ["Custos_Projecao_OmniChannel.pptx"]:
     old = svc.files().list(q=f"name='{nm}' and '{FID}' in parents and trashed=false", fields="files(id)").execute()
     for f in old.get("files", []): svc.files().delete(fileId=f["id"]).execute()
-up = svc.files().create(body={"name": "Custos_Projecao_OmniChannel.pptx", "parents": [FID]},
+# Upload dated version to Custos/
+old = svc.files().list(q=f"name='{FNAME}' and '{FID}' in parents and trashed=false", fields="files(id)").execute()
+for f in old.get("files", []): svc.files().delete(fileId=f["id"]).execute()
+up = svc.files().create(body={"name": FNAME, "parents": [FID]},
     media_body=MediaFileUpload(OUT, mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation"),
     fields="id,webViewLink").execute()
-print(f"Drive: {up['webViewLink']}")
+print(f"  Drive: {up['webViewLink']}")
