@@ -129,6 +129,27 @@ Ambos: `--no-cpu-throttling`, `--cpu-boost`, custo test ~$0 idle, prod ~$50/mês
 - **Portal Producao**: `https://portal-omnichannel.coherenceai.com.br`
 - **Portal Test (ref)**: `https://coherence-portal-test-c5nbfc5meq-uc.a.run.app`
 
+## Storage / Dropbox do Projeto OmniChannel
+
+> NOTA: Existem outras pastas no Google Drive para outros projetos. Esta e exclusiva do ecossistema OmniChannel.
+
+**Google Drive Folder** (dropbox central do ecossistema OmniChannel):
+
+- URL: `https://drive.google.com/drive/folders/1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt`
+- Pasta: `Omnichannel/`
+- Dono: `viniciusbritor@gmail.com`
+- Subpasta: `Atas/` (minutas de reuniao)
+- Token OAuth: `~\.gemini\config\skills\google_calendar_manager\resources\token_drive.json` (automatico)
+
+**Para armazenar arquivos via codigo:**
+```python
+# Use scripts/list_drive.py como referencia
+# Auth via OAuth 2.0 (token_drive.json), escopo drive
+# Folder ID: 1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt
+```
+
+**Skill recomendada:** `drive_storage` (armazena qualquer arquivo na pasta do projeto via API do Google Drive).
+
 ## Acesso ao Modulo - SEMPRE via Portal Coherence
 
 > IMPORTANTE: A URL do Cloud Run NAO e' endpoint publico. Unico caminho
