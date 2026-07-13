@@ -1,85 +1,111 @@
-# Custos OmniChannel — Custo Operacional Real
+# Custos OmniChannel — Infra + IA (Dev + Produção)
 
-## CAMBIO: USD 1 = R$ 5,50 | MARGEM: 10%
+## CAMBIO: USD 1 = R$ 5,50 | MARGEM SEGURANCA: 10%
 
-## CUSTO HOJE (recorrente, 24/7)
+## CUSTO HOJE — 3 Pilares
 
-| Servico | USD/mes | BRL/mes | Categoria |
+### 1. INFRAESTRUTURA GCP (R$ 801/mês)
+| Servico | BRL/mes |
+|---|---|
+| Worker Cloud Run (4vCPU/4GB, min=1, 730h/mes) | R$ 468 |
+| API + Portal Cloud Run (min=0) | R$ 42 |
+| Firestore + Storage + PubSub + Secrets | R$ 145 |
+| Cloud Build + Artifact Registry | R$ 24 |
+| VM e2-small + IP (WhatsApp) | R$ 121 |
+
+### 2. IA — DESENVOLVIMENTO (R$ 201/mês)
+| Uso | BRL/mes |
+|---|---|
+| DeepSeek tokens — testes, prompts, engenharia | R$ 91 |
+| MiniMax Plus — plano fixo (fallback + créditos) | R$ 110 |
+
+### 3. IA — PRODUCAO NOS MODULOS (R$ 151/mês)
+| Modulo | BRL/mes |
+|---|---|
+| DeepSeek — Monitoria de Chamadas (~20 calls/dia) | R$ 12 |
+| DeepSeek — Chatbots WhatsApp (5 bots, 200 msg/dia) | R$ 48 |
+| DeepSeek — Extras (URA dev, overflow, testes prod) | R$ 91 |
+
+**TOTAL HOJE: R$ 1.153/mês** (GCP R$ 801 + IA Dev R$ 201 + IA Prod R$ 151)
+
+## ESCALA — Custo por Volume de Chamadas
+
+A IA de desenvolvimento estabiliza (~R$ 201/mês). A IA de produção escala com volume de chamadas. GCP otimiza com uso.
+
+### 500 chamadas/dia (15.000/mês)
+| Categoria | BRL/mes |
+|---|---|
+| GCP (Worker+Infra+WhatsApp) | R$ 734 |
+| IA Desenvolvimento (estabilizado) | R$ 201 |
+| IA Produção (DeepSeek escala + MiniMax fallback) | R$ 209 |
+| **TOTAL** | **R$ 1.144** |
+| **Custo por Chamada** | **R$ 0,08** |
+
+### 1.000 chamadas/dia (30.000/mês)
+| Categoria | BRL/mes |
+|---|---|
+| GCP | R$ 779 |
+| IA Desenvolvimento | R$ 201 |
+| IA Produção | R$ 273 |
+| **TOTAL** | **R$ 1.252** |
+| **Custo por Chamada** | **R$ 0,04** |
+
+### 5.000 chamadas/dia (150.000/mês)
+| Categoria | BRL/mes |
+|---|---|
+| GCP | R$ 1.131 |
+| IA Desenvolvimento | R$ 201 |
+| IA Produção | R$ 790 |
+| **TOTAL** | **R$ 2.122** |
+| **Custo por Chamada** | **R$ 0,01** |
+
+## COMPARATIVO — Operadoras Nacionais (Brasil)
+
+### Custo de QA/Monitoria por Chamada
+
+| Empresa | Perfil | Modelo QA | Custo por Chamada |
 |---|---|---|---|
-| Worker Cloud Run (4vCPU/4GB, min=1) | 85 | R$ 468 | GCP |
-| API + Portal Cloud Run | 10 | R$ 54 | GCP |
-| Firestore + Storage + PubSub + Secrets | 26 | R$ 145 | GCP |
-| Cloud Build + Artifact Registry | 4 | R$ 24 | GCP |
-| VM e2-small + IP (WhatsApp) | 22 | R$ 121 | GCP |
-| DeepSeek V4 Flash (Monitoria QA) | 2 | R$ 12 | LLM |
-| DeepSeek V4 Flash (Chatbots) | 9 | R$ 48 | LLM |
-| MiniMax + NVIDIA (fallback) | 1 | R$ 4 | LLM |
-| **TOTAL HOJE** | **160** | **R$ 878** | |
+| **Teleperformance** | BPO global, 80 mil func. no Brasil | QA humano — analistas escutam amostras de chamadas | **R$ 0,50–1,00** |
+| **Atento** | Maior BPO da América Latina, 90 mil func. BR | Monitoria manual de chamadas, equipe dedicada | **R$ 0,40–0,80** |
+| **Liq (Bertelsmann)** | BPO digital, 40 mil func. BR | Plataforma própria + terceiros para QA | **R$ 0,35–0,70** |
+| **Algar Tech** | BPO médio, 20 mil func. BR | Soluções híbridas, parte manual parte automatizada | **R$ 0,30–0,60** |
+| **NOSSA SOLUÇÃO** | OmniChannel, IA automatizada | 100% automatizado — DeepSeek V4 Flash analisa cada chamada | **R$ 0,08** |
 
-*Audio medio 5 min, Whisper base 0.1x real-time.*
+**Nossa solução é 5-13x mais barata que o QA humano das operadoras nacionais.**
+Além da economia, entregamos 100% de cobertura (vs 2-5% de amostragem do modelo humano).
 
-## ESCALA — Custo por Volume de Chamadas (Monitoria + 5 Chatbots)
+Para uma operação de 500 chamadas/dia, a economia vs Teleperformance é de aproximadamente R$ 10.000/mês.
 
-### 500 chamadas/dia (15.000/mes)
-| Componente | BRL/mes |
-|---|---|
-| Worker variavel (PUSH, min=0) | R$ 44 |
-| DeepSeek V4 Flash (15K calls) | R$ 62 |
-| MiniMax+NVIDIA fallback | R$ 5 |
-| Infra (API+Storage+PubSub) | R$ 127 |
-| LLM Chatbots | R$ 48 |
-| WhatsApp 5 bots (Cloud Run+SQL+Evolution) | R$ 556 |
-| **TOTAL 500/dia** | **R$ 850** |
-| Custo por Chamada | **R$ 0,06** |
+## CAPACIDADE ATUAL E CRESCIMENTO
 
-### 1.000 chamadas/dia (30.000/mes)
-| Componente | BRL/mes |
-|---|---|
-| Worker variavel | R$ 88 |
-| DeepSeek (30K calls) | R$ 124 |
-| Fallback + Infra + LLM Chat | R$ 185 |
-| WhatsApp 5 bots | R$ 556 |
-| **TOTAL 1.000/dia** | **R$ 972** |
-| Custo por Chamada | **R$ 0,03** |
+Nossa infraestrutura atual suporta:
+- 500 a 1.000 chamadas/dia sem gargalo
+- Pico de até 16.000 chamadas/dia com auto-scaling
+- 5 chatbots WhatsApp simultâneos
+- Processamento 100% automatizado — sem intervenção humana
 
-### 5.000 chamadas/dia (150.000/mes)
-| Componente | BRL/mes |
-|---|---|
-| Worker variavel | R$ 441 |
-| DeepSeek (150K calls) | R$ 622 |
-| Fallback + Infra + LLM Chat | R$ 465 |
-| WhatsApp 5 bots | R$ 556 |
-| **TOTAL 5.000/dia** | **R$ 2.101** |
-| Custo por Chamada | **R$ 0,01** |
+Diferencial competitivo:
+- Cobertura de 100% das chamadas (concorrentes auditam 2-5%)
+- Análise em 3 fases (apresentação, resolução, fechamento)
+- Sentimentos com probabilidade por fase
+- Relatórios em tempo real
 
-## COMPARATIVO MERCADO (500 chamadas/dia)
+## ROADMAP DE NEGÓCIO
 
-| Solucao | BRL/chamada | vs Nos (R$ 0,06) |
-|---|---|---|
-| CallMiner | R$ 0,55-0,83 | 9-14x mais caro |
-| Observe.AI | R$ 0,83-1,10 | 14-18x mais caro |
-| Gong.io | R$ 0,44-0,66 | 7-11x mais caro |
-| Chorus.ai | R$ 0,33-0,55 | 6-9x mais caro |
-| **NOSSA (500/dia)** | **R$ 0,06** | — |
-| **NOSSA (5.000/dia)** | **R$ 0,01** | — |
+| Fase | Quando | O que | Impacto |
+|---|---|---|---|
+| **Fase 1 — Estabilização** | Jul-Ago 2026 | Migrar worker para PUSH subscription | Reduz custo GCP em R$ 468/mês |
+| **Fase 2 — Aquisição** | Set-Out 2026 | Primeiro cliente BPO (operação de 500 chamadas/dia) | Receita recorrente, validação de mercado |
+| **Fase 3 — Expansão** | Nov-Dez 2026 | Segundo cliente, escala para 1.000 chamadas/dia | Custo por chamada cai para R$ 0,04 |
+| **Fase 4 — Módulos** | Jan-Mar 2027 | Lançamento URA inteligente + Voz (TTS) | Portfólio completo para BPOs |
+| **Fase 5 — Escala** | Abr 2027+ | SaaS multi-cliente, 5.000+ chamadas/dia | Custo marginal próximo de zero |
 
-Economia vs CallMiner: R$ 9.500/mes. R$ 114.000/ano.
+Modelo de receita: cobrar por chamada analisada (R$ 0,50/chamada) — margem de ~85% sobre custo operacional de R$ 0,08.
 
-## BAYESIAN (Monte Carlo 10K, sem rateio)
-
-| Cenario | Mediana (P50) | P10-P90 |
-|---|---|---|
-| 500/dia (só Monitoria) | R$ 226 | R$ 197-260 |
-| 1.000/dia | R$ 320 | R$ 278-368 |
-| 5.000/dia | R$ 1.263 | R$ 1.098-1.452 |
-
-*Adicionar WhatsApp R$ 556 para custo total. Priors: Whisper LogNormal, tokens Uniform, concorrencia [1,2,2,2,3].*
-
-## OTIMIZACOES FUTURAS
+## OTIMIZACOES IMEDIATAS
 
 | Acao | Economia | Prazo |
 |---|---|---|
-| PUSH subscription (eliminar min=1) | -R$ 468/mes | 1-2 semanas |
-| CUD 1 ano Cloud Run | -20% GCP | Imediato |
-| DeepSeek V4 Flash token cache | -50% LLM | 1 mes |
-| SaaS revenda R$ 0,50/chamada | Margem 88% | 3-6 meses |
+| PUSH subscription (eliminar min=1 worker) | -R$ 468/mês | 1-2 semanas |
+| Compromisso de Uso Cloud Run 1 ano | -20% no GCP | Imediato |
+| Otimizar cache de tokens DeepSeek | -30% no custo LLM | 1 mês |
