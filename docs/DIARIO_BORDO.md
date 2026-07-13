@@ -2,6 +2,31 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 13/07/2026 01:12 BRT — Portal de Acesso Google Drive, Whitelist de Domínios OAuth & Gestão de Usuários
+
+### Contexto
+Implementação e deploy de um portal isolado de login OAuth Google para acesso à pasta de arquivos do Google Drive (`1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt`), sem alterar o código ou a infraestrutura da aplicação principal da Monitoria.
+
+### Alterações e Decisões Técnicas
+
+1. **Portal Isolado (Firebase Hosting)**:
+   - Projeto desacoplado em `c:\Users\vinic\workspace_antigravity\drive-portal` (HTML/CSS/JS puro + Firebase Auth SDK CDN).
+   - Publicado via Firebase Hosting nos URLs:
+     - `https://coherence-drive-portal.web.app`
+     - `https://coherence-ominichannel-fs.web.app`
+
+2. **Resolução de Bug OAuth (`auth/unauthorized-domain`)**:
+   - Diagnóstico: O domínio do novo site secundário não vinha pré-liberado no Firebase Auth.
+   - Solução: Atualização da lista de `authorizedDomains` no Firebase Auth via API GCP Identity Toolkit Admin API (`PATCH /admin/v2/projects/coherence-ominichannel-fs/config`) utilizando token gcloud com header `x-goog-user-project: coherence-ominichannel-fs`.
+   - Domínios adicionados à whitelist: `coherence-drive-portal.web.app` e `coherence-ominichannel-fs.web.app`.
+
+3. **Gestão de Usuários & Permissões (Firestore)**:
+   - **`rafadesouzaoliveira@gmail.com`**: Cadastrado no Firestore (`users/rafadesouzaoliveira@gmail.com`) com role `analyst` e subcoleção `modules/monitoria-chamadas` ativada.
+   - **`fkobylinski@gmail.com`**: Permissão revogada na subcoleção `modules/monitoria-chamadas` e `allowed_modules` no Firestore.
+   - **Google Drive ACLs**: Documentado que o compartilhamento da pasta em si (`1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt`) é gerenciado nativamente pela interface do Google Drive pelo proprietário da pasta.
+
+---
+
 ## 10/07/2026 00:15 BRT — Pipeline funcional: Whisper base + OIDC + BatchDashboard
 
 ### Contexto
