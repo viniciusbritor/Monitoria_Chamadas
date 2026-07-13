@@ -1,27 +1,32 @@
 """
-Planilha de Custos — Projecao 500 chamadas/dia + Bayesian
-Gera Excel e faz upload para Google Drive do projeto.
+Planilha de Custos — Multi-Cenarios (500/1000/5000 calls/dia) + Chatbots + Folga 25%
+Inclui rateio de custos de desenvolvimento + modelos Bayesianos.
 """
-import json, os, sys, random, math
+import json, os, random, math
 from datetime import datetime, timezone
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, numbers
-from openpyxl.chart import BarChart, PieChart, Reference
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.utils import get_column_letter
 
-# ─── GOOGLE DRIVE AUTH ───
+# ─── AUTH ───
 TOKEN_PATH = os.path.expanduser(r"~\.gemini\config\skills\google_calendar_manager\resources\token_drive.json")
-OUTFILE = fr"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\docs\Custos_500_Calls_Day.xlsx"
+OUTFILE = fr"C:\Users\vinic\workspace_antigravity\Monitoria_Chamadas\docs\Custos_Projecao_Completa.xlsx"
 FOLDER_ID = "1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt"
 
 # ============================================================
-# COST MODEL (Market References)
+# PARAMETERS
 # ============================================================
-CALLS_DAY = 500
-CALLS_MONTH = CALLS_DAY * 30
-AUDIO_MINUTES = 5  # avg audio length
+SLACK = 1.25  # 25% folga/seguranca
 
-# Cloud Run pricing (us-central1, Gen2, on-demand)
+# Development costs (rateio sobre 12 meses)
+DEV_COST_HOURS = 120    # horas de desenvolvimento investidas
+DEV_RATE_HOUR = 50      # USD/hora (custo medio de engenharia + cloud dev)
+DEV_TOTAL_COST = DEV_COST_HOURS * DEV_RATE_HOUR  # $6,000
+DEV_AMORTIZATION_MONTHS = 12
+DEV_MONTHLY = DEV_TOTAL_COST / DEV_AMORTIZATION_MONTHS  # $500/mes de rateio
+
+AUDIO_MINUTES = 5
 VCPU_HOUR = 0.024
 GB_HOUR_MEM = 0.0025
 WORKER_CPU = 4
@@ -29,409 +34,524 @@ WORKER_MEM = 4
 API_CPU = 4
 API_MEM = 8
 
-WORKER_COST_HOUR = (WORKER_CPU * VCPU_HOUR) + (WORKER_MEM * GB_HOUR_MEM)
-API_COST_HOUR = (API_CPU * VCPU_HOUR) + (API_MEM * GB_HOUR_MEM)
+WORKER_COST_HOUR = (WORKER_CPU * VCPU_HOUR) + (WORKER_MEM * GB_HOUR_MEM)  # $0.106/hr
+API_COST_HOUR = (API_CPU * VCPU_HOUR) + (API_MEM * GB_HOUR_MEM)  # $0.116/hr
 
-# Whisper timing (base model, ~0.1x real-time)
 WHISPER_MULT = 0.1
-LLM_SEC_PER_CALL = 3  # avg LLM response time
+LLM_SEC_PER_CALL = 3
 PROCESSING_MIN_PER_CALL = (AUDIO_MINUTES * WHISPER_MULT) + (LLM_SEC_PER_CALL / 60)
-
-# Concurrency
 CONCURRENCY = 2
 
-# DeepSeek V4 Flash tokens
 TOKENS_IN = 2500
 TOKENS_OUT = 1200
 DS_INPUT_COST_1M = 0.14
 DS_OUTPUT_COST_1M = 0.28
-
-# MiniMax fallback (5% of calls)
 FALLBACK_PCT = 0.05
-MM_COST_PER_CALL = 0.001  # estimated
+MM_COST_PER_CALL = 0.001
 
-# Firebase/Storage/PubSub fixed
-FIRESTORE_COST = 3
-STORAGE_COST = 5
-PUBSUB_COST = 2
-SECRETS_COST = 1
-CLOUD_BUILD_COST = 3
-REGISTRY_COST = 1
+# Fixed infra
+FIRESTORE_COST = 3 * SLACK
+STORAGE_COST = 5 * SLACK
+PUBSUB_COST = 2 * SLACK
+SECRETS_COST = 1 * SLACK
+CLOUD_BUILD_COST = 3 * SLACK
+REGISTRY_COST = 1 * SLACK
 
-# Market benchmarks (per-call)
+# Chatbot costs (WhatsApp Agent, 5 bots, Cloud Run scenario B)
+CHATBOT_CLOUDRUN = 30 * SLACK      # 5x Cloud Run (1vCPU, 1GiB)
+CHATBOT_POSTGRES = 10 * SLACK      # Cloud SQL db-f1-micro
+CHATBOT_EVOLUTION = 40 * SLACK     # Evolution API Cloud Run
+CHATBOT_FIRESTORE = 3 * SLACK      # Firestore extra
+CHATBOT_LLM_MONTHLY = 8 * SLACK    # LLM para chatbots (200 msg/dia x 5 bots)
+
+CHATBOT_TOTAL = CHATBOT_CLOUDRUN + CHATBOT_POSTGRES + CHATBOT_EVOLUTION + CHATBOT_FIRESTORE + CHATBOT_LLM_MONTHLY
+
+# Market benchmarks
 BENCHMARKS = {
     "CallMiner (enterprise)": (0.05, 0.15),
     "Observe.AI": (0.10, 0.20),
     "Gong.io (sales)": (0.08, 0.12),
     "Chorus.ai": (0.06, 0.10),
     "Cogito": (0.04, 0.08),
-    "NOSSA SOLUCAO (PUSH)": (0.002, 0.003),
-    "NOSSA SOLUCAO (PULL)": (0.005, 0.010),
 }
 
-# ============================================================
-# BAYESIAN MODEL (Monte Carlo)
-# ============================================================
-def monte_carlo_simulation(calls_month, n_simulations=10000):
-    """Run Monte Carlo with priors on cost per call."""
-    # Prior distributions (Bayesian priors)
-    # Whisper: avg 0.5-0.7 min per call with log-normal
-    whisper_prior = lambda: max(0.3, random.lognormvariate(math.log(0.55), 0.2))
-    # LLM token variation: 2000-3000 input, 800-1800 output
-    llm_tokens_prior = lambda: (random.randint(2000, 3000), random.randint(800, 1800))
-    # Concurrency variation
-    conc_prior = lambda: random.choice([1, 2, 2, 2, 3])  # mostly 2
+# Scenarios
+SCENARIOS = [500, 1000, 5000]
 
-    costs_total = []
-    costs_worker = []
-    costs_llm = []
-    costs_per_call = []
+# ============================================================
+# BAYESIAN MONTE CARLO
+# ============================================================
+def monte_carlo(calls_month, n=10000):
+    def whisper_prior():
+        return max(0.3, random.lognormvariate(math.log(0.55), 0.2))
 
-    for _ in range(n_simulations):
-        w_min = whisper_prior()
+    def llm_tokens_prior():
+        return (random.randint(2000, 3000), random.randint(800, 1800))
+
+    def conc_prior():
+        return random.choice([1, 2, 2, 2, 3])
+
+    costs_t, costs_w, costs_l = [], [], []
+
+    for _ in range(n):
+        wm = whisper_prior()
         ti, to = llm_tokens_prior()
         conc = conc_prior()
-
-        proc_min = (AUDIO_MINUTES * w_min) + (LLM_SEC_PER_CALL / 60)
+        proc_min = (AUDIO_MINUTES * wm) + (LLM_SEC_PER_CALL / 60)
         hours_day = (calls_month / 30) / (60 / proc_min * conc)
-        worker_var_cost = hours_day * 30 * WORKER_COST_HOUR
+        worker_var = hours_day * 30 * WORKER_COST_HOUR
+        llm_c = (ti * calls_month / 1_000_000 * DS_INPUT_COST_1M) + \
+                (to * calls_month / 1_000_000 * DS_OUTPUT_COST_1M)
+        total = worker_var + llm_c + FIRESTORE_COST + STORAGE_COST + PUBSUB_COST + SECRETS_COST + CLOUD_BUILD_COST + REGISTRY_COST
+        costs_t.append(total)
+        costs_w.append(worker_var)
+        costs_l.append(llm_c)
 
-        # LLM cost
-        llm_cost = (ti * calls_month / 1_000_000 * DS_INPUT_COST_1M) + \
-                   (to * calls_month / 1_000_000 * DS_OUTPUT_COST_1M)
-
-        # Fixed + variable
-        total = worker_var_cost + llm_cost + FIRESTORE_COST + STORAGE_COST + \
-                PUBSUB_COST + SECRETS_COST + CLOUD_BUILD_COST + REGISTRY_COST
-
-        costs_total.append(total)
-        costs_worker.append(worker_var_cost)
-        costs_llm.append(llm_cost)
-        costs_per_call.append(total / calls_month)
-
-    sorted_total = sorted(costs_total)
-    sorted_per_call = sorted(costs_per_call)
-
-    def ci(data, p):
-        idx = int(p * len(data))
-        return data[idx]
-
+    s = sorted(costs_t)
+    def ci(d, p): return d[int(p * len(d))]
     return {
-        "median_total": sorted_total[len(sorted_total)//2],
-        "ci_10": ci(sorted_total, 0.10),
-        "ci_25": ci(sorted_total, 0.25),
-        "ci_75": ci(sorted_total, 0.75),
-        "ci_90": ci(sorted_total, 0.90),
-        "mean_total": sum(costs_total) / n_simulations,
-        "median_per_call": sorted_per_call[len(sorted_per_call)//2],
-        "ci_10_per_call": ci(sorted_per_call, 0.10),
-        "ci_90_per_call": ci(sorted_per_call, 0.90),
-        "mean_worker": sum(costs_worker) / n_simulations,
-        "mean_llm": sum(costs_llm) / n_simulations,
-        "simulations": n_simulations,
+        "p10": ci(s, 0.10), "p25": ci(s, 0.25), "p50": s[len(s)//2],
+        "p75": ci(s, 0.75), "p90": ci(s, 0.90), "mean": sum(costs_t)/n,
+        "mean_worker": sum(costs_w)/n, "mean_llm": sum(costs_l)/n,
     }
 
 # ============================================================
-# RUN SIMULATIONS
+# COST CALCULATOR (deterministic + slack)
 # ============================================================
-print("Running Bayesian Monte Carlo (10K simulations)...")
-results_push = monte_carlo_simulation(CALLS_MONTH)
+def calc_scenario(calls_day, with_dev=True, with_chatbot=True):
+    """Returns dict with all cost components for a given call volume."""
+    calls_month = calls_day * 30
 
-# PULL (min=1): add fixed worker cost
-results_pull = dict(results_push)
-fixed_worker = WORKER_COST_HOUR * 730  # always-on
-results_pull["median_total"] += fixed_worker
-results_pull["ci_10"] += fixed_worker
-results_pull["ci_25"] += fixed_worker
-results_pull["ci_75"] += fixed_worker
-results_pull["ci_90"] += fixed_worker
-results_pull["mean_total"] += fixed_worker
-results_pull["median_per_call"] = results_pull["median_total"] / CALLS_MONTH
-results_pull["ci_10_per_call"] = results_pull["ci_10"] / CALLS_MONTH
-results_pull["ci_90_per_call"] = results_pull["ci_90"] / CALLS_MONTH
-results_pull["mean_worker"] += fixed_worker
+    # Worker compute
+    calls_hour = (60 / PROCESSING_MIN_PER_CALL) * CONCURRENCY
+    var_hours_month = (calls_month / calls_hour)
+    worker_var = var_hours_month * WORKER_COST_HOUR
+    worker_fixed = WORKER_COST_HOUR * 730  # min=1 always-on
 
-print(f"PUSH median: ${results_push['median_total']:.2f}/mo | per-call: ${results_push['median_per_call']:.6f}")
-print(f"PULL median: ${results_pull['median_total']:.2f}/mo | per-call: ${results_pull['median_per_call']:.6f}")
+    # LLM
+    llm_ds = (TOKENS_IN * calls_month / 1_000_000 * DS_INPUT_COST_1M) + \
+             (TOKENS_OUT * calls_month / 1_000_000 * DS_OUTPUT_COST_1M)
+    llm_mm = FALLBACK_PCT * calls_month * MM_COST_PER_CALL
+    llm_total = llm_ds + llm_mm
+
+    # API
+    api_hours = calls_month * 0.01  # ~36s processing per upload
+    api_cost = max(1, api_hours * API_COST_HOUR)
+
+    # Storage scales with volume
+    storage = max(1, (calls_day / 500) * STORAGE_COST)
+    pubsub = max(1, (calls_day / 500) * PUBSUB_COST)
+    firestore = max(1, (calls_day / 500) * FIRESTORE_COST)
+
+    # Base costs without slack
+    infra_base = firestore + storage + pubsub + SECRETS_COST + CLOUD_BUILD_COST + REGISTRY_COST
+
+    # With slack
+    infra = infra_base * SLACK
+    worker_var_s = worker_var * SLACK
+    worker_fixed_s = worker_fixed * SLACK
+    llm_s = llm_total * SLACK
+    api_s = api_cost * SLACK
+
+    push_total = worker_var_s + llm_s + api_s + infra
+    pull_total = worker_fixed_s + worker_var_s + llm_s + api_s + infra
+
+    # Dev amortization
+    dev_monthly = DEV_MONTHLY if with_dev else 0
+
+    # Chatbot
+    chatbot = CHATBOT_TOTAL if with_chatbot else 0
+
+    push_final = push_total + dev_monthly
+    pull_final = pull_total + dev_monthly
+
+    mono_total = push_final + chatbot  # monitoria + chatbot (PUSH)
+    mono_pull_total = pull_final + chatbot
+
+    return {
+        "calls_day": calls_day,
+        "calls_month": calls_month,
+        "worker_var": worker_var_s,
+        "worker_fixed": worker_fixed_s,
+        "llm_ds": llm_ds * SLACK,
+        "llm_mm": llm_mm * SLACK,
+        "llm_total": llm_s,
+        "api_cost": api_s,
+        "infra": infra,
+        "push_total": push_total,
+        "pull_total": pull_total,
+        "dev_rateio": dev_monthly,
+        "chatbot_total": chatbot,
+        "monitoria_push": push_final,
+        "monitoria_pull": pull_final,
+        "total_push": mono_total,
+        "total_pull": mono_pull_total,
+        "per_call_push": push_final / calls_month,
+        "per_call_pull": pull_final / calls_month,
+    }
+
+# ============================================================
+# RUN ALL
+# ============================================================
+print("Computing scenarios...")
+bayes_results = {}
+scenario_results = {}
+
+for c in SCENARIOS:
+    cm = c * 30
+    print(f"  Bayesian {c} calls/day ({cm}/mo)...")
+    bayes_results[c] = monte_carlo(cm)
+    print(f"  Deterministic {c} calls/day...")
+    scenario_results[c] = calc_scenario(c)
 
 # ============================================================
 # CREATE EXCEL
 # ============================================================
-print("Creating Excel...")
+print("Building Excel...")
 wb = openpyxl.Workbook()
 
 # Styles
 hdr_font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
 hdr_fill = PatternFill(start_color='1F4E79', end_color='1F4E79', fill_type='solid')
-sub_fill = PatternFill(start_color='D6E4F0', end_color='D6E4F0', fill_type='solid')
 green_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid')
-yellow_fill = PatternFill(start_color='FFEB9C', end_color='FFEB9C', fill_type='solid')
-num_fmt = '#,##0.000'
-pct_fmt = '0.0%'
+orange_fill = PatternFill(start_color='FCE4D6', end_color='FCE4D6', fill_type='solid')
+gray_fill = PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid')
+yellow_fill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
 usd_fmt = '$#,##0.00'
-thin_border = Border(
-    left=Side(style='thin'), right=Side(style='thin'),
-    top=Side(style='thin'), bottom=Side(style='thin'))
+pct_fmt = '0.0%'
+num6_fmt = '$#,##0.000000'
+thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                     top=Side(style='thin'), bottom=Side(style='thin'))
 center = Alignment(horizontal='center', vertical='center', wrap_text=True)
 
-def style_header(ws, row, cols):
-    for c in range(1, cols+1):
-        cell = ws.cell(row=row, column=c)
-        cell.font = hdr_font
-        cell.fill = hdr_fill
-        cell.alignment = center
-        cell.border = thin_border
-
-def style_row(ws, row, cols, fill=None):
+def set_row(ws, row, cols, fill=None, bold=False, fmt=usd_fmt):
     for c in range(1, cols+1):
         cell = ws.cell(row=row, column=c)
         cell.border = thin_border
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        if fill:
-            cell.fill = fill
+        if fill: cell.fill = fill
+        if bold: cell.font = Font(bold=True, size=11)
 
-# ─── SHEET 1: RESUMO ───
+def hdr(ws, row, headers):
+    for i, h in enumerate(headers, 1):
+        ws.cell(row=row, column=i, value=h)
+        ws.cell(row=row, column=i).font = hdr_font
+        ws.cell(row=row, column=i).fill = hdr_fill
+        ws.cell(row=row, column=i).alignment = center
+        ws.cell(row=row, column=i).border = thin_border
+
+def val(ws, row, col, v, fmt=usd_fmt):
+    if isinstance(v, (int, float)):
+        v = round(v, 2)
+    c = ws.cell(row=row, column=col, value=v)
+    if fmt: c.number_format = fmt
+    c.border = thin_border
+    c.alignment = center
+    return c
+
+# ══════ SHEET 1: RESUMO EXECUTIVO ══════
 ws1 = wb.active
-ws1.title = "Resumo"
+ws1.title = "Resumo Executivo"
 ws1.sheet_properties.tabColor = "1F4E79"
 
-ws1.merge_cells('A1:F1')
-ws1.cell(row=1, column=1, value="Projecao de Custos — 500 Chamadas/Dia (15.000/mes)").font = Font(bold=True, size=14)
-ws1.merge_cells('A2:F2')
-ws1.cell(row=2, column=1, value=f"Gerado: {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')} | Referencia: GCP Pricing jul/2026, DeepSeek V4 Flash, MiniMax M3").font = Font(color='666666', size=9)
+ws1.merge_cells('A1:H1')
+ws1.cell(row=1, column=1, value="Resumo Executivo — Projecao de Custos OmniChannel").font = Font(bold=True, size=14, color='1F4E79')
+ws1.merge_cells('A2:H2')
+ws1.cell(row=2, column=1, value=f"Gerado: {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')} | Folga: +25% | Rateio Dev: ${DEV_MONTHLY:.0f}/mes (12 meses) | Cambio: 1 USD = 5.5 BRL").font = Font(color='666666', size=9)
 
-headers1 = ["Item", "Custo/mes (PUSH, min=0)", "Custo/mes (PULL, min=1)", "% do Total (PUSH)", "% do Total (PULL)", "Nota"]
-for i, h in enumerate(headers1, 1):
-    ws1.cell(row=4, column=i, value=h)
-style_header(ws1, 4, 6)
+# Key metrics
+ws1.cell(row=4, column=1, value="CUSTOS TOTAIS MENSAIS (Monitoria + 5 Chatbots)").font = Font(bold=True, size=12, color='1F4E79')
+ws1.merge_cells('A4:H4')
 
-# Cost items
-items = [
-    ("Worker Cloud Run (compute)", results_push["mean_worker"], results_pull["mean_worker"], "4vCPU/4GB, 500 calls/dia"),
-    ("DeepSeek V4 Flash (LLM)", results_push["mean_llm"], results_push["mean_llm"], "2500 in + 1200 out tokens/call"),
-    ("MiniMax M3 (fallback 5%)", FALLBACK_PCT * CALLS_MONTH * MM_COST_PER_CALL, FALLBACK_PCT * CALLS_MONTH * MM_COST_PER_CALL, "fallback quando DeepSeek falha"),
-    ("API Cloud Run", API_COST_HOUR * 10, API_COST_HOUR * 10, "4vCPU/8GB, min=0, uso leve"),
-    ("Firestore", FIRESTORE_COST, FIRESTORE_COST, "leituras/escritas"),
-    ("Cloud Storage (audios temp)", STORAGE_COST, STORAGE_COST, "auto-delete apos processar"),
-    ("Pub/Sub + Secret Manager", PUBSUB_COST + SECRETS_COST, PUBSUB_COST + SECRETS_COST, "mensageria + secrets"),
-    ("Cloud Build + Registry", CLOUD_BUILD_COST + REGISTRY_COST, CLOUD_BUILD_COST + REGISTRY_COST, "deploys + imagens"),
-]
+key_h = ["Cenario", "Monitoria (PUSH, min=0)", "Monitoria (PULL, min=1)", "5 Chatbots", "Rateio Dev", "TOTAL (PUSH)", "TOTAL (PULL)", "Custo/Chamada (PUSH)"]
+hdr(ws1, 5, key_h)
 
-push_total = results_push["mean_total"]
-pull_total = results_pull["mean_total"]
+for r, c in enumerate(SCENARIOS, 6):
+    s = scenario_results[c]
+    cell = val(ws1, r, 1, f"{c} chamadas/dia ({s['calls_month']:,}/mes)", None)
+    cell.alignment = Alignment(horizontal='left', vertical='center')
+    cell.font = Font(bold=True)
+    val(ws1, r, 2, s['push_total'])
+    val(ws1, r, 3, s['pull_total'])
+    val(ws1, r, 4, s['chatbot_total'])
+    val(ws1, r, 5, s['dev_rateio'])
+    val(ws1, r, 6, s['total_push']).font = Font(bold=True, color='006100' if c <= 1000 else 'BF8F00')
+    val(ws1, r, 7, s['total_pull']).font = Font(bold=True, color='9C0006')
+    val(ws1, r, 8, s['per_call_push'], num6_fmt).font = Font(color='006100')
+    set_row(ws1, r, 8, gray_fill if c == 500 else None, c == 500)
 
-for r, (name, push, pull, note) in enumerate(items, 5):
-    ws1.cell(row=r, column=1, value=name).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-    ws1.cell(row=r, column=2, value=round(push, 2)).number_format = usd_fmt
-    ws1.cell(row=r, column=3, value=round(pull, 2)).number_format = usd_fmt
-    ws1.cell(row=r, column=4, value=push / push_total).number_format = pct_fmt
-    ws1.cell(row=r, column=5, value=pull / pull_total).number_format = pct_fmt
-    ws1.cell(row=r, column=6, value=note).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-    style_row(ws1, r, 6)
+# BRL conversion
+ws1.cell(row=11, column=1, value=" ").font = Font(size=8)
+ws1.cell(row=12, column=1, value="CONVERSAO BRL (1 USD = 5.5 BRL)").font = Font(bold=True, size=12, color='1F4E79')
+ws1.merge_cells('A12:H12')
 
-# Total row
-tr = 5 + len(items)
-ws1.cell(row=tr, column=1, value="TOTAL").font = Font(bold=True, size=12)
-ws1.cell(row=tr, column=2, value=round(push_total, 2)).number_format = usd_fmt
-ws1.cell(row=tr, column=2).font = Font(bold=True, color='006100')
-ws1.cell(row=tr, column=3, value=round(pull_total, 2)).number_format = usd_fmt
-ws1.cell(row=tr, column=3).font = Font(bold=True, color='9C0006')
-style_row(ws1, tr, 6, PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid'))
+brl_h = ["Cenario", "Monitoria BRL", "Chatbots BRL", "TOTAL BRL/mes", "TOTAL BRL/ano", "", "", ""]
+hdr(ws1, 13, brl_h)
+for r, c in enumerate(SCENARIOS, 14):
+    s = scenario_results[c]
+    val(ws1, r, 1, f"{c} calls/dia", None).font = Font(bold=True)
+    ws1.cell(row=r, column=1).alignment = Alignment(horizontal='left', vertical='center')
+    mono_brl = s['monitoria_push'] * 5.5
+    chat_brl = s['chatbot_total'] * 5.5
+    total_brl = s['total_push'] * 5.5
+    val(ws1, r, 2, mono_brl)
+    val(ws1, r, 3, chat_brl)
+    val(ws1, r, 4, total_brl).font = Font(bold=True, color='006100')
+    val(ws1, r, 5, total_brl * 12).font = Font(bold=True, color='1F4E79')
+    set_row(ws1, r, 8, gray_fill if c == 500 else None, c == 500)
 
-# Per-call row
-tr += 1
-ws1.cell(row=tr, column=1, value="Custo por Chamada").font = Font(bold=True)
-ws1.cell(row=tr, column=2, value=push_total / CALLS_MONTH).number_format = '$#,##0.0000'
-ws1.cell(row=tr, column=2).font = Font(bold=True, color='006100')
-ws1.cell(row=tr, column=3, value=pull_total / CALLS_MONTH).number_format = '$#,##0.0000'
-ws1.cell(row=tr, column=3).font = Font(bold=True, color='9C0006')
-style_row(ws1, tr, 6, PatternFill(start_color='F2F2F2', end_color='F2F2F2', fill_type='solid'))
+# Comparison with market
+ws1.cell(row=19, column=1, value=" ").font = Font(size=8)
+ws1.cell(row=20, column=1, value="COMPARATIVO MERCADO (500 chamadas/dia)").font = Font(bold=True, size=12, color='1F4E79')
+ws1.merge_cells('A20:H20')
 
-# Per-day row
-tr += 1
-ws1.cell(row=tr, column=1, value="Custo por Dia (500 chamadas)")
-ws1.cell(row=tr, column=2, value=push_total / 30).number_format = usd_fmt
-ws1.cell(row=tr, column=3, value=pull_total / 30).number_format = usd_fmt
-style_row(ws1, tr, 6)
+mkt_h = ["Solucao", "Custo/Chamada", "Custo/Mes (15K calls)", "Economia vs Nos (PUSH)", "", "", "", ""]
+hdr(ws1, 21, mkt_h)
 
-# Column widths
-ws1.column_dimensions['A'].width = 32
-for c in 'BCDEF': ws1.column_dimensions[c].width = 16
+for r, (name, (lo, hi)) in enumerate(BENCHMARKS.items(), 22):
+    mid = (lo + hi) / 2
+    monthly = mid * 15000
+    vs_us = monthly - scenario_results[500]['monitoria_push']
+    val(ws1, r, 1, name, None).alignment = Alignment(horizontal='left', vertical='center')
+    val(ws1, r, 2, mid, num6_fmt)
+    val(ws1, r, 3, monthly)
+    val(ws1, r, 4, vs_us).font = Font(bold=True, color='006100')
+    set_row(ws1, r, 8)
 
-# ─── SHEET 2: BAYESIAN ───
-ws2 = wb.create_sheet("Bayesian")
+# Nossa linha
+r = 22 + len(BENCHMARKS)
+val(ws1, r, 1, "NOSSA (PUSH, min=0, +folga 25%)", None).font = Font(bold=True, color='006100')
+    ws1.cell(row=r, column=1).alignment = Alignment(horizontal='left', vertical='center')
+val(ws1, r, 2, scenario_results[500]['per_call_push'], num6_fmt).font = Font(bold=True, color='006100')
+val(ws1, r, 3, scenario_results[500]['monitoria_push']).font = Font(bold=True, color='006100')
+val(ws1, r, 4, 0)
+set_row(ws1, r, 8, green_fill, True)
+
+ws1.column_dimensions['A'].width = 30
+for c in 'BCDEFGH': ws1.column_dimensions[c].width = 18
+
+# ══════ SHEET 2: DETALHE POR CENARIO ══════
+ws2 = wb.create_sheet("Detalhe Cenarios")
 ws2.sheet_properties.tabColor = "4472C4"
 
-ws2.merge_cells('A1:E1')
-ws2.cell(row=1, column=1, value="Modelo Bayesiano — Monte Carlo (10.000 simulacoes)").font = Font(bold=True, size=14)
-ws2.merge_cells('A2:E2')
-ws2.cell(row=2, column=1, value="Priors: Whisper ~ LogNormal(0.55, 0.2) | Tokens ~ Uniform(2000-3000 in, 800-1800 out) | Concurrency ~[1,2,2,2,3]").font = Font(color='666666', size=9)
+ws2.merge_cells('A1:G1')
+ws2.cell(row=1, column=1, value="Detalhamento de Custos por Componente e Cenario (+25% folga)").font = Font(bold=True, size=14)
 
-# PUSH scenario
-ws2.cell(row=4, column=1, value="Cenario PUSH (min=0)").font = Font(bold=True, size=11, color='006100')
-bayes_headers = ["Estimativa", "Valor Total/mes", "Custo por Chamada", "Intervalo", ""]
-styles = [
-    ("Mediana (P50)", results_push["median_total"], results_push["median_per_call"], "50% probabilidade abaixo"),
-    ("Media", results_push["mean_total"], results_push["mean_total"]/CALLS_MONTH, "media aritmetica"),
-    ("P10 (otimista)", results_push["ci_10"], results_push["ci_10_per_call"], "10% probabilidade abaixo"),
-    ("P25", results_push["ci_25"], results_push["ci_25"]/CALLS_MONTH, ""),
-    ("P75", results_push["ci_75"], results_push["ci_75"]/CALLS_MONTH, ""),
-    ("P90 (pessimista)", results_push["ci_90"], results_push["ci_90_per_call"], "90% probabilidade abaixo"),
+detail_headers = ["Componente", "500/dia", "1000/dia", "5000/dia", "Nota", "", ""]
+hdr(ws2, 3, detail_headers)
+
+detail_rows = [
+    ("Worker (variavel, min=0)",  "worker_var",  "Processamento sob demanda"),
+    ("Worker (fixo, min=1)",      "worker_fixed","730h/mes x $0.106/h"),
+    ("DeepSeek V4 Flash (LLM)",   "llm_ds",      "Tokens: 2500 in + 1200 out"),
+    ("MiniMax M3 (fallback 5%)",  "llm_mm",      "Fallback qdo DeepSeek falha"),
+    ("API Cloud Run (4vCPU/8GB)", "api_cost",     "Uso leve, min=0"),
+    ("Firestore + Storage + PubSub","infra",      "Scale com volume"),
+    ("Rateio Desenvolvimento",    "dev_rateio",   f"${DEV_TOTAL_COST:,.0f} ÷ {DEV_AMORTIZATION_MONTHS} meses"),
+    ("5 Chatbots (WhatsApp)",     "chatbot_total","Cloud Run + Postgres + LLM"),
+    ("TOTAL (PUSH)",              "total_push",   "Monitoria + Dev + Chatbots"),
+    ("TOTAL (PULL)",              "total_pull",   "Monitoria + Dev + Chatbots"),
+    ("Custo por Chamada (PUSH)",  "per_call_push","USD/chamada"),
 ]
 
-for i, h in enumerate(bayes_headers, 1):
-    ws2.cell(row=5, column=i, value=h)
-style_header(ws2, 5, 5)
+for r, (label, key, note) in enumerate(detail_rows, 4):
+    ws2.cell(row=r, column=1, value=label).alignment = Alignment(horizontal='left', vertical='center')
+    ws2.cell(row=r, column=1).font = Font(bold=True)
+    for ci, c in enumerate(SCENARIOS, 2):
+        v = scenario_results[c][key]
+        if "per_call" in key:
+            val(ws2, r, ci, v, num6_fmt)
+        else:
+            val(ws2, r, ci, v)
+    ws2.cell(row=r, column=5, value=note).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    ws2.cell(row=r, column=5).font = Font(color='666666', size=9)
+    is_total = "TOTAL" in label
+    set_row(ws2, r, 7, green_fill if "PUSH" in label and "TOTAL" in label else (orange_fill if "PULL" in label and "TOTAL" in label else gray_fill), is_total)
 
-for r, (label, total, per_call, interval) in enumerate(styles, 6):
-    ws2.cell(row=r, column=1, value=label)
-    ws2.cell(row=r, column=2, value=round(total, 2)).number_format = usd_fmt
-    ws2.cell(row=r, column=3, value=round(per_call, 6)).number_format = '$#,##0.000000'
-    ws2.cell(row=r, column=4, value="")
-    ws2.cell(row=r, column=5, value=interval).alignment = Alignment(horizontal='left')
-    style_row(ws2, r, 5)
+ws2.column_dimensions['A'].width = 32
+for c in 'BCDEFG': ws2.column_dimensions[c].width = 16
+ws2.column_dimensions['E'].width = 35
 
-# PULL scenario
-r_start = 6 + len(styles) + 1
-ws2.cell(row=r_start, column=1, value="Cenario PULL (min=1)").font = Font(bold=True, size=11, color='9C0006')
-pull_styles = [
-    ("Mediana (P50)", results_pull["median_total"], results_pull["median_per_call"], "50% probabilidade abaixo"),
-    ("Media", results_pull["mean_total"], results_pull["mean_total"]/CALLS_MONTH, "media aritmetica"),
-    ("P10 (otimista)", results_pull["ci_10"], results_pull["ci_10_per_call"], "10% probabilidade abaixo"),
-    ("P25", results_pull["ci_25"], results_pull["ci_25"]/CALLS_MONTH, ""),
-    ("P75", results_pull["ci_75"], results_pull["ci_75"]/CALLS_MONTH, ""),
-    ("P90 (pessimista)", results_pull["ci_90"], results_pull["ci_90_per_call"], "90% probabilidade abaixo"),
-]
-
-for i, h in enumerate(bayes_headers, 1):
-    ws2.cell(row=r_start+1, column=i, value=h)
-style_header(ws2, r_start+1, 5)
-
-for r, (label, total, per_call, interval) in enumerate(pull_styles, r_start+2):
-    ws2.cell(row=r, column=1, value=label)
-    ws2.cell(row=r, column=2, value=round(total, 2)).number_format = usd_fmt
-    ws2.cell(row=r, column=3, value=round(per_call, 6)).number_format = '$#,##0.000000'
-    ws2.cell(row=r, column=4, value="")
-    ws2.cell(row=r, column=5, value=interval).alignment = Alignment(horizontal='left')
-    style_row(ws2, r, 5)
-
-# Credible interval row
-r_end = r_start + 2 + len(pull_styles) + 1
-ws2.merge_cells(f'A{r_end}:E{r_end}')
-ws2.cell(row=r_end, column=1, value="Intervalo de Credibilidade 80% (P10—P90): PUSH [$" + \
-    f"{results_push['ci_10']:.2f} — ${results_push['ci_90']:.2f}] | PULL [${results_pull['ci_10']:.2f} — ${results_pull['ci_90']:.2f}]").font = Font(italic=True, color='666666')
-
-ws2.column_dimensions['A'].width = 20
-ws2.column_dimensions['B'].width = 18
-ws2.column_dimensions['C'].width = 18
-ws2.column_dimensions['D'].width = 15
-ws2.column_dimensions['E'].width = 30
-
-# ─── SHEET 3: MARKET BENCHMARKS ───
-ws3 = wb.create_sheet("Benchmarks")
+# ══════ SHEET 3: BAYESIAN ══════
+ws3 = wb.create_sheet("Bayesian")
 ws3.sheet_properties.tabColor = "548235"
 
-ws3.merge_cells('A1:D1')
-ws3.cell(row=1, column=1, value="Referencias de Mercado — Custo por Chamada (QA/Monitoria)").font = Font(bold=True, size=14)
+ws3.merge_cells('A1:F1')
+ws3.cell(row=1, column=1, value="Modelo Bayesiano — Monte Carlo (10.000 simulacoes) — com Folga +25%").font = Font(bold=True, size=14)
+ws3.merge_cells('A2:F2')
+ws3.cell(row=2, column=1, value="Priors: Whisper ~ LogNormal(0.55, 0.2) | Tokens ~ Uniform | Concurrency ~[1,2,2,2,3] | Folga: 1.25x aplicada apos simulacao").font = Font(color='666666', size=9)
 
-bench_headers = ["Solucao", "Custo Min/Chamada", "Custo Max/Chamada", "Tipo"]
-for i, h in enumerate(bench_headers, 1):
-    ws3.cell(row=3, column=i, value=h)
-style_header(ws3, 3, 4)
+b_h = ["Cenario", "Mediana (P50)", "P10 (otimista)", "P25", "P75", "P90 (pessimista)"]
+hdr(ws3, 4, b_h)
 
-r = 4
-for name, (lo, hi) in BENCHMARKS.items():
-    is_ours = "NOSSA" in name
-    ws3.cell(row=r, column=1, value=name).font = Font(bold=is_ours, color='006100' if is_ours else '000000')
-    ws3.cell(row=r, column=2, value=lo).number_format = '$#,##0.000'
-    ws3.cell(row=r, column=3, value=hi).number_format = '$#,##0.000'
-    ws3.cell(row=r, column=4, value="Propria" if is_ours else "Mercado")
-    style_row(ws3, r, 4, green_fill if is_ours else None)
-    r += 1
+bf = "$#,##0.00"
 
-# Bar chart
-chart = BarChart()
-chart.type = "col"
-chart.title = "Custo por Chamada (USD) — Mercado vs Nossa Solucao"
-chart.y_axis.title = "USD"
-chart.x_axis.title = "Solucao"
-data = Reference(ws3, min_col=2, min_row=3, max_row=r-1, max_col=3)
-cats = Reference(ws3, min_col=1, min_row=4, max_row=r-1)
-chart.add_data(data, titles_from_data=True)
-chart.set_categories(cats)
-chart.style = 10
-chart.width = 25
-chart.height = 14
-ws3.add_chart(chart, f"A{r+1}")
+for r, c in enumerate(SCENARIOS, 5):
+    b = bayes_results[c]
+    cell = val(ws3, r, 1, f"{c} chamadas/dia ({c*30:,}/mes)", None)
+    cell.alignment = Alignment(horizontal='left', vertical='center')
+    cell.font = Font(bold=True)
+    vals_sl = [b['p50']*SLACK, b['p10']*SLACK, b['p25']*SLACK, b['p75']*SLACK, b['p90']*SLACK]
+    for ci, v in enumerate(vals_sl, 2):
+        val(ws3, r, ci, v, bf)
+    set_row(ws3, r, 6, gray_fill if c == 500 else None, c == 500)
 
-ws3.column_dimensions['A'].width = 28
-ws3.column_dimensions['B'].width = 20
-ws3.column_dimensions['C'].width = 20
-ws3.column_dimensions['D'].width = 12
+# Credible interval summary
+ws3.cell(row=10, column=1, value="Intervalo de Credibilidade (com folga 25%)").font = Font(bold=True, size=11, color='1F4E79')
+ws3.merge_cells('A10:F10')
 
-# ─── SHEET 4: PREMISSAS ───
+for r, c in enumerate(SCENARIOS, 11):
+    b = bayes_results[c]
+    lo = b['p10'] * SLACK
+    hi = b['p90'] * SLACK
+    ws3.cell(row=r, column=1, value=f"{c} calls/dia:").font = Font(bold=True)
+    ws3.merge_cells(f'B{r}:F{r}')
+    ws3.cell(row=r, column=2, value=f"${lo:,.2f} — ${hi:,.2f}/mes  (80% confianca)  |  por chamada: ${lo/(c*30):.4f} — ${hi/(c*30):.4f}")
+    ws3.cell(row=r, column=2).font = Font(color='006100')
+
+# Per-call Bayesian
+ws3.cell(row=15, column=1, value="Custo por Chamada (Mediana, com folga)").font = Font(bold=True, size=11, color='1F4E79')
+ws3.merge_cells('A15:F15')
+
+pch = ["Cenario", "P10/chamada", "P50/chamada", "P90/chamada", "", ""]
+hdr(ws3, 16, pch)
+for r, c in enumerate(SCENARIOS, 17):
+    b = bayes_results[c]
+    cm = c * 30
+    cell = val(ws3, r, 1, f"{c} calls/dia", None)
+    cell.font = Font(bold=True)
+    cell.alignment = Alignment(horizontal='left', vertical='center')
+    val(ws3, r, 2, b['p10']/cm*SLACK, num6_fmt)
+    val(ws3, r, 3, b['p50']/cm*SLACK, num6_fmt).font = Font(bold=True, color='006100')
+    val(ws3, r, 4, b['p90']/cm*SLACK, num6_fmt)
+    set_row(ws3, r, 6)
+
+ws3.column_dimensions['A'].width = 22
+for c in 'BCDEF': ws3.column_dimensions[c].width = 18
+
+# ══════ SHEET 4: PREMISSAS ══════
 ws4 = wb.create_sheet("Premissas")
 ws4.sheet_properties.tabColor = "BF8F00"
 
-ws4.merge_cells('A1:C1')
-ws4.cell(row=1, column=1, value="Premissas do Calculo").font = Font(bold=True, size=14)
+ws4.merge_cells('A1:D1')
+ws4.cell(row=1, column=1, value="Premissas e Fontes do Calculo").font = Font(bold=True, size=14)
 
-prem_headers = ["Parametro", "Valor", "Fonte"]
-for i, h in enumerate(prem_headers, 1):
-    ws4.cell(row=3, column=i, value=h)
-style_header(ws4, 3, 3)
+prem_h = ["Parametro", "Valor", "Fonte", "Observacao"]
+hdr(ws4, 3, prem_h)
 
 premissas = [
-    ("Chamadas/dia", "500", "Usuario"),
-    ("Chamadas/mes", "15.000", "Calculado"),
-    ("Audio medio (minutos)", "5", "Estimado"),
-    ("Modelo Whisper", "base (74MB, int8)", "faster-whisper"),
-    ("Tempo Whisper (real-time)", "~0.1x", "Benchmark local"),
-    ("Concorrencia worker", "2", "cloudbuild-worker.yaml"),
-    ("Worker vCPU", "4", "cloudbuild-worker.yaml"),
-    ("Worker RAM (GiB)", "4", "cloudbuild-worker.yaml"),
-    ("Cloud Run vCPU/hr (us-central1)", "$0.024", "GCP Pricing jul/2026"),
-    ("Cloud Run GiB-hr", "$0.0025", "GCP Pricing jul/2026"),
-    ("DeepSeek V4 Flash input ($/1M)", "$0.14", "api-docs.deepseek.com"),
-    ("DeepSeek V4 Flash output ($/1M)", "$0.28", "api-docs.deepseek.com"),
-    ("Tokens input/call", "~2.500", "Estimado (prompt + contexto)"),
-    ("Tokens output/call", "~1.200", "Estimado (JSON resposta)"),
-    ("Fallback MiniMax %", "5%", "Estimado (taxa de falha DeepSeek)"),
-    ("Simulacoes Monte Carlo", "10.000", "Configuracao"),
+    ("Chamadas/Dia (cenarios)", "500 / 1.000 / 5.000", "Usuario", ""),
+    ("Chamadas/Mes", "15.000 / 30.000 / 150.000", "Calculado", "Calls × 30"),
+    ("Audio medio", "5 minutos", "Estimado", ""),
+    ("Modelo Whisper", "base (74MB, int8)", "faster-whisper", "~0.1x real-time"),
+    ("Concorrencia worker", "2", "cloudbuild-worker.yaml", ""),
+    ("Worker vCPU / RAM", "4 vCPU / 4 GiB", "cloudbuild-worker.yaml", ""),
+    ("Cloud Run vCPU-hr", "$0.024/hr", "GCP Pricing jul/2026", ""),
+    ("DeepSeek V4 Flash input", "$0.14/1M tokens", "api-docs.deepseek.com", ""),
+    ("DeepSeek V4 Flash output", "$0.28/1M tokens", "api-docs.deepseek.com", ""),
+    ("Tokens input/call (avg)", "2.500", "Estimado", "Prompt + contexto"),
+    ("Tokens output/call (avg)", "1.200", "Estimado", "JSON resposta"),
+    ("Fallback MiniMax %", "5%", "Estimado", "Taxa de falha DeepSeek"),
+    ("Folga de Seguranca", "+25%", "Usuario", "Margem de seguranca"),
+    ("Horas Desenvolvimento", "120 horas", "Estimado", ""),
+    ("Custo Hora Dev", "$50/h", "Mercado BR", "Engenharia + cloud dev"),
+    ("Custo Total Dev", f"${DEV_TOTAL_COST:,.0f}", "Calculado", "120h × $50/h"),
+    ("Rateio Dev (meses)", "12", "Configuracao", f"${DEV_MONTHLY:,.0f}/mes"),
+    ("Chatbots (5 simultaneos)", "Cloud Run + Postgres", "Cenario B (docs/CUSTOS.md)", f"${CHATBOT_TOTAL:,.0f}/mes"),
+    ("Simulacoes Monte Carlo", "10.000", "Configuracao", ""),
+    ("Cambio USD/BRL", "5.5", "Mercado jul/2026", ""),
+    ("Projeto GCP Principal", "coherence-ominichannel-fs", "Cloud Run/Firestore/PubSub", ""),
+    ("Projeto GCP WhatsApp", "jennifer-bot", "Compute Engine/Firestore", ""),
 ]
 
-for r, (param, val, source) in enumerate(premissas, 4):
-    ws4.cell(row=r, column=1, value=param).alignment = Alignment(horizontal='left')
-    ws4.cell(row=r, column=2, value=val)
-    ws4.cell(row=r, column=3, value=source).alignment = Alignment(horizontal='left')
-    style_row(ws4, r, 3)
+for r, (param, val, source, obs) in enumerate(premissas, 4):
+    ws4.cell(row=r, column=1, value=param).alignment = Alignment(horizontal='left', vertical='center')
+    ws4.cell(row=r, column=2, value=val).alignment = center
+    ws4.cell(row=r, column=3, value=source).alignment = Alignment(horizontal='left', vertical='center')
+    ws4.cell(row=r, column=4, value=obs).alignment = Alignment(horizontal='left', vertical='center')
+    set_row(ws4, r, 4, gray_fill if r % 2 == 0 else None)
 
-ws4.column_dimensions['A'].width = 35
-ws4.column_dimensions['B'].width = 20
-ws4.column_dimensions['C'].width = 28
+ws4.column_dimensions['A'].width = 30
+ws4.column_dimensions['B'].width = 22
+ws4.column_dimensions['C'].width = 25
+ws4.column_dimensions['D'].width = 30
 
-# ─── SAVE ───
+# ══════ SHEET 5: CHATBOTS ══════
+ws5 = wb.create_sheet("Chatbots")
+ws5.sheet_properties.tabColor = "7030A0"
+
+ws5.merge_cells('A1:E1')
+ws5.cell(row=1, column=1, value="Infraestrutura WhatsApp — 5 Chatbots Simultaneos (com folga 25%)").font = Font(bold=True, size=14)
+
+cb_h = ["Componente", "Configuracao", "Custo Base/mes", "Custo +25% Folga", "Nota"]
+hdr(ws5, 3, cb_h)
+
+chatbot_items = [
+    ("5x Cloud Run (agentes)", "1 vCPU, 1 GiB, min=0", 30, CHATBOT_CLOUDRUN, "Sob demanda, escala a zero"),
+    ("Cloud SQL Postgres", "db-f1-micro, 10 GB", 10, CHATBOT_POSTGRES, "Banco compartilhado"),
+    ("Evolution API (Cloud Run)", "1 vCPU, 512 MiB, min=0", 40, CHATBOT_EVOLUTION, "Gerenciamento WhatsApp"),
+    ("Firestore extra", "Read/write 5x", 3, CHATBOT_FIRESTORE, "Sessoes, personas, conhecimento"),
+    ("LLM (DeepSeek Flash)", "~200 msg/dia x 5 bots", 8, CHATBOT_LLM_MONTHLY, "~1000 tokens/msg"),
+]
+
+for r, (comp, config, base, with_folga, note) in enumerate(chatbot_items, 4):
+    ws5.cell(row=r, column=1, value=comp).alignment = Alignment(horizontal='left', vertical='center')
+    ws5.cell(row=r, column=2, value=config).alignment = center
+    val(ws5, r, 3, base)
+    val(ws5, r, 4, with_folga)
+    ws5.cell(row=r, column=5, value=note).alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+    set_row(ws5, r, 5, gray_fill if r % 2 == 0 else None)
+
+r += 1
+val(ws5, r, 1, "TOTAL 5 Chatbots", None).font = Font(bold=True, size=12)
+ws5.cell(row=r, column=1).alignment = Alignment(horizontal='left', vertical='center')
+val(ws5, r, 4, CHATBOT_TOTAL).font = Font(bold=True, color='7030A0', size=12)
+set_row(ws5, r, 5, green_fill, True)
+
+ws5.column_dimensions['A'].width = 30
+ws5.column_dimensions['B'].width = 28
+ws5.column_dimensions['C'].width = 18
+ws5.column_dimensions['D'].width = 18
+ws5.column_dimensions['E'].width = 35
+
+# ══════ SAVE & UPLOAD ══════
 wb.save(OUTFILE)
-print(f"Excel saved: {OUTFILE}")
+print(f"Saved: {OUTFILE}")
 
-# ─── UPLOAD TO GOOGLE DRIVE ───
+# Upload to Drive
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 with open(TOKEN_PATH) as f:
     creds_data = json.load(f)
-
 creds = Credentials.from_authorized_user_info(creds_data, scopes=["https://www.googleapis.com/auth/drive"])
 service = build("drive", "v3", credentials=creds)
 
-file_metadata = {
-    "name": "Custos_500_Calls_Day.xlsx",
-    "parents": [FOLDER_ID],
-}
-media = MediaFileUpload(OUTFILE, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-uploaded = service.files().create(body=file_metadata, media_body=media, fields="id, webViewLink").execute()
+# Delete old version if exists
+old = service.files().list(q=f"name='Custos_Projecao_Completa.xlsx' and '{FOLDER_ID}' in parents and trashed=false",
+                           fields="files(id)").execute()
+for f in old.get("files", []):
+    service.files().delete(fileId=f["id"]).execute()
+    print(f"Deleted old version: {f['id']}")
 
-print(f"Uploaded to Drive: {uploaded['webViewLink']}")
-print(f"File ID: {uploaded['id']}")
+meta = {"name": "Custos_Projecao_Completa.xlsx", "parents": [FOLDER_ID]}
+media = MediaFileUpload(OUTFILE, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+up = service.files().create(body=meta, media_body=media, fields="id, webViewLink").execute()
+
+print(f"\nUpload: {up['webViewLink']}")
 print(f"Local: {OUTFILE}")
+print(f"Folder: https://drive.google.com/drive/folders/{FOLDER_ID}")
+
+# ─── PRINT SUMMARY ───
+print("\n" + "="*70)
+print("RESUMO (com folga 25% + rateio dev):")
+print("="*70)
+for c in SCENARIOS:
+    s = scenario_results[c]
+    print(f"\n{c} chamadas/dia ({s['calls_month']:,}/mes):")
+    print(f"  Monitoria (PUSH):   ${s['monitoria_push']:,.2f}/mes  |  ${s['per_call_push']:.4f}/chamada")
+    print(f"  Monitoria (PULL):   ${s['monitoria_pull']:,.2f}/mes")
+    print(f"  +5 Chatbots:        ${s['chatbot_total']:,.2f}/mes")
+    print(f"  TOTAL (PUSH+Chat):  ${s['total_push']:,.2f}/mes  (BRL: R$ {s['total_push']*5.5:,.2f})")
+    print(f"  TOTAL/ano:          ${s['total_push']*12:,.2f}  (BRL: R$ {s['total_push']*12*5.5:,.2f})")

@@ -1,121 +1,85 @@
-# Projecao de Custos - Ecossistema OmniChannel
+# Custos OmniChannel — Custo Operacional Real
 
-## Estrutura do Ecossistema
-O OmniChannel possui 4 modulos com diferentes estagios de maturidade:
+## CAMBIO: USD 1 = R$ 5,50 | MARGEM: 10%
 
-1. **MONITORIA DE CHAMADAS** (ativo) - Transcricao e avaliacao QA via IA
-2. **WHATSAPP AGENTE** (ativo) - 5 chatbots simultaneos com LLM
-3. **URA** (projecao) - Unidade de Resposta Audivel / IVR inteligente
-4. **VOZ** (projecao) - Sintese de voz / TTS para atendimento
+## CUSTO HOJE (recorrente, 24/7)
 
-## Modelo de Precificacao
-Todos os modulos usam infraestrutura GCP (Cloud Run, Firestore) com:
-- Computacao sob demanda (min=0, escala a zero quando ocioso)
-- LLM via DeepSeek V4 Flash ($0.14/1M tokens input, $0.28/1M tokens output) com fallback MiniMax M3
-- Folga de seguranca de 25% aplicada a todos os valores
-- Rateio de custos de desenvolvimento: $6,000 investidos, diluidos em 12 meses ($500/mes)
+| Servico | USD/mes | BRL/mes | Categoria |
+|---|---|---|---|
+| Worker Cloud Run (4vCPU/4GB, min=1) | 85 | R$ 468 | GCP |
+| API + Portal Cloud Run | 10 | R$ 54 | GCP |
+| Firestore + Storage + PubSub + Secrets | 26 | R$ 145 | GCP |
+| Cloud Build + Artifact Registry | 4 | R$ 24 | GCP |
+| VM e2-small + IP (WhatsApp) | 22 | R$ 121 | GCP |
+| DeepSeek V4 Flash (Monitoria QA) | 2 | R$ 12 | LLM |
+| DeepSeek V4 Flash (Chatbots) | 9 | R$ 48 | LLM |
+| MiniMax + NVIDIA (fallback) | 1 | R$ 4 | LLM |
+| **TOTAL HOJE** | **160** | **R$ 878** | |
 
-## Cenarios de Volume
-Tres cenarios projetados: 500, 1,000 e 5,000 chamadas/dia.
+*Audio medio 5 min, Whisper base 0.1x real-time.*
 
-## MONITORIA DE CHAMADAS - Custos Mensais (PUSH, min=0)
+## ESCALA — Custo por Volume de Chamadas (Monitoria + 5 Chatbots)
 
-### 500 chamadas/dia (15,000/mes)
-- Worker Cloud Run (4vCPU/4GB): $10/mes (variavel)
-- DeepSeek LLM: $13/mes (2,500 tokens in + 1,200 tokens out)
-- API + Firestore + Storage + PubSub: $16/mes
-- Rateio Desenvolvimento: $500/mes
-- Subtotal Monitoria: ~$539/mes | $0.036/chamada
+### 500 chamadas/dia (15.000/mes)
+| Componente | BRL/mes |
+|---|---|
+| Worker variavel (PUSH, min=0) | R$ 44 |
+| DeepSeek V4 Flash (15K calls) | R$ 62 |
+| MiniMax+NVIDIA fallback | R$ 5 |
+| Infra (API+Storage+PubSub) | R$ 127 |
+| LLM Chatbots | R$ 48 |
+| WhatsApp 5 bots (Cloud Run+SQL+Evolution) | R$ 556 |
+| **TOTAL 500/dia** | **R$ 850** |
+| Custo por Chamada | **R$ 0,06** |
 
-### 1,000 chamadas/dia (30,000/mes)
-- Worker Cloud Run: $21/mes
-- DeepSeek LLM: $27/mes
-- Infra: $20/mes
-- Rateio: $500/mes
-- Subtotal: ~$568/mes | $0.019/chamada
+### 1.000 chamadas/dia (30.000/mes)
+| Componente | BRL/mes |
+|---|---|
+| Worker variavel | R$ 88 |
+| DeepSeek (30K calls) | R$ 124 |
+| Fallback + Infra + LLM Chat | R$ 185 |
+| WhatsApp 5 bots | R$ 556 |
+| **TOTAL 1.000/dia** | **R$ 972** |
+| Custo por Chamada | **R$ 0,03** |
 
-### 5,000 chamadas/dia (150,000/mes)
-- Worker Cloud Run: $103/mes
-- DeepSeek LLM: $134/mes
-- Infra: $51/mes
-- Rateio: $500/mes
-- Subtotal: ~$788/mes | $0.005/chamada
+### 5.000 chamadas/dia (150.000/mes)
+| Componente | BRL/mes |
+|---|---|
+| Worker variavel | R$ 441 |
+| DeepSeek (150K calls) | R$ 622 |
+| Fallback + Infra + LLM Chat | R$ 465 |
+| WhatsApp 5 bots | R$ 556 |
+| **TOTAL 5.000/dia** | **R$ 2.101** |
+| Custo por Chamada | **R$ 0,01** |
 
-## WHATSAPP AGENTE (5 Chatbots)
-- 5x Cloud Run agentes (1vCPU/1GiB): $38/mes
-- Cloud SQL Postgres: $13/mes
-- Evolution API Cloud Run: $50/mes
-- Firestore extra: $4/mes
-- DeepSeek LLM (200 msg/dia x 5): $10/mes
-- Total Chatbots: ~$113/mes (fixo, nao escala com calls)
+## COMPARATIVO MERCADO (500 chamadas/dia)
 
-## URA - Unidade de Resposta Audivel (Projecao)
-Modulo de IVR inteligente com:
-- Speech-to-Text via Google STT ou Whisper ($0.002/call)
-- Navegacao IVR/DTMF via LLM ($0.0005/call)
-- Roteamento de chamadas ($0.001/call)
-- Infra Cloud Run: $25/mes base
+| Solucao | BRL/chamada | vs Nos (R$ 0,06) |
+|---|---|---|
+| CallMiner | R$ 0,55-0,83 | 9-14x mais caro |
+| Observe.AI | R$ 0,83-1,10 | 14-18x mais caro |
+| Gong.io | R$ 0,44-0,66 | 7-11x mais caro |
+| Chorus.ai | R$ 0,33-0,55 | 6-9x mais caro |
+| **NOSSA (500/dia)** | **R$ 0,06** | — |
+| **NOSSA (5.000/dia)** | **R$ 0,01** | — |
 
-### Custos por Cenario
-- 500 calls/dia: $78/mes | $0.0052/chamada
-- 1,000 calls/dia: $130/mes | $0.0043/chamada
-- 5,000 calls/dia: $550/mes | $0.0037/chamada
+Economia vs CallMiner: R$ 9.500/mes. R$ 114.000/ano.
 
-## VOZ - Sintese de Voz (Projecao)
-Modulo de TTS com:
-- Sintese de voz MiniMax TTS ou ElevenLabs ($0.005/call para 500 caracteres)
-- Voice cloning/styling ($0.002/call)
-- Infra Cloud Run: $19/mes base
+## BAYESIAN (Monte Carlo 10K, sem rateio)
 
-### Custos por Cenario
-- 500 calls/dia: $129/mes | $0.0086/chamada
-- 1,000 calls/dia: $239/mes | $0.0080/chamada
-- 5,000 calls/dia: $1,109/mes | $0.0074/chamada
+| Cenario | Mediana (P50) | P10-P90 |
+|---|---|---|
+| 500/dia (só Monitoria) | R$ 226 | R$ 197-260 |
+| 1.000/dia | R$ 320 | R$ 278-368 |
+| 5.000/dia | R$ 1.263 | R$ 1.098-1.452 |
 
-## TOTAIS CONSOLIDADOS (com folga 25% + rateio dev)
+*Adicionar WhatsApp R$ 556 para custo total. Priors: Whisper LogNormal, tokens Uniform, concorrencia [1,2,2,2,3].*
 
-### 500 chamadas/dia
-- Monitoria: $539/mes
-- Chatbots: $113/mes
-- URA (projecao): $78/mes
-- VOZ (projecao): $129/mes
-- TOTAL: $859/mes (USD) | R$ 4,725/mes (BRL)
+## OTIMIZACOES FUTURAS
 
-### 1,000 chamadas/dia
-- Monitoria: $568/mes
-- Chatbots: $113/mes
-- URA (projecao): $130/mes
-- VOZ (projecao): $239/mes
-- TOTAL: $1,050/mes (USD) | R$ 5,775/mes (BRL)
-
-### 5,000 chamadas/dia
-- Monitoria: $788/mes
-- Chatbots: $113/mes
-- URA (projecao): $550/mes
-- VOZ (projecao): $1,109/mes
-- TOTAL: $2,560/mes (USD) | R$ 14,080/mes (BRL)
-
-## Bayesian Monte Carlo (P50, com folga 25%)
-Simulacao com 10,000 iteracoes, priors:
-- Whisper timing: LogNormal(0.55, 0.2)
-- Tokens LLM: Uniform(2000-3000 input, 800-1800 output)
-- Concorrencia: [1,2,2,2,3]
-
-Intervalo de credibilidade 80% (P10-P90) para Monitoria:
-- 500 calls/dia: $43 - $54/mes (variavel) + $500 rateio
-- 1,000 calls/dia: $63 - $80/mes + $500 rateio
-- 5,000 calls/dia: $247 - $320/mes + $500 rateio
-
-## Comparativo de Mercado (custo por chamada)
-- CallMiner (enterprise): $0.05 - $0.15/chamada
-- Observe.AI: $0.10 - $0.20/chamada
-- Gong.io: $0.08 - $0.12/chamada
-- Chorus.ai: $0.06 - $0.10/chamada
-- Cogito: $0.04 - $0.08/chamada
-- NOSSA SOLUCAO (PUSH): $0.004 - $0.036/chamada (6-15x mais barato)
-
-## Otimizacoes Futuras
-- PUSH subscription (elimina min=1): -40% no custo worker
-- DeepSeek V4 Flash (primario): $0.14/1M input, o mais barato do mercado
-- Compromisso de uso 1 ano (CUD): -20% em Cloud Run
-- Potencial de revenda como SaaS: precificar a $0.05/chamada (margem ~90% sobre custo)
+| Acao | Economia | Prazo |
+|---|---|---|
+| PUSH subscription (eliminar min=1) | -R$ 468/mes | 1-2 semanas |
+| CUD 1 ano Cloud Run | -20% GCP | Imediato |
+| DeepSeek V4 Flash token cache | -50% LLM | 1 mes |
+| SaaS revenda R$ 0,50/chamada | Margem 88% | 3-6 meses |

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Acesso ao Drive · Coherence AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <script type="module">
+    import { initializeApp }  from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+      from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyAIMGRNFUIBBueB8xk0jlTWA-EfpdjywDQ",
+      authDomain:        "coherence-ominichannel-fs.firebaseapp.com",
+      projectId:         "coherence-ominichannel-fs",
+      storageBucket:     "coherence-ominichannel-fs.appspot.com",
+      messagingSenderId: "894828119087",
+      appId:             "1:894828119087:web:3cb2164c2d1efd80e2f2da"
+    };
+
+    // ── URL da pasta ou planilha ──────────────────────────────────────
+    // Troque aqui conforme o recurso desejado:
+    const RECURSO_URL = "https://drive.google.com/drive/folders/1aNCHHOiQQzquuxzaeQQa8qr3ciZcsfMt";
+    // Para a planilha, use:
+    // const RECURSO_URL = "https://docs.google.com/spreadsheets/d/1heyXyisOyEE4JU9ulDzxHjtmrIYoOi4v/edit";
+    // ─────────────────────────────────────────────────────────────────
+
+    const app      = initializeApp(firebaseConfig);
+    const auth     = getAuth(app);
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+
+    const $ = id => document.getElementById(id);
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        $('login-card').style.display  = 'none';
+        $('welcome-card').style.display = 'flex';
+        $('loading').style.display     = 'none';
+        $('user-name').textContent     = user.displayName || 'Usuário';
+        $('user-email').textContent    = user.email || '';
+        if (user.photoURL) $('user-photo').src = user.photoURL;
+      } else {
+        $('login-card').style.display  = 'flex';
+        $('welcome-card').style.display = 'none';
+        $('loading').style.display     = 'none';
+      }
+    });
+
+    $('btn-login').addEventListener('click', async () => {
+      $('error').style.display = 'none';
+      $('btn-login').disabled  = true;
+      $('btn-login').textContent = 'Aguarde...';
+      try {
+        await signInWithPopup(auth, provider);
+      } catch (e) {
+        $('error').textContent  = e.code === 'auth/popup-closed-by-user'
+          ? 'Login cancelado.' : 'Erro ao autenticar. Tente novamente.';
+        $('error').style.display = 'block';
+        $('btn-login').disabled  = false;
+        $('btn-login').innerHTML = googleBtnHTML();
+      }
+    });
+
+    $('btn-open').addEventListener('click', () =>
+      window.open(RECURSO_URL, '_blank', 'noopener,noreferrer'));
+
+    $('btn-logout').addEventListener('click', () => signOut(auth));
+
+    function googleBtnHTML() {
+      return `<svg width="20" height="20" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg> Entrar com Google`;
+    }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f4f8;
+      background-image:
+        radial-gradient(ellipse 70% 50% at 15% 0%, rgba(59,130,246,.13) 0%, transparent 55%),
+        radial-gradient(ellipse 60% 45% at 85% 100%, rgba(99,102,241,.10) 0%, transparent 55%);
+    }
+
+    .page {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      padding: 1.5rem;
+      gap: 1.5rem;
+    }
+
+    /* ── Logo ── */
+    .logo-bar {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+    .logo-bar img { height: 26px; object-fit: contain; }
+    .logo-bar .sep { width: 1px; height: 20px; background: rgba(0,0,0,.12); }
+    .logo-bar .label {
+      font-size: .65rem; font-weight: 700;
+      letter-spacing: .18em; text-transform: uppercase;
+      display: flex; gap: .3rem;
+    }
+    .logo-bar .label .accent { color: #3b82f6; }
+    .logo-bar .label .main   { color: #374151; }
+
+    /* ── Card ── */
+    .card {
+      width: 100%; max-width: 420px;
+      background: rgba(255,255,255,.85);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(0,0,0,.07);
+      border-radius: 1.5rem;
+      box-shadow: 0 24px 56px -8px rgba(0,0,0,.12);
+      padding: 2.5rem;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      animation: up .4s cubic-bezier(.22,1,.36,1) both;
+    }
+
+    @keyframes up {
+      from { opacity:0; transform: translateY(18px); }
+      to   { opacity:1; transform: translateY(0);    }
+    }
+
+    /* ── Ícone ── */
+    .icon {
+      width: 68px; height: 68px;
+      border-radius: 1.1rem;
+      background: linear-gradient(135deg,rgba(59,130,246,.12),rgba(99,102,241,.08));
+      border: 1px solid rgba(59,130,246,.15);
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 1.4rem;
+      color: #3b82f6;
+    }
+
+    h1 {
+      font-size: 1.45rem; font-weight: 800;
+      color: #171717; text-align: center;
+      letter-spacing: -.02em; margin-bottom: .45rem;
+    }
+
+    .sub {
+      font-size: .875rem; color: #6b7280;
+      text-align: center; line-height: 1.6;
+      margin-bottom: 2rem; max-width: 300px;
+    }
+
+    /* ── Botão Google ── */
+    #btn-login {
+      width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: .7rem;
+      padding: .875rem 1.5rem;
+      background: #fff;
+      border: 1.5px solid rgba(0,0,0,.12);
+      border-radius: .875rem;
+      font: 600 .9375rem 'Inter', sans-serif;
+      color: #171717; cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      transition: all .18s ease;
+    }
+    #btn-login:hover:not(:disabled) {
+      background: #f8fafc;
+      box-shadow: 0 4px 14px rgba(0,0,0,.09);
+      transform: translateY(-1px);
+    }
+    #btn-login:disabled { opacity: .65; cursor: not-allowed; }
+
+    /* ── Erro ── */
+    #error {
+      display: none; width: 100%;
+      background: rgba(239,68,68,.08);
+      border: 1px solid rgba(239,68,68,.2);
+      border-radius: .7rem;
+      padding: .65rem 1rem;
+      font-size: .8rem; color: #b91c1c;
+      text-align: center; margin-top: .75rem;
+    }
+
+    /* ── Welcome ── */
+    .avatar-wrap { position: relative; margin-bottom: 1.1rem; }
+    #user-photo {
+      width: 72px; height: 72px;
+      border-radius: 50%;
+      border: 3px solid #22c55e;
+      object-fit: cover; display: block;
+    }
+    .check-dot {
+      position: absolute; bottom: 0; right: 0;
+      width: 22px; height: 22px;
+      background: #22c55e; border-radius: 50%;
+      border: 2px solid #fff;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff;
+    }
+
+    .welcome-name {
+      font-size: 1.3rem; font-weight: 800;
+      color: #171717; text-align: center; margin-bottom: .25rem;
+    }
+    .welcome-email {
+      font-size: .8rem; color: #6b7280;
+      text-align: center; margin-bottom: 1.6rem;
+    }
+
+    /* ── Botão Abrir Drive ── */
+    #btn-open {
+      width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: .7rem;
+      padding: .9rem 1.5rem;
+      background: #3b82f6;
+      border: none; border-radius: .875rem;
+      font: 600 .9375rem 'Inter', sans-serif;
+      color: #fff; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(59,130,246,.4);
+      transition: all .18s ease;
+    }
+    #btn-open:hover { background: #2563eb; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(59,130,246,.5); }
+
+    .btn-link {
+      background: none; border: none;
+      font: .8rem 'Inter', sans-serif;
+      color: #9ca3af; cursor: pointer;
+      text-decoration: underline; text-underline-offset: 3px;
+      margin-top: 1.1rem;
+      transition: color .15s;
+    }
+    .btn-link:hover { color: #6b7280; }
+
+    /* ── Loading ── */
+    #loading {
+      width: 44px; height: 44px;
+      border: 3px solid rgba(59,130,246,.15);
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 440px) {
+      .card { padding: 2rem 1.4rem; }
+      .logo-bar .label { display: none; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Logo -->
+  <div class="logo-bar">
+    <img src="logo-top-v2.png" alt="Coherence AI"
+         onerror="this.outerHTML='<strong style=font-size:1rem;color:#171717>Coherence</strong>'" />
+    <div class="sep"></div>
+    <div class="label">
+      <span class="accent">ACESSO</span>
+      <span class="main">AO DRIVE</span>
+    </div>
+  </div>
+
+  <!-- Spinner inicial (Firebase resolvendo sessão) -->
+  <div id="loading"></div>
+
+  <!-- Card de Login -->
+  <div class="card" id="login-card" style="display:none;">
+    <div class="icon">
+      <!-- cadeado -->
+      <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" fill="none"
+           stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+    </div>
+
+    <h1>Área Restrita</h1>
+    <p class="sub">Faça login com sua conta Google para acessar os arquivos da Coherence AI no Drive.</p>
+
+    <button id="btn-login">
+      <svg width="20" height="20" viewBox="0 0 24 24">
+        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+      </svg>
+      Entrar com Google
+    </button>
+
+    <div id="error"></div>
+  </div>
+
+  <!-- Card de Boas-vindas (após login) -->
+  <div class="card" id="welcome-card" style="display:none;">
+    <div class="avatar-wrap">
+      <img id="user-photo" src="" alt="Foto de perfil" />
+      <div class="check-dot">
+        <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="3"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 2 4 8 1 5"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="welcome-name" id="user-name"></div>
+    <div class="welcome-email" id="user-email"></div>
+
+    <button id="btn-open">
+      <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+        <polyline points="15 3 21 3 21 9"/>
+        <line x1="10" y1="14" x2="21" y2="3"/>
+      </svg>
+      Abrir no Google Drive
+    </button>
+
+    <button class="btn-link" id="btn-logout">Sair da conta</button>
+  </div>
+
+</div>
+</body>
+</html>
