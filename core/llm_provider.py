@@ -71,7 +71,7 @@ class DeepSeekClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.3  # (10/07/2026): voltou de 0.5 para 0.3 (equilibrio variacao/consistencia) (mais variacao nas notas)
+            temperature = 0.0  # (14/07/2026): alterado de 0.3 para 0.0 (consistencia maxima e determinismo de notas)
         if max_tokens is None:
             max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000 (prompt expandido)
 
@@ -128,7 +128,7 @@ class DeepSeekClient:
             )
             payload = {
                 "model": self.model,
-                "temperature": 0.3,
+                "temperature": 0.0,
                 "max_tokens": 3000,
                 "messages": [
                     {"role": "system", "content": combined_system},
@@ -214,7 +214,7 @@ class NvidiaNimClient:
     def chat(self, system_prompt, user_prompt, json_mode=False,
              temperature=None, max_tokens=None):
         if temperature is None:
-            temperature = 0.3  # (10/07/2026): voltou de 0.5 para 0.3 (equilibrio variacao/consistencia)
+            temperature = 0.0  # (14/07/2026): alterado de 0.3 para 0.0 (consistencia maxima e determinismo de notas)
         if max_tokens is None:
             max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000
 
