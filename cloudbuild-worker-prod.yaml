@@ -13,14 +13,14 @@ steps:
       'build',
       '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-worker:latest',
       '-f', 'Dockerfile.worker',
-      '-t', 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/monitoria-worker:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-worker:latest',
       '.'
     ]
 
   # Push das imagens
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA']
+    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-worker:$COMMIT_SHA']
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/monitoria-worker:latest']
 
@@ -32,7 +32,7 @@ steps:
       - 'deploy'
       - 'monitoria-worker'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/monitoria-worker:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
       - '--execution-environment=gen2'
@@ -59,5 +59,5 @@ steps:
       - '--quiet'
 
 images:
-  - 'gcr.io/$PROJECT_ID/monitoria-worker:$_COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/monitoria-worker:$COMMIT_SHA'
   - 'gcr.io/$PROJECT_ID/monitoria-worker:latest'

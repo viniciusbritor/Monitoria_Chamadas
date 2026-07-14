@@ -103,7 +103,7 @@ steps:
         # que ja esta em SUPER_ADMIN_EMAILS)
         ADMIN_EMAIL="894828119087-compute@developer.gserviceaccount.com"
         RESPONSE=$$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-          "$$PORTAL_URL/api/admin/modules/monitoria-chamadas?admin_email=$$ADMIN_EMAIL" \
+          "$$PORTAL_URL/api/admin/modules/monitoria-chamadas-test?admin_email=$$ADMIN_EMAIL" \
           -H "Authorization: Bearer $$TOKEN" \
           -H "Content-Type: application/json" \
           -d "{\"name\":\"Monitoria de Chamadas\",\"url\":\"$$SERVICE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
