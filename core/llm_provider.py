@@ -235,79 +235,9 @@ class NvidiaNimClient:
         return self._execute(payload)
 
 
-class MiniMaxClient:
-    """MiniMax M3 — API proprietaria chatcompletion_v2 (ultimo fallback)."""
-
-    def __init__(self):
-        self.api_key = secrets_manager.get_secret("MINIMAX_API_KEY")
-        self.base_url = "https://api.minimax.io/v1/text/chatcompletion_v2"
-        self.model = "MiniMax-M3"
-        self.enabled = bool(self.api_key)
-
-    def _execute(self, payload, max_retries=3):
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        retries = 0
-        base_delay = 2
-
-        while retries <= max_retries:
-            try:
-                resp = requests.post(self.base_url, headers=headers, json=payload, timeout=120)
-                if resp.status_code == 429:
-                    retries += 1
-                    if retries > max_retries:
-                        raise Exception(f"[MiniMax] Max retries atingido (429)")
-                    sleep_time = (base_delay ** retries) + random.uniform(0, 1)
-                    print(f"[MiniMax] 429 rate limit. Aguardando {sleep_time:.2f}s...")
-                    time.sleep(sleep_time)
-                    continue
-                resp.raise_for_status()
-                data = resp.json()
-                base_resp = data.get("base_resp", {})
-                if base_resp.get("status_code", 0) != 0:
-                    msg = base_resp.get("status_msg", "Erro desconhecido")
-                    raise Exception(f"API Error: {msg}")
-                if "choices" in data and len(data["choices"]) > 0:
-                    return data["choices"][0]["message"]["content"]
-                return None
-            except requests.exceptions.RequestException as e:
-                retries += 1
-                if retries > max_retries:
-                    raise Exception(f"[MiniMax] Erro apos {max_retries} retries: {e}")
-                sleep_time = (base_delay ** retries) + random.uniform(0, 1)
-                print(f"[MiniMax] Erro {e}. Retry {retries}/{max_retries} em {sleep_time:.2f}s...")
-                time.sleep(sleep_time)
-
-    def chat(self, system_prompt, user_prompt, json_mode=False,
-             temperature=None, max_tokens=None):
-        if temperature is None:
-            temperature = 0.3  # (10/07/2026): voltou de 0.5 para 0.3 (equilibrio variacao/consistencia)
-        if max_tokens is None:
-            max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000 (era 1500 json / 400 texto)
-
-        payload = {
-            "model": self.model,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-
-        if json_mode:
-            payload["reply_constraints"] = {
-                "sender_type": "BOT",
-                "sender_name": "Assistente",
-            }
-
-        return self._execute(payload)
-
 
 class LLMClient:
-    """Multi-provider cascata: DeepSeek direto -> NVIDIA NIM -> MiniMax M3.
+    """Multi-provider cascata: DeepSeek direto -> NVIDIA NIM.
 
     Mantem a mesma interface cached_chat() para compatibilidade com
     evaluator, worker, api.
@@ -328,10 +258,6 @@ class LLMClient:
         if nvidia.enabled:
             active.append("NVIDIA NIM")
 
-        minimax = MiniMaxClient()
-        self.providers.append(("MiniMax", minimax))
-        if minimax.enabled:
-            active.append("MiniMax M3")
 
         print(f"[LLM] Provedores ativos: {', '.join(active) if active else 'NENHUM'}", flush=True)
 
@@ -346,7 +272,7 @@ class LLMClient:
                 return resultado
             print(f"[LLM] {name} falhou, tentando proximo...", flush=True)
 
-        raise Exception("Todos provedores LLM falharam (DeepSeek + NVIDIA + MiniMax)")
+        raise Exception("Todos provedores LLM falharam (DeepSeek + NVIDIA)")
 
     def _try_provider(self, provider, name, system_prompt, user_prompt,
                       json_mode, temperature, max_tokens):
