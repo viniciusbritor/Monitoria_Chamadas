@@ -23,7 +23,7 @@ class Evaluator:
             cached_tokens = usage.get("prompt_tokens_details", {}).get("cached_tokens", 0)
             total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
 
-            # Cálculo de custo estimado (preços MiniMax M3 com 50% de desconto)
+            # Cálculo de custo estimado (preços DeepSeek V4)
             input_noncached = max(0, prompt_tokens - cached_tokens)
             custo_usd = (
                 (input_noncached / 1_000_000 * 0.30) +
@@ -34,7 +34,7 @@ class Evaluator:
             entry = {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "etapa": etapa,
-                "modelo": "MiniMax-M3",
+                "modelo": "DeepSeek-V4",
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "cached_tokens": cached_tokens,
@@ -63,7 +63,7 @@ Separe turnos alternados com quebra de linha dupla.
 Nao altere as palavras originais da transcricao.
 Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
         user_prompt = f"--- TRANSCRICAO CONTINUA ---\n{mask_pii(transcript)}"
-        print("🤖 Diarizando transcricao com MiniMax M3...")
+        print("🤖 Diarizando transcricao com LLM...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False, max_tokens=2000)
         result = text.strip() if text else transcript
 
@@ -167,7 +167,7 @@ Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentiment
 
         user_prompt = f"--- TRANSCRICAO DIARIZADA ---\n{mask_pii(transcript)}"
 
-        print("🤖 Avaliando atendimento com MiniMax M3...")
+        print("🤖 Avaliando atendimento com LLM...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=True)
 
         try:

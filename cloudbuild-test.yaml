@@ -74,7 +74,7 @@ steps:
       # Migracao completa para Firestore — nao ha mais SQLite local.
       # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.
       # Sera removido em sprint futura de cleanup.
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,GCP_PROJECT=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 
   # NEW (08/07/2026 - Padrao de Integracao Portal <-> Modulos):

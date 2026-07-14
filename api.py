@@ -14,7 +14,7 @@ STACK:
   - Firestore (database - source of truth)
   - Google Cloud Pub/Sub (job queue async)
   - faster-whisper (transcricao local)
-  - MiniMax M3 (LLM para avaliacao)
+  - LLM (DeepSeek / NVIDIA) para avaliacao)
   - Firebase Auth (SSO via Portal)
 
 DEPLOY:
@@ -1148,7 +1148,7 @@ async def reprocess_na_fila(request: Request):
 # Implementa as Tasks 2.1-2.5 do backlog docs/goals/queue-manager.md
 # ============================================================================
 
-WORKER_URL = os.getenv("WORKER_URL", "https://monitoria-whisper-worker-c5nbfc5meq-uc.a.run.app")
+WORKER_URL = os.getenv("WORKER_URL", "https://monitoria-whisper-worker-894828119087.us-central1.run.app")
 
 
 def _probe_audio_duration(file_path: str) -> float | None:
@@ -1168,33 +1168,30 @@ def _probe_audio_duration(file_path: str) -> float | None:
 
 
 def _worker_healthy() -> bool:
-    """Checa saude do worker via GET /healthz.
-
-    Worker responde:
-      - 200 = saudavel (ready ou processing < 15min)
-      - 503 = travado (stuck: ready+sem msg >5min OU processing >15min)
-      - 403 = no-auth (worker requer IAM, mas servidor esta' vivo)
-
-    200 e 403 = saudavel. 503 = unhealthy (fallback in-process).
-    """
+    """Checa saude do worker via GET /healthz com autenticacao IAM."""
     try:
         import httpx
-        # Worker so' expoe /healthz (nao /health). Mas helper historico usa /health.
-        # /health retorna 404 (Cloud Run quando no-auth) ou 200/403 quando auth.
-        # Estrategia: tentar /healthz primeiro; fallback /health.
-        for path in ("/healthz", "/health"):
-            try:
-                r = httpx.get(WORKER_URL.rstrip("/") + path, timeout=3.0)
-                if r.status_code in (200, 403):
-                    # 200 = saudavel, 403 = autenticado requer IAM mas servidor up
-                    return True
-                if r.status_code == 503:
-                    # Worker explicitamente reporta stuck
-                    return False
-                # 404 ou outros: tentar proximo path
-            except httpx.HTTPError:
-                continue
-        # Todos paths retornaram 404 (Cloud Run com no-auth) -> servidor up
+        import google.auth.transport.requests
+        import google.oauth2.id_token
+        
+        url = WORKER_URL.rstrip("/") + "/healthz"
+        headers = {}
+        
+        # Obter Identity Token para acordar o Worker (IAM bypass proxy)
+        try:
+            req = google.auth.transport.requests.Request()
+            token = google.oauth2.id_token.fetch_id_token(req, WORKER_URL)
+            headers["Authorization"] = f"Bearer {token}"
+        except Exception as e:
+            print(f"[API] Aviso: Falha ao obter IAM token: {e}", flush=True)
+            
+        r = httpx.get(url, headers=headers, timeout=5.0)
+        
+        if r.status_code in (200, 403):
+            return True
+        if r.status_code == 503:
+            return False
+            
         return True
     except Exception:
         return False

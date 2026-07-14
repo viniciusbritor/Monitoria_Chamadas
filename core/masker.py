@@ -3,7 +3,7 @@ core/masker.py - Utilidade de mascaramento de PII (LGPD Art. 46)
 
 Mascara automaticamente dados pessoais antes de:
   1. Armazenar no Firestore (campo transcricao, transcricao_diarizada)
-  2. Enviar prompts para LLM (MiniMax M3)
+  2. Enviar prompts para LLM
 
 Padroes detectados:
   - CPF: 000.000.000-00

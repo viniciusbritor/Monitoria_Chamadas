@@ -4,7 +4,7 @@ Worker dedicado - Monitoria de Chamadas
 
 OBJETIVO PRINCIPAL (parte 2 do pipeline):
   Recebe audio uploaded, transcreve com Whisper, diariza (separa
-  atendente vs cliente), e avalia com LLM (MiniMax M3) para gerar
+  atendente vs cliente), e avalia com LLM para gerar
   nota QA + nota NPS + analise de 3 fases + motivos.
 
 O OBJETIVO PRINCIPAL completo (frontend + backend + worker):
