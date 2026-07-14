@@ -787,20 +787,15 @@ def watchdog_loop():
                     flush=True,
                 )
 
-            # Auto-restart: detecta trava do streaming_pull.
+            # Auto-restart: detecta trava do streaming_pull apenas se ociosidade de mensagens falhar no gRPC
             if (
                 state == "ready"
                 and uptime > 180
                 and _subscriber_client is not None
             ):
-                stuck_initial = last_msg_age is None and uptime > 240
-                stuck_idle = last_msg_age is not None and last_msg_age > 300
-                if stuck_initial or stuck_idle:
-                    motivo = (
-                        f"last_msg_age=nunca, uptime={uptime:.0f}s"
-                        if stuck_initial
-                        else f"last_msg_age={last_msg_age:.0f}s, uptime={uptime:.0f}s"
-                    )
+                stuck_idle = last_msg_age is not None and last_msg_age > 600 # 10min sem msgs recebidas
+                if stuck_idle:
+                    motivo = f"last_msg_age={last_msg_age:.0f}s, uptime={uptime:.0f}s"
                     print(
                         f"[WATCHDOG] STUCK detectado ({motivo}). "
                         f"Reiniciando streaming_pull...",
