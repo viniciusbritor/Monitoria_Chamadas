@@ -27,11 +27,17 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
     try {
       const token = localStorage.getItem('auth_token')
       const res = await axios.get(`${API_URL}/api/calls/${id}/audio`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
       })
-      setModalAudio({ url: res.data.audio_url, filename: call.filename })
+      const audioUrl = URL.createObjectURL(res.data)
+      setModalAudio({ url: audioUrl, filename: call.filename })
     } catch (e) {
-      alert('Áudio não disponível para esta chamada.')
+      if (e.response?.status === 404) {
+        alert('O áudio desta chamada expirou ou já foi deletado do storage.')
+      } else {
+        alert('Falha ao reproduzir o áudio. Tente novamente mais tarde.')
+      }
     }
   }
 
