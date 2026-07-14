@@ -56,9 +56,9 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
     fetchBatch()
   }, [callIds])
 
-  const concluded = calls.filter(c => c.status === 'Concluído')
-  const processing = calls.filter(c => c.status !== 'Concluído' && !c.status.startsWith('Erro'))
-  const errors = calls.filter(c => c.status.startsWith('Erro'))
+  const concluded = calls.filter(c => (c.status || '') === 'Concluído')
+  const processing = calls.filter(c => (c.status || '') !== 'Concluído' && !(c.status || '').startsWith('Erro'))
+  const errors = calls.filter(c => (c.status || '').startsWith('Erro'))
 
   const avgQA = concluded.length ? Math.round(concluded.reduce((a, c) => a + (c.nota_qualidade_operador || c.nota || 0), 0) / concluded.length) : 0
   const avgNPS = concluded.length ? (concluded.reduce((a, c) => a + (c.nota_sentimento_cliente || 0), 0) / concluded.length).toFixed(1) : 0
@@ -133,11 +133,11 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
           const cid = call.id || call.call_id || ''
           const analysis = parseAnalysis(call)
           const fases = analysis?.fases || {}
-          const statusColor = call.status === 'Concluído' ? 'border-green-300 bg-green-50/30' :
-            call.status.startsWith('Erro') ? 'border-red-300 bg-red-50/30' :
+          const statusColor = (call.status || '') === 'Concluído' ? 'border-green-300 bg-green-50/30' :
+            (call.status || '').startsWith('Erro') ? 'border-red-300 bg-red-50/30' :
             'border-yellow-300 bg-yellow-50/30'
-          const statusDot = call.status === 'Concluído' ? <CheckCircle size={14} className="text-green-500" /> :
-            call.status.startsWith('Erro') ? <XCircle size={14} className="text-red-500" /> :
+          const statusDot = (call.status || '') === 'Concluído' ? <CheckCircle size={14} className="text-green-500" /> :
+            (call.status || '').startsWith('Erro') ? <XCircle size={14} className="text-red-500" /> :
             <Loader2 size={14} className="text-primary animate-spin" />
 
           return (
@@ -204,10 +204,10 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
                 {/* Botão Inspecionar */}
                 <button
                   onClick={() => onInspectCall && onInspectCall(cid)}
-                  disabled={call.status !== 'Concluído' && !call.status?.startsWith('Erro')}
+                  disabled={(call.status || '') !== 'Concluído' && !(call.status || '').startsWith('Erro')}
                   className="shrink-0 text-primary hover:text-primary/80 font-medium text-sm disabled:opacity-30 transition-colors"
                 >
-                  {call.status === 'Concluído' ? 'Inspecionar →' : call.status?.startsWith('Erro') ? 'Detalhes →' : '⏳'}
+                  {(call.status || '') === 'Concluído' ? 'Inspecionar →' : (call.status || '').startsWith('Erro') ? 'Detalhes →' : '⏳'}
                 </button>
               </div>
             </div>

@@ -337,8 +337,10 @@ function App() {
           )}
           {!selectedCallId && currentView === 'inspector' && console.log('[App] CallInspector NOT rendered: selectedCallId is empty', { currentView })}
           {currentView === 'batch' && batchViewIds.length > 0 && (
-            <BatchDashboard callIds={batchViewIds} onBack={() => navigateTo('dashboard')}
-              onInspectCall={(id) => navigateTo('inspector', id)} />
+            <ErrorBoundary>
+              <BatchDashboard callIds={batchViewIds} onBack={() => navigateTo('dashboard')}
+                onInspectCall={(id) => navigateTo('inspector', id)} />
+            </ErrorBoundary>
           )}
           {currentView === 'settings' && (
             <SettingsPanel />
