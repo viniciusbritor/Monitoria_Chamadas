@@ -191,12 +191,14 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
                   {/* Sentimentos em texto */}
                   {call.status === 'Concluído' && (analysis?.sentimentos_cliente?.length > 0 || analysis?.sentimentos_operador?.length > 0) && (
                     <div className="flex flex-wrap gap-1 mt-1.5">
-                      {analysis.sentimentos_cliente?.slice(0, 3).map((s, i) => (
-                        <span key={`c-${i}`} className="text-[10px] bg-black/5 px-1.5 py-0.5 rounded-full">{s}</span>
-                      ))}
-                      {analysis.sentimentos_operador?.slice(0, 3).map((s, i) => (
-                        <span key={`o-${i}`} className="text-[10px] bg-primary/5 text-primary px-1.5 py-0.5 rounded-full">{s}</span>
-                      ))}
+                      {analysis.sentimentos_cliente?.slice(0, 3).map((s, i) => {
+                        const txt = typeof s === 'string' ? s : s?.sentimento || s?.label || ''
+                        return <span key={`c-${i}`} className="text-[10px] bg-black/5 px-1.5 py-0.5 rounded-full">{txt}</span>
+                      })}
+                      {analysis.sentimentos_operador?.slice(0, 3).map((s, i) => {
+                        const txt = typeof s === 'string' ? s : s?.sentimento || s?.label || ''
+                        return <span key={`o-${i}`} className="text-[10px] bg-primary/5 text-primary px-1.5 py-0.5 rounded-full">{txt}</span>
+                      })}
                     </div>
                   )}
                 </div>
