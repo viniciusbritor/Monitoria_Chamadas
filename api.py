@@ -480,7 +480,7 @@ def get_call_endpoint(call_id: str, user = Depends(get_current_user)):
 
 @app.get("/api/calls/{call_id}/audio")
 def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
-    """Gera Signed URL para o audio salvo no GCS (playback no frontend)."""
+    """Faz o streaming do audio salvo no GCS (playback no frontend)."""
     call_data = get_call(call_id)
     if not call_data or "gcs_uri" not in call_data or not call_data["gcs_uri"]:
         raise HTTPException(status_code=404, detail="Áudio não encontrado ou já deletado")
@@ -507,19 +507,23 @@ def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
         if not exists:
             raise HTTPException(status_code=404, detail="Arquivo deletado do storage")
 
-        import datetime
-        url = blob.generate_signed_url(
-            version="v4",
-            expiration=datetime.timedelta(minutes=120),
-            method="GET"
-        )
-        print(f"[API] audio.signed_url_ok para {call_id[:12]}", flush=True)
-        return {"audio_url": url}
+        from fastapi.responses import StreamingResponse
+        
+        def iterfile():
+            with blob.open("rb") as f:
+                while True:
+                    chunk = f.read(8192 * 4)
+                    if not chunk:
+                        break
+                    yield chunk
+
+        print(f"[API] audio.streaming_iniciado para {call_id[:12]}", flush=True)
+        return StreamingResponse(iterfile(), media_type=blob.content_type or "audio/mpeg")
     except HTTPException:
         raise
     except Exception as e:
         print(f"[API] audio.erro call_id={call_id[:12]} tipo={type(e).__name__} msg={e}", flush=True)
-        raise HTTPException(status_code=500, detail="Erro ao gerar link do áudio")
+        raise HTTPException(status_code=500, detail="Erro ao gerar stream do áudio")
 
 
 @app.delete("/api/calls/{call_id}")
