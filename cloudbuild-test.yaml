@@ -74,7 +74,7 @@ steps:
       # Migracao completa para Firestore — nao ha mais SQLite local.
       # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.
       # Sera removido em sprint futura de cleanup.
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://portal-omnichannel.coherenceai.com.br,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 
   # NEW (08/07/2026 - Padrao de Integracao Portal <-> Modulos):
@@ -125,7 +125,7 @@ substitutions:
   _VITE_FIREBASE_MESSAGING_SENDER_ID: '894828119087'
   _VITE_FIREBASE_APP_ID: '1:894828119087:web:3cb2164c2d1efd80e2f2da'
   _VITE_GOOGLE_CLIENT_ID: '4105010761-t3s393nba2m4asemki2k1ffotqeh5ep4.apps.googleusercontent.com'
-  _VITE_PORTAL_URL: 'https://portal-omnichannel.coherenceai.com.br'
+  _VITE_PORTAL_URL: 'https://coherence-portal-test-c5nbfc5meq-uc.a.run.app'
 
 images:
   - 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA'
