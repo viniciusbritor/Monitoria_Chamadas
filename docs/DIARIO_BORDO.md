@@ -2,6 +2,28 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 14/07/2026 01:40 BRT — Correção do Conflito de Registro de Módulo (Firestore Compartilhado) & Prevenção de Rebuilds
+
+### Contexto
+Deploy do ambiente de teste estava colidindo com a URL de produção na coleção compartilhada `modules` do Firestore (documento `modules/monitoria-chamadas`). Além disso, o push de arquivos YAML de CI/CD gerava custos desnecessários ao disparar builds completos.
+
+### Alterações e Decisões Técnicas
+
+1. **Correção Crítica no CI/CD de Produção (`cloudbuild-prod.yaml` e `cloudbuild-worker-prod.yaml`)**:
+   - Substituição de `$_COMMIT_SHA` (substitution manual) por `$COMMIT_SHA` (padrão automático do Cloud Build). Isso evita falhas de build por tags Docker vazias e tags desatualizadas na esteira de produção.
+
+2. **Isolamento de Registro de Módulo no Teste (`cloudbuild-test.yaml`)**:
+   - Ajustado o ID do módulo no teste de `monitoria-chamadas` para `monitoria-chamadas-test` para evitar que o deploy do test-env sobrescreva a URL de produção.
+
+3. **Arquitetura Multi-Ambiente no Firestore (Plano da Opção A)**:
+   - Identificou-se que a criação de IDs separados (`monitoria-chamadas-test`) exige concessão de permissão manual no Firestore para super-admins.
+   - Decisão de arquitetura futura: Unificar o ID para `monitoria-chamadas` e adotar campos distintos como `url_prod` e `url_test` no documento do Firestore, permitindo que cada portal consuma a URL correta dinamicamente.
+
+4. **Otimização de Custos com `ignoredFiles` nos Triggers**:
+   - Configurados os 4 triggers no GCP Cloud Build com a propriedade `ignoredFiles` contendo `cloudbuild*.yaml`, `docs/**`, `*.md` e `scripts/**`. Commits contendo apenas alterações de CI/CD ou documentação não disparam mais novos builds do Cloud Run.
+
+---
+
 ## 13/07/2026 01:12 BRT — Portal de Acesso Google Drive, Whitelist de Domínios OAuth & Gestão de Usuários
 
 ### Contexto

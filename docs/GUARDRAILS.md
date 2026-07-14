@@ -13,6 +13,8 @@
 4. **Nao compartilhar** a URL do modulo como ponto de entrada.
 5. **Nao expor** a URL em e-mails, README, comentarios de codigo, nem `VITE_API_URL` em frontend publico sem o token via `?token=`.
 6. **Backend enforcement**: requests ao `/` sem `Referer` do Portal sao logadas como `[Security] direct-access attempt`.
+7. **Isolamento de ambiente (Multi-Ambiente)**: Como o Firestore é compartilhado, o ID do módulo de teste deve ser registrado no documento de maneira a não colidir com o de produção. A partir de 14/07/2026, é recomendado que o documento de módulo centralizado tenha suporte a campos `url_test` e `url_prod` para evitar sobrescritas durante novos deploys.
+8. **Prevenção de custos desnecessários**: Todos os triggers do Cloud Build devem manter `ignoredFiles` configurados para ignorar alterações que envolvam estritamente infraestrutura de deploy (`cloudbuild*.yaml`), documentações (`docs/**`, `*.md`) ou scripts locais (`scripts/**`), garantindo que apenas alterações funcionais disparem builds.
 
 **Por que:** Portal e' source of truth de identidade (Firebase SSO) e permissoes. Modulo delega 100% da autenticacao ao Portal.
 

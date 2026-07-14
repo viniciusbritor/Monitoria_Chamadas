@@ -13,12 +13,15 @@
 | `monitoria` | API prod | `https://monitoria.coherenceai.com.br` (dominio customizado) | API FastAPI, upload, settings |
 | `monitoria-worker` | Worker prod | Privado (OIDC) | Consumer Pub/Sub prod, transcricao, LLM |
 
-### Topicos Pub/Sub
-
 | Topico | Subscription | Uso |
 |---|---|---|
 | `monitoria-whisper-jobs` | `monitoria-whisper-jobs-worker` (PULL, ack=600s) | Test: API test publica, worker test consome |
 | `monitoria-whisper-jobs-prod` | `monitoria-whisper-jobs-worker-prod` (PULL, ack=600s) | Prod: API prod publica, worker prod consome |
+
+## Triggers e Infraestrutura de Deploy
+Os deploys automáticos em nuvem GCP são realizados pelo Cloud Build e isolados de duas formas:
+1. **Regras de Ignorar Arquivos (`ignoredFiles`)**: Para evitar custos de infraestrutura e builds redundantes, modificações exclusivas em arquivos YAML de build (`cloudbuild*.yaml`), pastas de documentação (`docs/**`, `*.md`) ou scripts locais (`scripts/**`) são ignoradas pelos triggers de build do GCP.
+2. **Integração de Módulos (Firestore Compartilhado)**: A arquitetura atual compartilha a base de dados Firestore entre os ambientes de teste e de produção. Para que o deploy de teste não sobrescreva a URL canoníca do Portal de Produção, o modulo de teste registra-se com o ID `monitoria-chamadas-test`. A promoção de código do branch `test` para `main` (produção) restaura o registro no ID canônico de produção `monitoria-chamadas`.
 
 ## Fluxo E2E (Diagrama Mermaid)
 

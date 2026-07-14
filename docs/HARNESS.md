@@ -43,6 +43,12 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 - `POST /api/internal/recover-stale` - Recover jobs orfaos
 - `POST /api/internal/cleanup-orphans` - Cleanup admin
 
+### Registro de Módulos (Firestore Compartilhado)
+Como o Firestore é compartilhado, o registro dinâmico via CI/CD foi isolado:
+- **Test-env**: Registra módulo como `modules/monitoria-chamadas-test`. Exige liberação explícita de permissão para visualização.
+- **Prod**: Registra módulo como `modules/monitoria-chamadas`.
+*(Próxima evolução planejada: utilizar campos url_test e url_prod sob o mesmo ID modules/monitoria-chamadas).*
+
 ### Admin (requer super-admin)
 - `GET /api/queue/*` - Gerenciar fila Pub/Sub
 - `GET /api/admin/stuck-calls` - Listar chamadas stuck
