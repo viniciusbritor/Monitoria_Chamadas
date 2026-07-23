@@ -740,6 +740,71 @@ def health_check_server():
                 self.send_response(404)
                 self.end_headers()
 
+        def do_POST(self):
+            if self.path in ("/", "/pubsub/push", "/push"):
+                try:
+                    content_len = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(content_len)
+                    envelope = json.loads(body.decode("utf-8"))
+
+                    # Pub/Sub push envelope: {"message": {"data": "base64...", "messageId": "..."}, ...}
+                    message = envelope.get("message", {})
+                    data_b64 = message.get("data", "")
+                    if data_b64:
+                        import base64
+                        decoded_str = base64.b64decode(data_b64).decode("utf-8")
+                        payload_data = json.loads(decoded_str)
+                    else:
+                        payload_data = envelope
+
+                    call_id = payload_data.get("call_id")
+                    gcs_uri = payload_data.get("gcs_uri")
+                    user_id = payload_data.get("user_id")
+                    diretrizes = payload_data.get("diretrizes_qualidade")
+                    duration = payload_data.get("audio_duration_sec")
+                    msg_id = message.get("messageId", f"push-{time.time()}")
+
+                    print(f"[Worker {WORKER_ID}] PUSH HTTP recebido: call_id={call_id} gcs_uri={gcs_uri}", flush=True)
+
+                    if call_id and gcs_uri:
+                        with HEALTHZ_LOCK:
+                            WORKER_STATE["last_msg_received_at"] = time.time()
+                            WORKER_STATE["last_msg_id"] = msg_id
+                            WORKER_STATE["last_msg_call_id"] = call_id
+                            WORKER_STATE["current_state"] = "processing"
+
+                        try:
+                            process_audio(
+                                call_id=call_id,
+                                gcs_uri=gcs_uri,
+                                user_id=user_id,
+                                diretrizes=diretrizes,
+                                audio_duration_sec=duration,
+                            )
+                            with HEALTHZ_LOCK:
+                                WORKER_STATE["messages_processed"] += 1
+                                WORKER_STATE["current_state"] = "ready"
+                                WORKER_STATE["consecutive_errors"] = 0
+                        except Exception as e:
+                            with HEALTHZ_LOCK:
+                                WORKER_STATE["consecutive_errors"] += 1
+                                WORKER_STATE["current_state"] = "ready"
+                            print(f"[Worker {WORKER_ID}] Erro em PUSH process_audio: {e}", flush=True)
+
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "ok", "call_id": call_id}).encode("utf-8"))
+                except Exception as e:
+                    print(f"[Worker {WORKER_ID}] Erro no PUSH handler: {e}", flush=True)
+                    self.send_response(500)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
         def log_message(self, format, *args):
             # Silencia log padrao (muito verbose)
             pass
@@ -822,10 +887,11 @@ def watchdog_loop():
 
 
 def main():
-    """Loop principal: pull de Pub/Sub e processa."""
-    print(f"[Worker {WORKER_ID}] Subscrevendo em {PUBSUB_SUBSCRIPTION}...", flush=True)
+    """Loop principal: PUSH ou PULL de Pub/Sub."""
+    pubsub_mode = os.getenv("PUBSUB_MODE", "pull").lower()
+    print(f"[Worker {WORKER_ID}] Modo de operacao: {pubsub_mode.upper()}", flush=True)
 
-    # Inicia health check server em thread separada
+    # Inicia health check / HTTP PUSH server em thread separada
     import threading
     health_thread = threading.Thread(target=health_check_server, daemon=True)
     health_thread.start()
@@ -843,6 +909,19 @@ def main():
     except Exception as e:
         print(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", flush=True)
 
+    with HEALTHZ_LOCK:
+        WORKER_STATE["current_state"] = "ready"
+
+    if pubsub_mode == "push":
+        print(f"[Worker {WORKER_ID}] Operando em modo Pub/Sub PUSH (aguardando HTTP POST na porta {os.getenv('PORT', '8080')})...", flush=True)
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            print(f"[Worker {WORKER_ID}] Parando worker PUSH...", flush=True)
+            return
+
+    print(f"[Worker {WORKER_ID}] Subscrevendo em {PUBSUB_SUBSCRIPTION}...", flush=True)
     global _subscriber_client, _streaming_pull_future
     _subscriber_client = pubsub_v1.SubscriberClient()
     subscriber = _subscriber_client

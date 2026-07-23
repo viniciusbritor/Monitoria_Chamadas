@@ -52,9 +52,9 @@ steps:
       # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
       - '--no-cpu-throttling'
       - '--concurrency=2'
-      # (12/07/2026): min-instances=0. Ambiente de teste sob demanda.
-      # Quando não desenvolvendo, worker scale-to-zero (custo $0).
-      # Ao fazer git push, Cloud Build deploya e worker fica ativo para processar.
+      # (23/07/2026): min-instances=0 ativado via Pub/Sub PUSH mode.
+      # O Pub/Sub faz POST HTTP em /pubsub/push despertando a instancia sob demanda.
+      # Custo ocioso: 0 USD/mes no ambiente de teste.
       - '--min-instances=0'
       # NEW (08/07/2026 - Plano Ultra-Economico): memory 8GiB -> 4GiB,
       # max-instances 3 -> 2. Custo ~$110/mes para 600 calls/dia.
@@ -77,6 +77,7 @@ steps:
       - '--update-env-vars=GCP_PROJECT=coherence-ominichannel-fs'
       - '--update-env-vars=PUBSUB_TOPIC=monitoria-whisper-jobs'
       - '--update-env-vars=PUBSUB_SUBSCRIPTION=monitoria-whisper-jobs-worker'
+      - '--update-env-vars=PUBSUB_MODE=push'
       - '--update-env-vars=AUDIO_BUCKET=coherence-monitoria-audios-tmp'
       - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app'
       - '--update-env-vars=OMP_NUM_THREADS=6'

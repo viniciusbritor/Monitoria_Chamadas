@@ -2,6 +2,28 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 23/07/2026 20:05 BRT — Diagnóstico e Correção: Destravamento dos Workers (Test & Prod) & Enforcing `min-instances=1`
+
+### Causa Raiz do Travamento em Test e Produção
+1. **Model de Escala do Cloud Run (`min-instances=0`)**:
+   - Ambos os serviços worker (`monitoria-whisper-worker` e `monitoria-worker`) estavam configurados com `min-instances=0` no GCP Cloud Run.
+   - Após ~15 minutos de inatividade sem requisições HTTP recebidas, o Cloud Run desligava o container (Scale to Zero, 0 instâncias ativas).
+2. **Incompatibilidade Arquitetural: Cloud Run Scale-to-Zero vs. Pub/Sub PULL**:
+   - A arquitetura dos workers utiliza **Pub/Sub PULL** (`pushConfig: {}`, escuta via `subscriber.subscribe()` interno).
+   - Como assinaturas PULL NÃO enviam requisições HTTP para a porta do Cloud Run, **nenhum evento disparava a inicialização (cold-start) dos containers zerados quando novos áudios eram enviados**.
+   - O upload no frontend/API publicava a mensagem no Pub/Sub normalmente, mas com 0 instâncias worker ativas e sem gatilho HTTP, as mensagens ficavam acumuladas indefinidamente e as chamadas travavam no status `"Na Fila de Processamento..."`.
+
+### Ações Executadas e Solução
+1. **Reativação Instantânea via CLI (GCP Cloud Run)**:
+   - Atualizados ambos os serviços para `min-instances=1`:
+     - `gcloud run services update monitoria-whisper-worker --min-instances=1 --region=us-central1`
+     - `gcloud run services update monitoria-worker --min-instances=1 --region=us-central1`
+   - Os containers inicializaram imediatamente, puxaram os jobs retidos das filas `monitoria-whisper-jobs` e `monitoria-whisper-jobs-prod` e destravaram os áudios travados (`4_Conta_Simples_B.mp3`, `2_Problema_Complexo.mp3`, `COMGAS ALTCAD T1...`).
+2. **Prevenção Definitiva no CI/CD (`cloudbuild-worker.yaml`)**:
+   - Corrigido `cloudbuild-worker.yaml` para manter `- '--min-instances=1'`, garantindo que novos deploys no ambiente de teste não revertam a configuração para `min-instances=0`.
+
+---
+
 ## 14/07/2026 01:40 BRT — Correção do Conflito de Registro de Módulo (Firestore Compartilhado) & Prevenção de Rebuilds
 
 ### Contexto
