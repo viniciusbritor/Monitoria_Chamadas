@@ -681,6 +681,31 @@ def _restart_streaming_pull():
             print(f"[WATCHDOG] FALHA ao recriar streaming_pull: {e}", flush=True)
 
 
+def _run_push_job(call_id, gcs_uri, user_id=None, diretrizes=None, duration=None):
+    with HEALTHZ_LOCK:
+        WORKER_STATE["last_msg_received_at"] = time.time()
+        WORKER_STATE["last_msg_id"] = f"push-{call_id}"
+        WORKER_STATE["last_msg_call_id"] = call_id
+        WORKER_STATE["current_state"] = "processing"
+    try:
+        process_audio(
+            call_id=call_id,
+            gcs_uri=gcs_uri,
+            user_id=user_id,
+            diretrizes=diretrizes,
+            audio_duration_sec=duration,
+        )
+        with HEALTHZ_LOCK:
+            WORKER_STATE["messages_processed"] += 1
+            WORKER_STATE["current_state"] = "ready"
+            WORKER_STATE["consecutive_errors"] = 0
+    except Exception as e:
+        with HEALTHZ_LOCK:
+            WORKER_STATE["consecutive_errors"] += 1
+            WORKER_STATE["current_state"] = "ready"
+        print(f"[Worker {WORKER_ID}] Erro em PUSH process_audio ({call_id}): {e}", flush=True)
+
+
 def health_check_server():
     """
     Cloud Run exige que o container escute em PORT (default 8080).
@@ -747,13 +772,17 @@ def health_check_server():
                     body = self.rfile.read(content_len)
                     envelope = json.loads(body.decode("utf-8"))
 
-                    # Pub/Sub push envelope: {"message": {"data": "base64...", "messageId": "..."}, ...}
                     message = envelope.get("message", {})
                     data_b64 = message.get("data", "")
+                    payload_data = {}
                     if data_b64:
                         import base64
-                        decoded_str = base64.b64decode(data_b64).decode("utf-8")
-                        payload_data = json.loads(decoded_str)
+                        decoded_str = base64.b64decode(data_b64).decode("utf-8", errors="ignore")
+                        try:
+                            payload_data = json.loads(decoded_str)
+                        except Exception as pe:
+                            print(f"[Worker {WORKER_ID}] JSON decode aviso: {pe} em {decoded_str[:100]}", flush=True)
+                            payload_data = {}
                     else:
                         payload_data = envelope
 
@@ -762,34 +791,17 @@ def health_check_server():
                     user_id = payload_data.get("user_id")
                     diretrizes = payload_data.get("diretrizes_qualidade")
                     duration = payload_data.get("audio_duration_sec")
-                    msg_id = message.get("messageId", f"push-{time.time()}")
 
                     print(f"[Worker {WORKER_ID}] PUSH HTTP recebido: call_id={call_id} gcs_uri={gcs_uri}", flush=True)
 
                     if call_id and gcs_uri:
-                        with HEALTHZ_LOCK:
-                            WORKER_STATE["last_msg_received_at"] = time.time()
-                            WORKER_STATE["last_msg_id"] = msg_id
-                            WORKER_STATE["last_msg_call_id"] = call_id
-                            WORKER_STATE["current_state"] = "processing"
-
-                        try:
-                            process_audio(
-                                call_id=call_id,
-                                gcs_uri=gcs_uri,
-                                user_id=user_id,
-                                diretrizes=diretrizes,
-                                audio_duration_sec=duration,
-                            )
-                            with HEALTHZ_LOCK:
-                                WORKER_STATE["messages_processed"] += 1
-                                WORKER_STATE["current_state"] = "ready"
-                                WORKER_STATE["consecutive_errors"] = 0
-                        except Exception as e:
-                            with HEALTHZ_LOCK:
-                                WORKER_STATE["consecutive_errors"] += 1
-                                WORKER_STATE["current_state"] = "ready"
-                            print(f"[Worker {WORKER_ID}] Erro em PUSH process_audio: {e}", flush=True)
+                        import threading
+                        t = threading.Thread(
+                            target=_run_push_job,
+                            args=(call_id, gcs_uri, user_id, diretrizes, duration),
+                            daemon=True,
+                        )
+                        t.start()
 
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
