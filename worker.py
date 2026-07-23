@@ -688,7 +688,7 @@ def _run_push_job(call_id, gcs_uri, user_id=None, diretrizes=None, duration=None
         WORKER_STATE["last_msg_call_id"] = call_id
         WORKER_STATE["current_state"] = "processing"
     try:
-        process_audio(
+        process_call(
             call_id=call_id,
             gcs_uri=gcs_uri,
             user_id=user_id,
