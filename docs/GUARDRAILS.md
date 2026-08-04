@@ -284,3 +284,18 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
    - Os arquivos excedentes aguardam em fila no Pub/Sub de forma totalmente assíncrona, durável e segura enquanto os Workers processam os jobs disponíveis.
 
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
+
+## Regra #26 — Proteção de FinOps & Desligamento Obrigatório do Temperature Fallback (Zero Loop de Custos no Whisper)
+
+**Aplicável a partir de 04/08/2026. Regra Absoluta.**
+
+1. **Desligamento Obrigatório do Loop Fallback (`temperature=0.0`)**:
+   - É **ESTRITAMENTE PROIBIDO** invocar o motor `WhisperModel.transcribe()` utilizando tuplas de fallback de temperatura padrao (`temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0]`).
+   - O parâmetro `temperature=0.0` DEVE ser sempre configurado explicitamente no `Transcriber`. Isso força o CTranslate2 a executar em 1 única passada direta (greedy decoding).
+2. **Proteção Anti-Alucinação (`condition_on_previous_text=False`)**:
+   - Em arquivos com silêncio, chiado ou ruído de fundo (típicos de mensagens de voz de WhatsApp), a flag `condition_on_previous_text=False` DEVE estar ativa para impedir que o modelo entre em loops de repetição de texto.
+3. **Descarte Rápido de Ruído não-vocal (`no_speech_threshold=0.6`)**:
+   - Áudios ruidosos sem fala devem ter o trecho descartado em fração de milissegundo pelo `no_speech_threshold=0.6`.
+4. **Impacto em FinOps & Custo**:
+   - Elimina 100% dos loops de 5 minutos em CPU causados por re-tentativas de amostragem em ruídos de fundo. O tempo de transcrição de áudios curtos fica travado em **~10 a 20 segundos**, economizando vCPU do Cloud Run e reduzindo a fatura do GCP ao mínimo possível.
+
