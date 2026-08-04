@@ -41,6 +41,8 @@ class Transcriber:
             num_workers=4,  # Otimização A: paralelismo de decode em CPU (10/07/2026: 2→4)
             download_root=os.getenv("WHISPER_DOWNLOAD_ROOT", None),  # Cache local (pre-build)
         )
+        import threading
+        self._lock = threading.Lock()
         print(f"[Transcriber] Modelo carregado em {time.time() - start_time:.2f}s", flush=True)
 
     def _preprocess_audio(self, audio_path: str) -> str:
@@ -164,34 +166,35 @@ class Transcriber:
         print(f"[Transcriber] Transcrevendo: {os.path.basename(processed_path)}...", flush=True)
         start_time = time.time()
 
-        segments, info = self.model.transcribe(
-            processed_path,
-            beam_size=1,  # Greedy decoding (~30% mais rapido, perda minima)
-            language="pt",
-            vad_filter=True,  # Filtro de silencio (otimizacao bonus)
-            vad_parameters=dict(min_silence_duration_ms=500),
-        )
+        with self._lock:
+            segments, info = self.model.transcribe(
+                processed_path,
+                beam_size=1,  # Greedy decoding (~30% mais rapido, perda minima)
+                language="pt",
+                vad_filter=True,  # Filtro de silencio (otimizacao bonus)
+                vad_parameters=dict(min_silence_duration_ms=500),
+            )
 
-        full_text = []
-        detailed_segments = []
-        # Usa duracao passada se disponivel, senao usa info.duration do Whisper
-        total_duration = audio_duration_sec if audio_duration_sec and audio_duration_sec > 0 else info.duration
+            full_text = []
+            detailed_segments = []
+            # Usa duracao passada se disponivel, senao usa info.duration do Whisper
+            total_duration = audio_duration_sec if audio_duration_sec and audio_duration_sec > 0 else info.duration
 
-        for segment in segments:
-            text = segment.text.strip()
-            full_text.append(text)
-            detailed_segments.append({
-                "start": segment.start,
-                "end": segment.end,
-                "text": text
-            })
-            print(f"[{segment.start:.2f}s -> {segment.end:.2f}s] {text}", flush=True)
-            # Callback de progresso por segmento (caller faz throttle)
-            if on_progress is not None:
-                try:
-                    on_progress(segment.end, total_duration)
-                except Exception as e:
-                    print(f"[Transcriber] on_progress callback falhou: {e}", flush=True)
+            for segment in segments:
+                text = segment.text.strip()
+                full_text.append(text)
+                detailed_segments.append({
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": text
+                })
+                print(f"[{segment.start:.2f}s -> {segment.end:.2f}s] {text}", flush=True)
+                # Callback de progresso por segmento (caller faz throttle)
+                if on_progress is not None:
+                    try:
+                        on_progress(segment.end, total_duration)
+                    except Exception as e:
+                        print(f"[Transcriber] on_progress callback falhou: {e}", flush=True)
 
         duration = time.time() - start_time
         print(f"[Transcriber] Transcricao concluida em {duration:.2f}s (Audio de {info.duration:.2f}s, ratio={duration/info.duration:.2f}x)", flush=True)

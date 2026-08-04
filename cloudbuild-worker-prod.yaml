@@ -42,7 +42,7 @@ steps:
       - '--port=8080'
       - '--timeout=3600'
       - '--cpu-throttling'
-      - '--concurrency=2'
+      - '--concurrency=1'
       - '--min-instances=0'
       - '--max-instances=4'
       - '--cpu-boost'
