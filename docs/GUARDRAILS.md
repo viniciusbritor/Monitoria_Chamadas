@@ -259,4 +259,15 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 6. **O ambiente de produção** (`monitoria.coherenceai.com.br`) só recebe deploy quando o usuário disser "publique em prod" ou equivalente.
 7. **Exceção:** correções críticas (crash, security, dados corrompidos) podem pular a fila com autorização explícita do usuário.
 
+## Regra #24 — Guardrail Anti-Desperdício FinOps no Cloud Run (PROIBIÇÃO DE --no-cpu-throttling)
+
+**Aplicavel a partir de 04/08/2026. Regra absoluta de FinOps.**
+
+1. **É ESTRITAMENTE PROIBIDO** utilizar `--no-cpu-throttling` (`run.googleapis.com/cpu-throttling: false`) em qualquer serviço Cloud Run (dev, test ou producao).
+2. **TODOS OS SERVIÇOS** Cloud Run (`monitoria`, `monitoria-test-env`, `monitoria-whisper-worker`, `monitoria-worker`, `agents-runtime-test`, `coherence-portal`) DEVEM rodar com `--cpu-throttling` (`true`).
+3. **MOTIVO FINANCEIRO:** `--no-cpu-throttling` mantém 100% da vCPU e RAM alocadas 24/7 (como se fossem VMs Compute Engine), gerando vazamento de custo ocioso de **~ R$ 1.800,00 a R$ 3.000,00 por mês** sem qualquer tráfego.
+4. **COMPATIBILIDADE DE WORKER:** Workers assíncronos e processadores de áudio (Whisper) DEVEM ser acionados via Pub/Sub PUSH mode. O Cloud Run libera 100% de vCPU durante a requisição HTTP do Pub/Sub, garantindo performance total sem gerar cobrança ociosa quando a fila estiver vazia.
+5. **VERIFICAÇÃO DE CI/CD:** Nenhuma alteração nos arquivos `cloudbuild*.yaml` pode reintroduzir `--no-cpu-throttling`.
+
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
+

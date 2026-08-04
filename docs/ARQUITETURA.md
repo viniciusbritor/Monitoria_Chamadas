@@ -125,9 +125,9 @@ core/
 | min-instances | 1 (sempre ativo — Regra #16) |
 | timeout | 3600s |
 | concurrency | 2 |
-| `--no-cpu-throttling` | ativo |
+| `--cpu-throttling` | ativo (Scale-to-Zero ao ficar ocioso - Regra #24) |
 | `--cpu-boost` | ativo |
-| Custo estimado | ~$50/mês |
+| Custo estimado | ~$0 idle / sob demanda |
 
 ## Persistencia - Firestore
 

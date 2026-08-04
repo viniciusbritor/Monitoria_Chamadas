@@ -41,7 +41,7 @@ steps:
       - '--memory=4Gi'
       - '--port=8080'
       - '--timeout=3600'
-      - '--no-cpu-throttling'
+      - '--cpu-throttling'
       - '--concurrency=2'
       - '--min-instances=0'
       - '--max-instances=4'

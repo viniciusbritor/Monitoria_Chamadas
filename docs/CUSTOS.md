@@ -41,10 +41,12 @@ Apenas ha custo durante o desenvolvimento ativo (minutos/horas de uso).
 
 | Service | CPU | RAM | min | max | Custo/mes | Por que |
 |---|---|---|---|---|---|---|
-| `monitoria` (API) | 4 vCPU | 8 GiB | 0 | 5 | ~$20 | Idle $0, ativo ~$0.06/h |
-| `monitoria-worker` (worker) | 4 vCPU | 4 GiB | **1** | 4 | **~$50** | Sempre quente (PULL sub) |
-| `coherence-portal` | - | - | 0 | - | ~$5 | Portal producao |
-| **Subtotal** | | | | | **~$75** | |
+| `monitoria` (API) | 4 vCPU | 8 GiB | 0 | 5 | ~$5 | Idle $0 (cpu-throttling=true), sob demanda |
+| `monitoria-worker` (worker) | 4 vCPU | 4 GiB | 0 | 4 | **~$5** | Sob demanda (Pub/Sub PUSH mode - Regra #24) |
+| `coherence-portal` | - | - | 0 | - | ~$5 | Portal producao (scale-to-zero) |
+| **Subtotal** | | | | | **~$15** | *(Economia de ~$320/mês vs --no-cpu-throttling)* |
+
+> 📌 **Auditoria FinOps (04/08/2026):** Todos os serviços Cloud Run foram migrados para `cpu-throttling=true`. Anteriormente com `--no-cpu-throttling`, os 4 serviços (`monitoria`, `monitoria-test-env`, `monitoria-whisper-worker`, `monitoria-worker`) consumiam 16 vCPUs e 24 GB de RAM 24/7 sem tráfego, gerando um custo ocioso desnecessário de **~ 320 USD / mês (R$ 1.800,00 BRL / mês)**. Com a mudança para `cpu-throttling=true` e `min-instances=0`, o custo em ociosidade foi reduzido para **0 USD**.
 
 ### 2.2 Infra Compartilhada
 

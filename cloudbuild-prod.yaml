@@ -61,7 +61,7 @@ steps:
       - '--cpu=4'
       - '--memory=8Gi'
       - '--port=8080'
-      - '--no-cpu-throttling'
+      - '--cpu-throttling'
       - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs-prod,PORTAL_API_URL=https://portal-omnichannel.coherenceai.com.br,TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
       - '--quiet'
 

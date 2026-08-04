@@ -61,15 +61,8 @@ steps:
       - '--cpu=4'
       - '--memory=8Gi'
       - '--port=8080'
-      # NEW (06/07/2026): cpu-throttling=false. Em Cloud Run, default e'
-      # true (container usa so ~20% da CPU fora de requests HTTP). Whisper
-      # e' CPU-heavy e roda em BackgroundTasks in-process (Fase C) ->
-      # sem isso, audio de 4min leva 30-50min. Producao ja tem esse
-      # annotation e processa em ~3-5min.
-      # NOTA: --no-cpu-throttling e' a sintaxe aceita pelo gcloud no
-      # cloudsdktool image do Cloud Build (--cpu-throttling=false falha
-      # com 'ignored explicit argument').
-      - '--no-cpu-throttling'
+      # NEW (04/08/2026): cpu-throttling=true. Evita cobranca 24/7 de CPU/RAM ociosa.
+      - '--cpu-throttling'
       # REMOVIDO (06/07/2026 - Plano A++): GCS FUSE mount do SQLite.
       # Migracao completa para Firestore — nao ha mais SQLite local.
       # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.

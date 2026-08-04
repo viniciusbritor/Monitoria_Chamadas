@@ -123,7 +123,7 @@ Como o Firestore é compartilhado, o registro dinâmico via CI/CD foi isolado:
 | Test | 4 vCPU | 4 GiB | **0** (sob demanda) | 4 | 2 |
 | Prod | 4 vCPU | 4 GiB | 1 (sempre ativo) | 4 | 2 |
 
-Ambos: `--no-cpu-throttling`, `--cpu-boost`, custo test ~$0 idle, prod ~$50/mês.
+Ambos: `--cpu-throttling` (Regra #24 - Scale-to-Zero), `--cpu-boost`, custo idle $0/mês.
 
 ## URL canonica
 

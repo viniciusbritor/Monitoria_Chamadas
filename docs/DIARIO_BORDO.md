@@ -2644,3 +2644,18 @@ if (!res.ok) {
 ## Implementação do Tema Claro e Debugging do Whisper (27/06/2026)
 - **Frontend:** O design do frontend (React/Vite) foi alterado de Dark Mode para Light Mode (Branco minimalista), ajustando as classes no Tailwind e as variáveis no index.css. O deploy final para o Cloud Run foi realizado com sucesso.
 - **Backend/Debugging:** Investigado o porquê de chamadas supostamente estarem falhando. O banco de dados comprovou que os áudios estavam sendo processados (Status: Concluído, Score: 65), mas o processamento demorado no Whisper gerava timeout visual. Concluiu-se que não havia falha sistêmica, apenas uma lentidão inerente de hardware de CPU na nuvem. A mitigação focou em estabilidade do container, deploy ajustado e documentação.
+
+---
+
+## 04/08/2026 - Auditoria FinOps GCP: Mitigação de Custos Ociosos e Enforcing da Regra #24 (--cpu-throttling)
+
+- **Diagnóstico do Problema de Custo:**
+  - Auditoria em tempo real via CLI da GCP revelou que os 4 serviços Cloud Run da suíte `monitoria` (`monitoria`, `monitoria-test-env`, `monitoria-whisper-worker` e `monitoria-worker`) estavam configurados com `run.googleapis.com/cpu-throttling: 'false'`.
+  - Essa configuração fazia com que 16 vCPUs e 24 GB de RAM fossem mantidos ligados e cobrados 24/7 sem tráfego, gerando um custo ocioso indesejado de **~ 320 USD / mês (~ R$ 1.800,00 BRL / mês)**.
+
+- **Ações de Mitigação Executadas (Imediato em Produção/Test):**
+  1. Executado `gcloud run services update --cpu-throttling` nos 4 serviços (`monitoria`, `monitoria-test-env`, `monitoria-whisper-worker`, `monitoria-worker`).
+  2. Atualizados os 4 arquivos CI/CD (`cloudbuild-prod.yaml`, `cloudbuild-test.yaml`, `cloudbuild-worker-prod.yaml`, `cloudbuild-worker.yaml`) substituindo `--no-cpu-throttling` por `--cpu-throttling`.
+  3. Criada a **Regra #24 (Guardrail Anti-Desperdício FinOps no Cloud Run)** em `docs/GUARDRAILS.md` proibindo expressamente o uso de `--no-cpu-throttling`.
+  4. Atualizados os documentos de infraestrutura (`docs/ARQUITETURA.md`, `docs/HARNESS.md`, `docs/CUSTOS.md`).
+

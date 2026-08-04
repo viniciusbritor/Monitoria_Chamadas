@@ -46,11 +46,8 @@ steps:
       - '--memory=4Gi'
       - '--port=8080'
       - '--timeout=3600'
-      # NEW (06/07/2026): cpu-throttling=false. Whisper e' CPU-heavy;
-      # sem isso, default Cloud Run so libera ~20% CPU fora de requests,
-      # fazendo transcricao ficar 5-10x mais lenta. Producao ja tem.
-      # NOTA: --no-cpu-throttling e' a sintaxe aceita (--cpu-throttling=false falha).
-      - '--no-cpu-throttling'
+      # NEW (04/08/2026): cpu-throttling=true ativado para zerar custo ocioso 24/7.
+      - '--cpu-throttling'
       - '--concurrency=2'
       # (23/07/2026): min-instances=0 ativado via Pub/Sub PUSH mode.
       # O Pub/Sub faz POST HTTP em /pubsub/push despertando a instancia sob demanda.
