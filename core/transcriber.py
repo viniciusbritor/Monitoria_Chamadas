@@ -28,8 +28,7 @@ class Transcriber:
 
         # Otimização: paralelismo CPU via OMP_NUM_THREADS e cpu_threads
         # faster-whisper usa CTranslate2 que paraleliza em CPU.
-        # (10/07/2026): threads aumentado de 2 para 6 (8 vCPU disponiveis).
-        cpu_threads = int(os.getenv("OMP_NUM_THREADS", "6"))
+        cpu_threads = int(os.getenv("OMP_NUM_THREADS", "4"))
 
         print(f"[Transcriber] Carregando modelo Whisper ({model_size}) no {device} (compute_type={compute_type}, threads={cpu_threads})...", flush=True)
         start_time = time.time()
@@ -38,7 +37,7 @@ class Transcriber:
             device=device,
             compute_type=compute_type,
             cpu_threads=cpu_threads,
-            num_workers=4,  # Otimização A: paralelismo de decode em CPU (10/07/2026: 2→4)
+            num_workers=1,  # num_workers=1 no CPU evita disputa de threads (docs oficiais CTranslate2)
             download_root=os.getenv("WHISPER_DOWNLOAD_ROOT", None),  # Cache local (pre-build)
         )
         import threading
