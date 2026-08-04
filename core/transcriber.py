@@ -173,8 +173,7 @@ class Transcriber:
                 condition_on_previous_text=False,  # Evita repetição e repetições infinitas em chiado
                 no_speech_threshold=0.6,  # Descarta ruídos não-vocais rapidamente
                 language="pt",
-                vad_filter=True,  # Filtro de silencio (otimizacao bonus)
-                vad_parameters=dict(min_silence_duration_ms=500),
+                vad_filter=False,  # vad_filter=False evita travamento do ONNX Silero VAD no C++
             )
 
             full_text = []
