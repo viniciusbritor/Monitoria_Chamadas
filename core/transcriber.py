@@ -169,6 +169,9 @@ class Transcriber:
             segments, info = self.model.transcribe(
                 processed_path,
                 beam_size=1,  # Greedy decoding (~30% mais rapido, perda minima)
+                temperature=0.0,  # Zero fallback temperature: executa em 1 pass (impede loops de 5min em ruído)
+                condition_on_previous_text=False,  # Evita repetição e repetições infinitas em chiado
+                no_speech_threshold=0.6,  # Descarta ruídos não-vocais rapidamente
                 language="pt",
                 vad_filter=True,  # Filtro de silencio (otimizacao bonus)
                 vad_parameters=dict(min_silence_duration_ms=500),
