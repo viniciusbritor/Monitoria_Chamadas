@@ -102,8 +102,8 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
     const selectedFiles = Array.from(e.target.files || [])
     if (selectedFiles.length === 0) return
 
-    // NEW (08/07/2026 - Plano Ultra-Economico): valida tamanho (20MB) e quantidade (50).
-    const MAX_FILES = 50
+    // NEW (04/08/2026 - Regra #25): valida tamanho (20MB) e quantidade (100).
+    const MAX_FILES = 100
     const MAX_FILE_SIZE = 20 * 1024 * 1024
     const oversized = selectedFiles.filter(f => f.size > MAX_FILE_SIZE)
     if (oversized.length > 0) {

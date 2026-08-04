@@ -267,7 +267,20 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 2. **TODOS OS SERVIÇOS** Cloud Run (`monitoria`, `monitoria-test-env`, `monitoria-whisper-worker`, `monitoria-worker`, `agents-runtime-test`, `coherence-portal`) DEVEM rodar com `--cpu-throttling` (`true`).
 3. **MOTIVO FINANCEIRO:** `--no-cpu-throttling` mantém 100% da vCPU e RAM alocadas 24/7 (como se fossem VMs Compute Engine), gerando vazamento de custo ocioso de **~ R$ 1.800,00 a R$ 3.000,00 por mês** sem qualquer tráfego.
 4. **COMPATIBILIDADE DE WORKER:** Workers assíncronos e processadores de áudio (Whisper) DEVEM ser acionados via Pub/Sub PUSH mode. O Cloud Run libera 100% de vCPU durante a requisição HTTP do Pub/Sub, garantindo performance total sem gerar cobrança ociosa quando a fila estiver vazia.
-5. **VERIFICAÇÃO DE CI/CD:** Nenhuma alteração nos arquivos `cloudbuild*.yaml` pode reintroduzir `--no-cpu-throttling`.
+
+## Regra #25 — Resiliência Industrial a Batch Uploads (Zero CTranslate2 Deadlock)
+
+**Aplicável a partir de 04/08/2026. Regra Absoluta.**
+
+1. **Suporte a Lotes Grandes (100+ arquivos)**: O usuário pode enviar **qualquer número de arquivos de áudio em lote** (ex: 10, 50, 100+ arquivos). O sistema DEVE aceitar e processar sem travamento, crash de contêiner ou estouro de memória.
+2. **Isolamento Estrito por Contêiner (`concurrency=1`)**:
+   - É **ESTRITAMENTE PROIBIDO** configurar `concurrency > 1` nos Workers Cloud Run que executam `faster-whisper` / `CTranslate2`.
+   - O Cloud Run DEVE entregar estritamente **1 mensagem por contêiner** (`concurrency=1`). O autoscale da GCP criará instâncias paralelas isoladas para atender a fila Pub/Sub.
+3. **Trava Mutex Thread-Safe no Python (`threading.Lock`)**:
+   - A classe `Transcriber` em `core/transcriber.py` DEVE manter o Mutex `self._lock = threading.Lock()` envolvendo a chamada do motor C++ `WhisperModel.transcribe`.
+   - Isso garante 100% de prevenção contra *race conditions* e *spin-lock deadlocks* no C++ do CTranslate2.
+4. **Resiliência da Fila Pub/Sub**:
+   - Quando um lote grande de arquivos for enviado, a API grava cada arquivo no Cloud Storage e publica no tópico Pub/Sub.
+   - Os arquivos excedentes aguardam em fila no Pub/Sub de forma totalmente assíncrona, durável e segura enquanto os Workers processam os jobs disponíveis.
 
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
-
