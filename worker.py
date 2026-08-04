@@ -739,10 +739,10 @@ def health_check_server():
                     # mas SEMPRE retorna 200 para nao matar o container via
                     # liveness probe. Workers ainda vivos podem recuperar
                     # quando novas mensagens chegarem.
-                    if last_msg_age is not None and last_msg_age > STUCK_THRESHOLD_SEC and WORKER_STATE["current_state"] != "processing":
+                    if WORKER_STATE["current_state"] == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
                         WORKER_STATE["current_state"] = "stuck"
-                    elif WORKER_STATE["current_state"] == "processing" and last_msg_age is not None and last_msg_age > PROCESSING_STUCK_SEC:
-                        WORKER_STATE["current_state"] = "stuck"
+                    elif WORKER_STATE["current_state"] != "processing" and WORKER_STATE["current_state"] != "initializing":
+                        WORKER_STATE["current_state"] = "ready"
                     status_code = 200  # FIX: sempre saudavel para o liveness probe
 
                     payload = {
