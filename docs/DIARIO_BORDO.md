@@ -2688,4 +2688,14 @@ if (!res.ok) {
   - Tempo de transcrição reduzido de > 5 minutos para **~10 a 20 segundos por arquivo**.
   - Garantia de suporte a uploads massivos em lote (100+ arquivos) sem quebra, crash ou consumo financeiro ocioso.
 
+## 04/08/2026 - Correção de Throttling de CPU no Cloud Run: Processamento Síncrono da Rota PUSH
 
+- **Diagnóstico do Problema de CPU Throttling:**
+  - Ao rodar o worker com a flag `--cpu-throttling` (necessária para manter o custo ocioso do ambiente de teste em 0 USD/mês), o Cloud Run reduz a CPU alocada para quase zero assim que a resposta HTTP é retornada.
+  - A rota `/pubsub/push` no `worker.py` criava um daemon thread (`threading.Thread`) para processar o áudio e retornava `200 OK` imediatamente. 
+  - Isso fazia com que o Cloud Run estrangulasse a CPU da instância ativa no meio do processamento da thread em background, fazendo com que a transcrição do Whisper e a chamada à API da DeepSeek levassem mais de 10 minutos por arquivo.
+
+- **Correções Executadas:**
+  - Alterada a lógica do método `do_POST` em `worker.py` (rota `/pubsub/push`) para chamar a função `_run_push_job` de forma **síncrona**.
+  - A resposta HTTP `200 OK` agora é retornada apenas após a conclusão total do processamento (download, Whisper e DeepSeek). Como a requisição HTTP permanece aberta durante a transcrição (~15s), o Cloud Run mantém 100% de alocação de CPU ativa durante todo o ciclo de vida do job.
+  - Isso resolve o gargalo de CPU sem desabilitar o `--cpu-throttling`, mantendo a economia FinOps (custo zero quando ocioso).

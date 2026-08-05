@@ -795,13 +795,7 @@ def health_check_server():
                     print(f"[Worker {WORKER_ID}] PUSH HTTP recebido: call_id={call_id} gcs_uri={gcs_uri}", flush=True)
 
                     if call_id and gcs_uri:
-                        import threading
-                        t = threading.Thread(
-                            target=_run_push_job,
-                            args=(call_id, gcs_uri, user_id, diretrizes, duration),
-                            daemon=True,
-                        )
-                        t.start()
+                        _run_push_job(call_id, gcs_uri, user_id, diretrizes, duration)
 
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
