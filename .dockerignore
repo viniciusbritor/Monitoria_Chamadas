@@ -1,0 +1,9 @@
+.git
+frontend/node_modules/
+__pycache__/
+.venv/
+env/
+*.db
+uploads/
+chamadas_simuladas/
+temp_docx/
