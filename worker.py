@@ -31,7 +31,7 @@ from datetime import datetime
 import concurrent.futures
 from concurrent.futures import TimeoutError
 
-from google.cloud import pubsub_v1, storage as gcs_storage
+# Heavy google.cloud modules stored for lazy loading in functions
 
 # Firestore (substituiu SQLite em 06/07/2026 — Plano A++)
 from core.db import get_call, get_db, get_user_settings
@@ -310,7 +310,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
 
     try:
         bucket_name = gcs_uri.replace("gs://", "").split("/")[0]
-        blob_name = gcs_uri.replace(f"gs://{bucket_name}/", "")
+        from google.cloud import storage as gcs_storage
         client = gcs_storage.Client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
@@ -723,6 +723,7 @@ def _restart_streaming_pull():
                     _subscriber_client.close()
                 except Exception:
                     pass
+            from google.cloud import pubsub_v1
             _subscriber_client = pubsub_v1.SubscriberClient()
             subscription_path = _subscriber_client.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
             flow_control = pubsub_v1.types.FlowControl(max_messages=2)
@@ -997,6 +998,7 @@ def main():
 
     print(f"[Worker {WORKER_ID}] Subscrevendo em {PUBSUB_SUBSCRIPTION}...", flush=True)
     global _subscriber_client, _streaming_pull_future
+    from google.cloud import pubsub_v1
     _subscriber_client = pubsub_v1.SubscriberClient()
     subscriber = _subscriber_client
     subscription_path = subscriber.subscription_path(GCP_PROJECT, PUBSUB_SUBSCRIPTION)
