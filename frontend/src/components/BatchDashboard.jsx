@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ArrowLeft, CheckCircle, Loader2, XCircle, Target, Star, Headphones, User } from 'lucide-react'
+import { ArrowLeft, CheckCircle, Loader2, XCircle, Target, Star, Headphones, User, FileSpreadsheet, Presentation } from 'lucide-react'
 import axios from 'axios'
 
 const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
@@ -32,6 +32,53 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
   const [calls, setCalls] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportExcel = async () => {
+    try {
+      setExporting(true)
+      const token = localStorage.getItem('auth_token')
+      const idsParam = callIds && callIds.length > 0 ? `?ids=${encodeURIComponent(callIds.join(','))}` : ''
+      const res = await axios.get(`${API_URL}/api/export/excel${idsParam}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `relatorio_grupo_${new Date().toISOString().slice(0,10)}.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar Excel: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportPPTX = async () => {
+    try {
+      setExporting(true)
+      const token = localStorage.getItem('auth_token')
+      const idsParam = callIds && callIds.length > 0 ? `?ids=${encodeURIComponent(callIds.join(','))}` : ''
+      const res = await axios.get(`${API_URL}/api/export/pptx${idsParam}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `apresentacao_grupo_${new Date().toISOString().slice(0,10)}.pptx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar PowerPoint: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     if (!callIds || callIds.length === 0) {
@@ -92,11 +139,35 @@ export default function BatchDashboard({ callIds, onBack, onInspectCall }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0"><ArrowLeft size={20} /></button>
-        <div>
-          <h2 className="text-xl font-bold text-textMain">Painel do Grupo</h2>
-          <p className="text-sm text-textMuted mt-1">{calls.length} chamada(s) selecionada(s)</p>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4">
+          <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0"><ArrowLeft size={20} /></button>
+          <div>
+            <h2 className="text-xl font-bold text-textMain">Painel do Grupo</h2>
+            <p className="text-sm text-textMuted mt-1">{calls.length} chamada(s) selecionada(s)</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            disabled={exporting}
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            title="Exportar dados do grupo para planilha Excel (.xlsx)"
+          >
+            <FileSpreadsheet size={16} />
+            Exportar Excel
+          </button>
+
+          <button
+            disabled={exporting}
+            onClick={handleExportPPTX}
+            className="flex items-center gap-2 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            title="Exportar apresentação executiva em PowerPoint (.pptx) - Limite 50 chamadas"
+          >
+            <Presentation size={16} />
+            Exportar PPTX (Máx 50)
+          </button>
         </div>
       </div>
 

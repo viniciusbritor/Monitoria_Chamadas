@@ -23,10 +23,12 @@ DEPLOY:
 """
 import os
 import time
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from core.excel_exporter import generate_excel_report
+from core.pptx_exporter import generate_pptx_report
 import uuid
 import shutil
 from datetime import datetime
@@ -1297,6 +1299,70 @@ def admin_cleanup_orphans(user: dict = Depends(require_admin_user)):
     cleaned_ids = cleanup_orphans_db(older_than_seconds=15 * 60, new_status=new_status)
     print(f"[AdminCleanup] admin={user.get('email')} limpou {len(cleaned_ids)} orfaos", flush=True)
     return {"cleaned": len(cleaned_ids), "orphans": cleaned_ids}
+
+
+# ====================================================
+# ENDPOINTS DE EXPORTAÇÃO (Excel & PowerPoint)
+# ====================================================
+@app.get("/api/export/excel")
+def export_excel_report(
+    ids: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Exporta relatorios de monitoria para planilha analitica Excel (.xlsx).
+    Suporta parametro ?ids=id1,id2 para exportar selecao especifica,
+    ou exporta todas as chamadas se nenhum ID for especificado.
+    """
+    try:
+        db = ChamadasDB()
+        if ids:
+            id_list = [i.strip() for i in ids.split(",") if i.strip()]
+            calls = [db.get(cid) for cid in id_list if db.get(cid)]
+        else:
+            calls = db.list_all(limit=500)
+            
+        excel_bytes = generate_excel_report(calls)
+        filename = f"relatorio_analitico_monitoria_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        return Response(
+            content=excel_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        print(f"[ExportExcel] Erro ao gerar planilha: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar planilha Excel: {e}")
+
+
+@app.get("/api/export/pptx")
+def export_pptx_report(
+    ids: Optional[str] = None,
+    user: dict = Depends(get_current_user)
+):
+    """
+    Exporta apresentacao executiva em PowerPoint (.pptx).
+    Limita rigorosamente a amostragem a 50 chamadas como ordenado.
+    """
+    try:
+        db = ChamadasDB()
+        if ids:
+            id_list = [i.strip() for i in ids.split(",") if i.strip()][:50]
+            calls = [db.get(cid) for cid in id_list if db.get(cid)]
+        else:
+            calls = db.list_all(limit=50)
+            
+        pptx_bytes = generate_pptx_report(calls)
+        filename = f"apresentacao_executiva_monitoria_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
+        
+        return Response(
+            content=pptx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        print(f"[ExportPPTX] Erro ao gerar apresentacao PPTX: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao gerar apresentacao PowerPoint: {e}")
 
 
 # REMOVIDO (07/07/2026 - refactor): endpoints de migracao de status.

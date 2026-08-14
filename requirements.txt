@@ -13,3 +13,5 @@ google-cloud-pubsub
 google-cloud-storage
 google-cloud-firestore
 google-cloud-secret-manager
+openpyxl
+python-pptx

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, AlertTriangle, Volume2 } from 'lucide-react'
+import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, AlertTriangle, Volume2, FileSpreadsheet, Presentation } from 'lucide-react'
 import axios from 'axios'
 import { fmtDateTimeBR } from '../lib/datetime'
 import { anonymizeFilename, anonymizeTranscript, canSeeFullData } from '../lib/anonymize'
@@ -58,6 +58,53 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
   // NEW (08/07/2026 - B3): verifica se user pode ver dados completos (LGPD Art. 12).
   const userRole = localStorage.getItem('user_role')
   const showFullData = canSeeFullData(userRole)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportExcel = async (specificIds = null) => {
+    try {
+      setExporting(true)
+      const token = await getValidToken()
+      const idsParam = specificIds && specificIds.length > 0 ? `?ids=${encodeURIComponent(specificIds.join(','))}` : ''
+      const res = await axios.get(`${API_URL}/api/export/excel${idsParam}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `relatorio_analitico_monitoria_${new Date().toISOString().slice(0,10)}.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar Excel: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportPPTX = async (specificIds = null) => {
+    try {
+      setExporting(true)
+      const token = await getValidToken()
+      const idsParam = specificIds && specificIds.length > 0 ? `?ids=${encodeURIComponent(specificIds.join(','))}` : ''
+      const res = await axios.get(`${API_URL}/api/export/pptx${idsParam}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `apresentacao_executiva_${new Date().toISOString().slice(0,10)}.pptx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar PowerPoint: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const fetchCalls = async () => {
     try {
@@ -307,14 +354,36 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
               ☐ marque para agrupar
             </span>
           </div>
-          {selectedIds.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectedIds.length > 0 && (
+              <button
+                onClick={() => { onViewBatch([...selectedIds]); setSelectedIds([]) }}
+                className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all"
+              >
+                Ver selecionadas ({selectedIds.length})
+              </button>
+            )}
+
             <button
-              onClick={() => { onViewBatch([...selectedIds]); setSelectedIds([]) }}
-              className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all"
+              disabled={exporting}
+              onClick={() => handleExportExcel(selectedIds.length > 0 ? selectedIds : null)}
+              className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+              title="Exportar dados analíticos para planilha Excel (.xlsx)"
             >
-              Ver selecionadas ({selectedIds.length})
+              <FileSpreadsheet size={16} />
+              Exportar Excel {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
             </button>
-          )}
+
+            <button
+              disabled={exporting}
+              onClick={() => handleExportPPTX(selectedIds.length > 0 ? selectedIds : null)}
+              className="flex items-center gap-2 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+              title="Exportar apresentação executiva em PowerPoint (.pptx) - Limite 50 chamadas"
+            >
+              <Presentation size={16} />
+              Exportar PPTX {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

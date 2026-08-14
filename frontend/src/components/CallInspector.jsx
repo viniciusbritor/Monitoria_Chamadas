@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, ThumbsUp,
   ShieldAlert, ChevronDown, ChevronUp, Headphones, User,
-  FileText, Star, MessageSquare, Target, Volume2
+  FileText, Star, MessageSquare, Target, Volume2, FileSpreadsheet, Presentation
 } from 'lucide-react'
 import axios from 'axios'
 
@@ -126,9 +126,51 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
   const [call, setCall] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [showTranscript, setShowTranscript] = useState(false)
-  const [audioUrl, setAudioUrl] = useState(null)
-  const [audioError, setAudioError] = useState(null)
+  const [exporting, setExporting] = useState(false)
+
+  const handleExportExcel = async () => {
+    try {
+      setExporting(true)
+      const token = localStorage.getItem('auth_token')
+      const res = await axios.get(`${API_URL}/api/export/excel?ids=${encodeURIComponent(callId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `relatorio_${callId.slice(0,8)}.xlsx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar Excel: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleExportPPTX = async () => {
+    try {
+      setExporting(true)
+      const token = localStorage.getItem('auth_token')
+      const res = await axios.get(`${API_URL}/api/export/pptx?ids=${encodeURIComponent(callId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      })
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `apresentacao_${callId.slice(0,8)}.pptx`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } catch (err) {
+      alert(`Erro ao exportar PowerPoint: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -246,39 +288,58 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
     <div className="space-y-6 w-full">
 
       {/* Cabeçalho */}
-        <div className="flex items-center gap-4">
-        <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0">
-          <ArrowLeft size={20} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-bold text-textMain truncate flex items-center gap-3">
-            {filename}
-            {audioUrl && (
-              <button onClick={() => document.getElementById('audio-player')?.scrollIntoView({ behavior: 'smooth' })}
-                className="text-primary hover:text-primary/80 p-1.5 rounded hover:bg-black/5 transition-colors shrink-0"
-                title="Ouvir chamada">
-                <Volume2 size={18} />
-              </button>
-            )}
-          </h2>
-          <div className="text-sm text-textMuted mt-1 flex items-center gap-3 flex-wrap">
-            <span>{uploadedAt.toLocaleString('pt-BR')}</span>
-            {analysis?.nome_atendente && (
-              <span className="text-xs bg-black/5 px-2 py-0.5 rounded-full">
-                Atendente: <b>{analysis.nome_atendente}</b>
-              </span>
-            )}
-            {analysis?.classificacao_motivo && (
-              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                {analysis.classificacao_motivo}
-              </span>
-            )}
-            {iaUtilizada !== 'IA' && (
-              <span className="text-xs bg-black/5 px-2 py-0.5 rounded-full">
-                IA: {iaUtilizada}
-              </span>
-            )}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4 min-w-0 flex-1">
+          <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold text-textMain truncate flex items-center gap-3">
+              {filename}
+              {audioUrl && (
+                <button onClick={() => document.getElementById('audio-player')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="text-primary hover:text-primary/80 p-1.5 rounded hover:bg-black/5 transition-colors shrink-0"
+                  title="Ouvir chamada">
+                  <Volume2 size={18} />
+                </button>
+              )}
+            </h2>
+            <div className="text-sm text-textMuted mt-1 flex items-center gap-3 flex-wrap">
+              <span>{uploadedAt.toLocaleString('pt-BR')}</span>
+              {analysis?.nome_atendente && (
+                <span className="text-xs bg-black/5 px-2 py-0.5 rounded-full">
+                  Atendente: <b>{analysis.nome_atendente}</b>
+                </span>
+              )}
+              {analysis?.classificacao_motivo && (
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                  {analysis.classificacao_motivo}
+                </span>
+              )}
+            </div>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            disabled={exporting}
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            title="Exportar esta chamada para planilha Excel (.xlsx)"
+          >
+            <FileSpreadsheet size={16} />
+            Exportar Excel
+          </button>
+
+          <button
+            disabled={exporting}
+            onClick={handleExportPPTX}
+            className="flex items-center gap-2 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            title="Exportar esta chamada para apresentação PowerPoint (.pptx)"
+          >
+            <Presentation size={16} />
+            Exportar PPTX
+          </button>
         </div>
       </div>
 
