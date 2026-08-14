@@ -779,7 +779,7 @@ def health_check_server():
       - test-env agora decide se faz fallback in-process via _worker_healthy()
         que checa state via metadata ao inves de liveness probe
     """
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     import threading
 
     STUCK_THRESHOLD_SEC = 300  # 5min sem mensagem = warning
@@ -854,7 +854,13 @@ def health_check_server():
                     print(f"[Worker {WORKER_ID}] PUSH HTTP recebido: call_id={call_id} gcs_uri={gcs_uri}", flush=True)
 
                     if call_id and gcs_uri:
-                        _run_push_job(call_id, gcs_uri, user_id, diretrizes, duration)
+                        # Executa o job em thread de background para responder 200 OK imediatamente ao Pub/Sub
+                        # e nao bloquear outras rotas (/healthz) do servidor HTTP
+                        threading.Thread(
+                            target=_run_push_job,
+                            args=(call_id, gcs_uri, user_id, diretrizes, duration),
+                            daemon=True
+                        ).start()
 
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
@@ -875,7 +881,7 @@ def health_check_server():
             pass
 
     port = int(os.getenv("PORT", "8080"))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), HealthHandler)
     print(f"[Worker {WORKER_ID}] Health check server listening on :{port}", flush=True)
     server.serve_forever()
 
