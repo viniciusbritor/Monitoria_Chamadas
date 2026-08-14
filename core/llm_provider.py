@@ -9,6 +9,43 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import secrets_manager
 
 
+def extract_json_from_text(text: str) -> str | None:
+    """Extrai substring JSON valida de um texto contendo raciocinio/markdown."""
+    if not text or not text.strip():
+        return None
+    t = text.strip()
+    # 0. Tenta o texto bruto diretamente (se ja for JSON valido)
+    try:
+        json.loads(t)
+        return t
+    except Exception:
+        pass
+    # 1. Tenta extrair de bloco ```json ... ```
+    if "```" in t:
+        parts = t.split("```")
+        for part in parts:
+            p = part.strip()
+            if p.startswith("json"):
+                p = p[4:].strip()
+            if p.startswith("{") and p.endswith("}"):
+                try:
+                    json.loads(p)
+                    return p
+                except Exception:
+                    pass
+    # 2. Tenta encontrar a primeira chave '{' e a ultima '}'
+    first_brace = t.find("{")
+    last_brace = t.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = t[first_brace:last_brace + 1].strip()
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+    return None
+
+
 class DeepSeekClient:
     """DeepSeek V4 Flash — API direta (api.deepseek.com). OpenAI-compatible.
 
@@ -27,7 +64,7 @@ class DeepSeekClient:
         self.model = "deepseek-v4-flash"
         self.enabled = bool(self.api_key)
 
-    def _execute(self, payload, max_retries=3):
+    def _execute(self, payload, json_mode=False, max_retries=3):
         if not self.enabled:
             raise Exception("[DeepSeek] DEEPSEEK_API_KEY nao configurada")
         headers = {
@@ -59,15 +96,28 @@ class DeepSeekClient:
                 data = resp.json()
                 if "choices" in data and len(data["choices"]) > 0:
                     choice = data["choices"][0]["message"]
-                    content = choice.get("content")
-                    if content and content.strip():
-                        return content
-                    reasoning = choice.get("reasoning_content", "")
-                    if reasoning and "{" in reasoning and "}" in reasoning:
-                        print("[DeepSeek] Aviso: content vazio, extraindo JSON de reasoning_content", flush=True)
-                        return reasoning
-                    if content is not None:
-                        return content
+                    content = choice.get("content", "") or ""
+                    reasoning = choice.get("reasoning_content", "") or ""
+
+                    if json_mode:
+                        # 1. Tenta extrair JSON do content
+                        extracted = extract_json_from_text(content)
+                        if extracted:
+                            return extracted
+                        # 2. Se content nao tem JSON valido, tenta no reasoning_content
+                        extracted_reasoning = extract_json_from_text(reasoning)
+                        if extracted_reasoning:
+                            print("[DeepSeek] Aviso: JSON extraido com sucesso de reasoning_content", flush=True)
+                            return extracted_reasoning
+                        print("[DeepSeek] ERRO: Resposta em json_mode nao contem JSON valido", flush=True)
+                        return None
+                    else:
+                        # Modo texto (diarização)
+                        if content and content.strip():
+                            return content
+                        if reasoning and reasoning.strip():
+                            print("[DeepSeek] Aviso: content vazio em modo texto, usando reasoning_content", flush=True)
+                            return reasoning
                 return None
             except requests.exceptions.RequestException as e:
                 retries += 1
@@ -103,7 +153,7 @@ class DeepSeekClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        return self._execute(payload)
+        return self._execute(payload, json_mode=json_mode)
 
     def batch_chat(self, tasks: list[dict], json_mode=True) -> list:
         """NEW (08/07/2026 - Plano Ultra-Economico): executa 2 inferencias em 1 chamada.
@@ -177,7 +227,7 @@ class NvidiaNimClient:
             self.api_key = secrets_manager.get_secret("NVIDIA_API_KEY")
         self.base_url = "https://integrate.api.nvidia.com/v1"
         self.model = "deepseek-ai/deepseek-v4-flash"
-        self.enabled = bool(self.api_key)
+        self.enabled = False  # (14/08/2026): desativado (endpoint NVIDIA retornando 410 Gone)
 
     def _execute(self, payload, max_retries=3):
         if not self.enabled:
@@ -314,9 +364,6 @@ class MiniMaxClient:
                 {"role": "user", "content": user_prompt},
             ],
         }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
-
         return self._execute(payload)
 
 
