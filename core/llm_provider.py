@@ -88,7 +88,7 @@ class DeepSeekClient:
                 {"role": "system", "content": sp},
                 {"role": "user", "content": user_prompt},
             ],
-            "thinking": {"type": "disabled"},
+            "cache_mode": "default",
         }
 
         if json_mode:
@@ -135,7 +135,7 @@ class DeepSeekClient:
                     {"role": "user", "content": combined_user},
                 ],
                 "response_format": {"type": "json_object"},
-                "thinking": {"type": "disabled"},
+                "cache_mode": "default",
             }
             resp_text = self._execute(payload)
             if not resp_text:

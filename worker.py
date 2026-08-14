@@ -382,24 +382,83 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
     )
 
     # 4. Diarizacao + Avaliacao em 1 chamada LLM (NEW 08/07/2026)
-    eval_ = get_evaluator()
-    update_status(call_id, f"Processando IA ({eval_.client.last_provider_used or 'IA'}) - diarize + evaluate batch...")
-    try:
-        result = eval_.diarize_and_evaluate(
-            raw_transcript,
-            user_settings=user_settings,
-            pop_context=pop_context,
-            quality_form=diretrizes,
-        )
-        diarized_transcript = result["diarized_transcript"]
-        evaluation = result["evaluation"]
-        # Pós-processamento: força consistência entre polaridade e notas
-        evaluation = enforce_dynamic_consistency(evaluation)
-        print(f"[Worker {WORKER_ID}] Batch LLM OK ({eval_.client.last_provider_used or 'IA'}): nota={evaluation.get('nota_geral')}", flush=True)
-    except Exception as e:
-        update_status(call_id, f"Erro: avaliacao LLM falhou: {e}")
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        return
+    clean_text = raw_transcript.strip()
+    words = clean_text.split()
+    is_silent_call = (len(clean_text) < 20 or len(words) < 4)
+
+    if is_silent_call:
+        print(f"[Worker {WORKER_ID}] Chamada sem dialogo util detectada ({len(clean_text)} chars, {len(words)} palavras). Gerando avaliacao deterministica sem LLM.", flush=True)
+        diarized_transcript = clean_text if clean_text else "Sem áudio ou diálogo detectado na gravação."
+        evaluation = {
+            "nota_geral": 0,
+            "nota_qualidade_operador": 0,
+            "nota_sentimento_cliente": 5,
+            "nome_atendente": None,
+            "motivo_contato": "Chamada Muda / Sem Contato / Queda de Linha",
+            "classificacao_motivo": "Outros",
+            "fases": {
+                "apresentacao": {
+                    "nota_qa": 0,
+                    "nota_nps": 5,
+                    "analise": "Gravação sem diálogo audível ou contato efetivo.",
+                    "sentimentos_cliente": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_cliente": 0,
+                    "sentimentos_operador": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_operador": 0,
+                },
+                "resolucao": {
+                    "nota_qa": 0,
+                    "nota_nps": 5,
+                    "analise": "Não houve interação entre atendente e cliente.",
+                    "sentimentos_cliente": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_cliente": 0,
+                    "sentimentos_operador": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_operador": 0,
+                },
+                "fechamento": {
+                    "nota_qa": 0,
+                    "nota_nps": 5,
+                    "analise": "Chamada encerrada sem diálogo.",
+                    "sentimentos_cliente": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_cliente": 0,
+                    "sentimentos_operador": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+                    "polaridade_operador": 0,
+                }
+            },
+            "erro_critico": False,
+            "pontos_positivos": [],
+            "pontos_melhoria": ["Verificar conectividade ou causa da queda da chamada."],
+            "recomendacao_treinamento": "Nenhuma recomendação necessária para chamadas sem diálogo.",
+            "humor_cliente": "Inconclusivo",
+            "humor_expert": "Inconclusivo",
+            "sentimentos_cliente": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+            "sentimentos_operador": [{"sentimento": "Neutro", "probabilidade": 1.0}],
+            "erros_fatais_identificados": [],
+            "checklist_conformidade": [],
+            "oportunidade_venda_retencao": False,
+            "sucesso_venda_retencao": False,
+            "tipo_oportunidade": "Nenhuma",
+            "argumentos_operador": []
+        }
+    else:
+        eval_ = get_evaluator()
+        update_status(call_id, f"Processando IA ({eval_.client.last_provider_used or 'IA'}) - diarize + evaluate batch...")
+        try:
+            result = eval_.diarize_and_evaluate(
+                raw_transcript,
+                user_settings=user_settings,
+                pop_context=pop_context,
+                quality_form=diretrizes,
+            )
+            diarized_transcript = result["diarized_transcript"]
+            evaluation = result["evaluation"]
+            # Pós-processamento: força consistência entre polaridade e notas
+            evaluation = enforce_dynamic_consistency(evaluation)
+            print(f"[Worker {WORKER_ID}] Batch LLM OK ({eval_.client.last_provider_used or 'IA'}): nota={evaluation.get('nota_geral')}", flush=True)
+        except Exception as e:
+            update_status(call_id, f"Erro: avaliacao LLM falhou: {e}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return
 
     # 6. Parse nota
     nota = evaluation.get("nota_geral")

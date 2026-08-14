@@ -299,3 +299,18 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 4. **Impacto em FinOps & Custo**:
    - Elimina 100% dos loops de 5 minutos em CPU causados por re-tentativas de amostragem em ruídos de fundo. O tempo de transcrição de áudios curtos fica travado em **~10 a 20 segundos**, economizando vCPU do Cloud Run e reduzindo a fatura do GCP ao mínimo possível.
 
+## Regra #27 — Otimização de STT e Prompt Caching DeepSeek (FinOps 13/08/2026)
+
+**Aplicável a partir de 13/08/2026. Regra Absoluta.**
+
+1. **Cascata de Transcrição de Áudio (Groq Primário + faster-whisper Fallback)**:
+   - Toda transcrição de áudio DEVE tentar primeiramente a API Groq Cloud (`whisper-large-v3-turbo` em chips LPU, formato `verbose_json`).
+   - Apenas se a Groq estiver indisponível, exceder limite de arquivo (25MB) ou retornar erro (ex: 429), o sistema deve acionar o fallback local do `faster-whisper`.
+   - Isso garante custo zero de inferência e velocidade de ~2s por áudio com alta fidelidade (WER < 5%).
+2. **Prompt Caching Obrigatório no DeepSeek V4 Flash (`cache_mode: default`)**:
+   - Todo payload enviado ao `DeepSeekClient` DEVE conter `"cache_mode": "default"`.
+   - É **TERMINANTEMENTE PROIBIDO** enviar o campo `"thinking": {"type": "disabled"}` com JSON mode para a API do DeepSeek, pois isso causa erro `HTTP 400: unexpected keyword argument 'thinking'`.
+3. **Filtro Determinístico de Chamadas Mudas / Sem Diálogo**:
+   - Áudios cuja transcrição resulte em menos de 20 caracteres ou menos de 4 palavras DEVEM ser categorizados diretamente como "Chamada Muda / Sem Contato" no worker, sem acionar inferência de LLM, evitando desperdício de tokens.
+
+

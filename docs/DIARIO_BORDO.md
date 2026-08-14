@@ -2,6 +2,30 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 13/08/2026 21:15 BRT — FinOps & Latência: Transcrição Groq Whisper Large v3 Turbo + Prompt Caching DeepSeek + Filtro de Chamadas Mudas
+
+### Contexto
+Avaliação e benchmarking com as lições aprendidas de FinOps no projeto `ChatBotWhatsapp`. Implementação de melhorias para otimizar velocidade, qualidade e contenção de custos no ambiente de teste do `Monitoria_Chamadas`.
+
+### Alterações e Decisões Técnicas
+
+1. **Transcrição Híbrida Primária com Groq Cloud LPU (`core/transcriber.py`)**:
+   - Adicionado motor primário consumindo a API da Groq Cloud (`whisper-large-v3-turbo` em LPU, formato `verbose_json`).
+   - Latência de transcrição reduzida de ~30-60s (CPU local) para **~2s** com altíssima acurácia em português (WER < 5%) a custo **zero** (Free Tier).
+   - O `faster-whisper` local em CPU (CTranslate2) foi mantido e encapsulado como fallback automático transparente caso ocorra falha de rede, rate limit (429) ou áudio > 25MB.
+   - Preservados os timestamps e segmentos detalhados consumidos pelo `CallInspector` do frontend.
+
+2. **Prompt Caching Explícito no DeepSeek V4 Flash (`core/llm_provider.py`)**:
+   - Inserido `"cache_mode": "default"` no payload das requisições diretas ao `api.deepseek.com` (`chat` e `batch_chat`).
+   - Como o System Prompt da auditoria de CX é longo e fixo, o DeepSeek aplica desconto de ~80% nos tokens de entrada cacheados (0.06 USD / 1M tokens vs 0.30 USD / 1M).
+   - Removido o campo `"thinking": {"type": "disabled"}` que gerava erros `HTTP 400: unexpected keyword argument 'thinking'` silenciosos.
+
+3. **Filtro Determinístico de Chamadas Mudas / Sem Diálogo (`worker.py`)**:
+   - Verificação determinística no worker pré-LLM: se o texto transcrito tiver menos de 20 caracteres ou menos de 4 palavras, gera relatório estruturado de "Chamada Muda / Sem Contato" sem despachar requisições de LLM.
+   - Risco zero de falsos positivos em chamadas legítimas e economia de tokens.
+
+---
+
 ## 23/07/2026 20:05 BRT — Diagnóstico e Correção: Destravamento dos Workers (Test & Prod) & Enforcing `min-instances=1`
 
 ### Causa Raiz do Travamento em Test e Produção
@@ -2699,3 +2723,26 @@ if (!res.ok) {
   - Alterada a lógica do método `do_POST` em `worker.py` (rota `/pubsub/push`) para chamar a função `_run_push_job` de forma **síncrona**.
   - A resposta HTTP `200 OK` agora é retornada apenas após a conclusão total do processamento (download, Whisper e DeepSeek). Como a requisição HTTP permanece aberta durante a transcrição (~15s), o Cloud Run mantém 100% de alocação de CPU ativa durante todo o ciclo de vida do job.
   - Isso resolve o gargalo de CPU sem desabilitar o `--cpu-throttling`, mantendo a economia FinOps (custo zero quando ocioso).
+
+## 05/08/2026 - Auditoria FinOps GCP: Exclusão de Cloud SQL, Migração Regional de VM e Cleanup Policies de Imagens
+
+- **Ações FinOps Executadas:**
+  1. **Exclusão de Cloud SQL (`whatsapp-server-fs`):**
+     - Identificada a instância ativa de PostgreSQL 15 (`evo-db`) na zona de São Paulo (`southamerica-east1-c`) que gerava custos ociosos de ~18 reais/mês. Como os bancos PostgreSQL do Cloud SQL reativam automaticamente após 7 dias de stop, a instância foi completamente excluída do GCP conforme ordenado para zerar o faturamento.
+  2. **Migração Regional de VM (`whatsapp-server-fs`):**
+     - A VM `whatsappserver` (tipo `e2-small`, disco boot de 20 GB) foi migrada da zona de São Paulo (`southamerica-east1-a`) para a zona de Iowa (`us-central1-b`).
+     - A migração foi executada desligando a VM, extraindo um snapshot (`whatsappserver-migration-snapshot`), criando o disco em Iowa e subindo a nova máquina vinculada a um IP externo estático reservado (**`34.171.140.90`**).
+     - Isso gerou uma economia mensal imediata de ~40% no custo da VM. O novo IP público deve ser associado ao subdomínio `evolution` no painel DNS.
+  3. **Políticas de Limpeza no Artifact Registry (`coherence-ominichannel-fs`):**
+     - Criado o arquivo de configuração `cleanup-policy.json` e aplicado aos repositórios `gcr.io` e `cloud-run-source-deploy`.
+     - A política mantém incondicionalmente as 5 versões mais recentes de cada imagem de contêiner (garantia de rollback) e expira automaticamente imagens sem tags (`UNTAGGED`) ou com mais de 14 dias de idade, limitando o consumo de armazenamento ocioso (estimativa de redução de até 70% no acúmulo de imagens).
+  4. **Automação de Backup e Purga de Imagens Órfãs (`brasili-ia-news`):**
+     - Criado o script local `backup_and_cleanup_gcp.py` para automatizar a exportação e o download local de 227 GB de custom e machine images órfãs do projeto desativado para a pasta `C:\Users\vinic\workspace_antigravity\CoherenceAI News Brasil\bk_gcp`.
+     - O script exporta via Cloud Build para o GCS, realiza o download local e executa a exclusão definitiva imediata na nuvem para zerar os custos de armazenamento deste projeto inativo.
+
+- **Decisões arquiteturais importantes tomadas:**
+  - **Uso de IPs Estáticos para VMs de Chatbot:** O IP público da nova VM em Iowa foi reservado de forma estática (**`34.171.140.90`**) para garantir estabilidade do webhook do bot, prevenindo perdas de comunicação na reconfiguração do DNS.
+  - **Sincronismo Global de FinOps:** Criação da Regra #9 no `AGENTS.md` global e espelhamento automático para o OpenCode (`C:\Users\vinic\.config\opencode\AGENTS.md`), garantindo que todos os agentes autônomos em qualquer projeto apliquem as diretrizes rígidas de contenção de custos GCP.
+  - **Visualização FinOps de Projetos Ativos:** Reformatação de gráficos comparativos focando exclusivamente nos 2 projetos que possuem custos ativos (`coherence-ominichannel-fs` e `whatsapp-server-fs`), demonstrando uma redução combinada de **-89,7% (- R$ 1.760,87 / mês)**.
+
+

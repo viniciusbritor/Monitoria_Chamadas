@@ -17,3 +17,5 @@ uploads/
 *.pyo
 .pytest_cache/
 node_modules/
+scratch/
+cleanup-policy.json

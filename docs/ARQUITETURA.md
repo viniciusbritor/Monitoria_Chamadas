@@ -219,9 +219,10 @@ Modelo large-v3 substituido por base (74MB, ~0.1x tempo real).
 ## Capability check
 
 - LLM secrets: GCP Secret Manager (`google-cloud-secret-manager` no requirements.txt). Cloud Run SA precisa de `roles/secretmanager.secretAccessor`.
-- Audio formats: MP3, WAV, MPEG
-- Transcricao: faster-whisper base (PT-BR, int8, ~0.1x tempo real)
-- Avaliacao: DeepSeek V4 Flash (primario) → NVIDIA NIM (fallback) → MiniMax M3 (ultimo recurso)
+- Audio formats: MP3, WAV, MPEG, M4A, OGG
+- Transcricao: Híbrida: Groq Cloud LPU (`whisper-large-v3-turbo`, ~2s, alta precisão) primário → `faster-whisper` local `base` (int8) fallback
+- Avaliacao: DeepSeek V4 Flash (`cache_mode: default`, economia ~80% em inputs) → NVIDIA NIM (fallback) → MiniMax M3 (ultimo recurso)
+- Triagem / Chamadas Mudas: Filtro determinístico no worker (< 20 chars ou < 4 palavras), sem chamada LLM
 - Worker: monitoria-whisper-worker (Pub/Sub consumer)
 - Persistencia: Firestore (escrita exclusiva pelo test-env via OIDC callback)
 - Callback OIDC: worker → test-env (audience alinhado)
@@ -234,5 +235,6 @@ Modelo large-v3 substituido por base (74MB, ~0.1x tempo real).
 
 - [HARNESS.md](HARNESS.md) - Objetivo principal + stack
 - [GUARDRAILS.md](GUARDRAILS.md) - Regras inegociaveis
+- [CUSTOS.md](CUSTOS.md) - Projeção de custos e FinOps
 - [conexao_modulo.md](conexao_modulo.md) - Spec do contrato com Portal
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas

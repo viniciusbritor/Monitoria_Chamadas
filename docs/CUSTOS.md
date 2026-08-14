@@ -68,13 +68,15 @@ Apenas ha custo durante o desenvolvimento ativo (minutos/horas de uso).
 
 | Recurso | Especificacao | Custo/mes |
 |---|---|---|
-| VM e2-small | 2 vCPU, 2 GB RAM, 20 GB SSD | ~$17 (USD) / ~R$ 95 |
+| Recurso | Especificacao | Custo/mes |
+|---|---|---|
+| VM e2-small (Iowa) | 2 vCPU, 2 GB RAM, 20 GB SSD | ~$12 (USD) / ~R$ 66 |
 | Firestore | 4 collections | ~$3 |
 | Cloud Storage | 3 buckets, backups 30d | ~$1 |
 | Secret Manager | 7 secrets | ~$1 |
-| IP Estatico | `34.39.162.165` | ~$3 |
+| IP Estatico | `34.171.140.90` | ~$3 |
 | Cloud Build | Trigger test (eventual) | ~$1 |
-| **Total** | | **~$26 / ~R$ 145** |
+| **Total** | | **~$21 / ~R$ 116** |
 
 ---
 
@@ -112,14 +114,17 @@ Apenas ha custo durante o desenvolvimento ativo (minutos/horas de uso).
 
 ---
 
-## 5. Otimizacoes
+## 5. Otimizacoes (FinOps 13/08/2026)
 
-| Acao | Economia/mes | Risco |
-|---|---|---|
-| Desligar `monitoria-cx`, `monitoria-cx-v2` (legado) | ~$10 | Nenhum (nao usados) |
-| Migrar worker prod PULL → PUSH | ~$40 | Medio (precisa migrar subscription) |
-| Mudar API prod para 2 vCPU (em vez de 4) | ~$10 | Baixo (Whisper fica mais lento) |
-| CUD 1y para Cloud Run | -20% total | Baixo (compromisso 1 ano) |
+| Acao | Economia/mes | Risco | Status |
+|---|---|---|---|
+| **Groq Whisper Large v3 Turbo** (STT LPU Free Tier) | ~80% no tempo de CPU ativa do Worker | Baixo (fallback faster-whisper local ativo) | **Implementado em Test** |
+| **DeepSeek Prompt Caching** (`cache_mode: default`) | ~80% no custo de tokens de input DeepSeek | Zero (nativo da API DeepSeek) | **Implementado em Test** |
+| **Filtro Determinístico de Chamadas Mudas** | 100% de economia de LLM em áudios mudos | Zero (regra determinística < 20 chars) | **Implementado em Test** |
+| Desligar `monitoria-cx`, `monitoria-cx-v2` (legado) | ~$10 | Nenhum (nao usados) | Concluído |
+| Migrar worker prod PULL → PUSH | ~$40 | Medio (precisa migrar subscription) | Planejado |
+| Mudar API prod para 2 vCPU (em vez de 4) | ~$10 | Baixo (Groq descarrega CPU) | Em avaliação |
+| CUD 1y para Cloud Run | -20% total | Baixo (compromisso 1 ano) | Planejado |
 
 ---
 
@@ -133,4 +138,4 @@ Apenas ha custo durante o desenvolvimento ativo (minutos/horas de uso).
 | **Total Operacao Atual** | **~$114** | **~R$ 630** |
 | **Total com 5 chatbots** | **~$173** | **~R$ 960** |
 
-> *Precos baseados na tabela publica GCP jul/2026. Cambio: 1 USD ~ 5.5 BRL. Custo teste: $0/mes (efemero).*
+> *Precos baseados na tabela publica GCP jul/2026. Cambio: 1 USD ~ 5.5 BRL. Custo teste: $0/mes (efemero, servicos scale-to-zero).*

@@ -20,7 +20,7 @@ O modulo de Monitoria de Chamadas tem 5 objetivos principais, executados em sequ
 |---|---|
 | Frontend | React 19, Vite, TailwindCSS, Lucide Icons, Axios |
 | Backend (API) | Python 3.11, FastAPI, Uvicorn |
-| Worker (processamento) | Python 3.11, `faster-whisper` (CPU, int8), **DeepSeek V4 Flash** (primário) → **NVIDIA NIM** → MiniMax M3 |
+| Worker (processamento) | Python 3.11, **Groq Cloud LPU** (`whisper-large-v3-turbo`) primário → `faster-whisper` (CPU int8) fallback, **DeepSeek V4 Flash** (`cache_mode: default`) → **NVIDIA NIM** → MiniMax M3 |
 | Database | **Firestore** (`coherence-ominichannel-fs`) - source of truth |
 | Queue assincrono | GCP Pub/Sub (`monitoria-whisper-jobs` topic) |
 | Storage audio | GCP Cloud Storage (`coherence-monitoria-audios-tmp` bucket) |
