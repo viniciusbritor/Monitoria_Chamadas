@@ -58,7 +58,16 @@ class DeepSeekClient:
                 resp.raise_for_status()
                 data = resp.json()
                 if "choices" in data and len(data["choices"]) > 0:
-                    return data["choices"][0]["message"]["content"]
+                    choice = data["choices"][0]["message"]
+                    content = choice.get("content")
+                    if content and content.strip():
+                        return content
+                    reasoning = choice.get("reasoning_content", "")
+                    if reasoning and "{" in reasoning and "}" in reasoning:
+                        print("[DeepSeek] Aviso: content vazio, extraindo JSON de reasoning_content", flush=True)
+                        return reasoning
+                    if content is not None:
+                        return content
                 return None
             except requests.exceptions.RequestException as e:
                 retries += 1
@@ -73,7 +82,7 @@ class DeepSeekClient:
         if temperature is None:
             temperature = 0.0  # (14/07/2026): alterado de 0.3 para 0.0 (consistencia maxima e determinismo de notas)
         if max_tokens is None:
-            max_tokens = 3000  # (10/07/2026): aumentado de 1000 para 3000 (prompt expandido)
+            max_tokens = 8192  # (13/08/2026): aumentado para 8192 (suporte a reasoning_tokens + JSON)
 
         sp = system_prompt
         if json_mode and "json" not in sp.lower():
@@ -129,7 +138,7 @@ class DeepSeekClient:
             payload = {
                 "model": self.model,
                 "temperature": 0.0,
-                "max_tokens": 3000,
+                "max_tokens": 8192,
                 "messages": [
                     {"role": "system", "content": combined_system},
                     {"role": "user", "content": combined_user},
@@ -236,10 +245,85 @@ class NvidiaNimClient:
 
 
 
-class LLMClient:
-    """Multi-provider cascata: DeepSeek direto -> NVIDIA NIM.
+class MiniMaxClient:
+    """MiniMax Text-01 — fallback ultra-confiável."""
 
-    Mantem a mesma interface cached_chat() para compatibilidade com
+    def __init__(self):
+        self.api_key = os.getenv("MINIMAX_API_KEY", "")
+        if not self.api_key:
+            self.api_key = secrets_manager.get_secret("MINIMAX_API_KEY")
+        self.base_url = "https://api.minimax.chat/v1"
+        self.model = "MiniMax-Text-01"
+        self.enabled = bool(self.api_key)
+
+    def _execute(self, payload, max_retries=3):
+        if not self.enabled:
+            raise Exception("[MiniMax] MINIMAX_API_KEY nao configurada")
+        clean_key = self.api_key.strip().lstrip("\ufeff")
+        headers = {
+            "Authorization": f"Bearer {clean_key}",
+            "Content-Type": "application/json",
+        }
+        retries = 0
+        base_delay = 1
+
+        while retries <= max_retries:
+            try:
+                resp = requests.post(
+                    f"{self.base_url}/text/chatcompletion_v2",
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                )
+                if resp.status_code == 429:
+                    retries += 1
+                    if retries > max_retries:
+                        raise Exception(f"[MiniMax] Max retries atingido (429)")
+                    sleep_time = (base_delay ** retries) + random.uniform(0, 1)
+                    time.sleep(sleep_time)
+                    continue
+                if not resp.ok:
+                    raise Exception(f"[MiniMax] HTTP {resp.status_code}: {resp.text[:300]}")
+                data = resp.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    return data["choices"][0]["message"]["content"]
+                return None
+            except requests.exceptions.RequestException as e:
+                retries += 1
+                if retries > max_retries:
+                    raise Exception(f"[MiniMax] Erro apos {max_retries} retries: {e}")
+                time.sleep(1)
+
+    def chat(self, system_prompt, user_prompt, json_mode=False,
+             temperature=None, max_tokens=None):
+        if temperature is None:
+            temperature = 0.0
+        if max_tokens is None:
+            max_tokens = 3000
+
+        sp = system_prompt
+        if json_mode and "json" not in sp.lower():
+            sp = "JSON: " + sp
+
+        payload = {
+            "model": self.model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": sp},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
+        return self._execute(payload)
+
+
+class LLMClient:
+    """Multi-provider cascata: DeepSeek direto -> MiniMax -> NVIDIA NIM.
+
+    Mantem a mesma interface cached_chat() e batch_chat() para compatibilidade com
     evaluator, worker, api.
     """
 
@@ -253,13 +337,35 @@ class LLMClient:
         if deepseek.enabled:
             active.append("DeepSeek (api.deepseek.com)")
 
+        minimax = MiniMaxClient()
+        self.providers.append(("MiniMax", minimax))
+        if minimax.enabled:
+            active.append("MiniMax (api.minimax.chat)")
+
         nvidia = NvidiaNimClient()
         self.providers.append(("NVIDIA", nvidia))
         if nvidia.enabled:
             active.append("NVIDIA NIM")
 
-
         print(f"[LLM] Provedores ativos: {', '.join(active) if active else 'NENHUM'}", flush=True)
+
+    def batch_chat(self, tasks: list[dict], json_mode=True) -> list:
+        for name, provider in self.providers:
+            if hasattr(provider, "batch_chat"):
+                try:
+                    print(f"[LLM] Chamando {name} (batch_chat)...", flush=True)
+                    res = provider.batch_chat(tasks, json_mode=json_mode)
+                    if res and len(res) == len(tasks) and res[0] is not None and res[1] is not None:
+                        print(f"[LLM] {name} batch OK", flush=True)
+                        self.last_provider_used = name
+                        return res
+                except Exception as e:
+                    print(f"[LLM] {name} batch FALHOU: {str(e)[:150]}", flush=True)
+        # Fallback: chamadas separadas via cached_chat
+        return [
+            self.cached_chat(t["system_prompt"], t["user_prompt"], json_mode=json_mode)
+            for t in tasks
+        ]
 
     def cached_chat(self, system_prompt, user_prompt, json_mode=False,
                     cache_key=None, temperature=None, max_tokens=None):
@@ -272,7 +378,7 @@ class LLMClient:
                 return resultado
             print(f"[LLM] {name} falhou, tentando proximo...", flush=True)
 
-        raise Exception("Todos provedores LLM falharam (DeepSeek + NVIDIA)")
+        raise Exception("Todos provedores LLM falharam (DeepSeek + MiniMax + NVIDIA)")
 
     def _try_provider(self, provider, name, system_prompt, user_prompt,
                       json_mode, temperature, max_tokens):

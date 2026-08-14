@@ -63,7 +63,7 @@ Separe turnos alternados com quebra de linha dupla.
 Nao altere as palavras originais da transcricao.
 Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
         user_prompt = f"--- TRANSCRICAO CONTINUA ---\n{mask_pii(transcript)}"
-        print("🤖 Diarizando transcricao com LLM...")
+        print("[Evaluator] Diarizando transcricao com LLM...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=False, max_tokens=2000)
         result = text.strip() if text else transcript
 
@@ -167,7 +167,7 @@ Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentiment
 
         user_prompt = f"--- TRANSCRICAO DIARIZADA ---\n{mask_pii(transcript)}"
 
-        print("🤖 Avaliando atendimento com LLM...")
+        print("[Evaluator] Avaliando atendimento com LLM...")
         text = self.client.cached_chat(system_prompt, user_prompt, json_mode=True)
 
         try:
@@ -181,156 +181,12 @@ Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentiment
 
             return json.loads(text.strip())
         except Exception as e:
-            print(f"❌ Erro ao parsear resposta da IA: {e}")
+            print(f"[Evaluator] Erro ao parsear resposta da IA: {e}")
             return {"error": "Falha no processamento", "raw_response": str(text)}
 
     def diarize_and_evaluate(self, transcript, user_settings=None,
                               pop_context="", quality_form=""):
-        """NEW (08/07/2026 - Plano Ultra-Economico): diarize + evaluate em 1 chamada LLM.
-
-        Combina os 2 prompts (diarizacao + avaliacao) em 1 request combinado via
-        LLMClient.batch_chat(). Quando o provider primario (DeepSeek) suporta
-        batch_chat(), processa em 1 round-trip. Fallback: chamadas separadas.
-
-        Args:
-            transcript: texto bruto transcrito pelo Whisper
-            user_settings: dict com checklist_items, estrategia_vendas, etc
-            pop_context: contexto POP do usuario
-            quality_form: diretrizes de qualidade do formulario
-
-        Returns:
-            dict com chaves:
-              - diarized_transcript: texto com prefixos Operador:/Cliente:
-              - evaluation: dict parseado do JSON de avaliacao
-        """
-        if user_settings is None:
-            user_settings = {}
-
-        checklist_str = user_settings.get('checklist_items', '[]')
-        estrategia_vendas = user_settings.get('estrategia_vendas', 'Não informada.')
-        estrategia_retencao = user_settings.get('estrategia_retencao', 'Não informada.')
-
-        # Prompt 1: Diarizacao
-        diarize_system = """Separe a transcricao em dialogo entre 'Operador:' e 'Cliente:'.
-Operador = cumprimenta/pede dados/resolve/transfere. Cliente = expoe problema/reclama/duvida.
-IMPORTANTE: prefixe CADA turno com o rotulo exato 'Operador:' ou 'Cliente:'.
-Separe turnos alternados com quebra de linha dupla.
-Nao altere as palavras originais da transcricao.
-Retorne APENAS o dialogo formatado, sem comentarios adicionais."""
-        diarize_user = f"--- TRANSCRICAO CONTINUA ---\n{mask_pii(transcript)}"
-
-        # Prompt 2: Avaliacao (reuso do mesmo system_prompt do evaluate())
-        eval_system = f"""Auditor Sênior CX. Avalie o atendimento abaixo.
-
---- CONTEXTO POP ---
-{pop_context if pop_context else "1. Cordialidade. 2. Resolucao. 3. Empatia. 4. Clareza."}
-
---- DIRETRIZES DE QUALIDADE ---
-{quality_form if quality_form else "1. Cordialidade. 2. Resolucao do Problema. 3. Empatia. 4. Clareza."}
-
---- CONFIGURACOES DA EMPRESA ---
-1. CHECKLIST OBRIGATORIO: {checklist_str}
-2. PLAYBOOK VENDAS (Up-sell/Cross-sell): {estrategia_vendas}
-3. PLAYBOOK RETENCAO (Anti-Cancelamento): {estrategia_retencao}
-
---- AVALIACAO EM 3 FASES ---
-Divida em: 1) Apresentacao (empatia + escuta inicial), 2) Metodos de Resolucao (conduta do atendente), 3) Fechamento (explicacao de tramites e proximos passos).
-Para cada fase atribua: nota_qa (0-100), nota_nps (0-10), analise (1-3 frases).
-Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentimentos_cliente": [{{"sentimento":"Irritado","probabilidade":0.7}},{{"sentimento":"Frustrado","probabilidade":0.3}}]}}. Probabilidades devem somar ~1.0 dentro de cada fase.
-
---- REGRAS DE CONSISTENCIA (OBRIGATORIO) ---
-Para cada fase, atribua polaridade numerica (-10 a +10):
-- CLIENTE: estado emocional (-10=irritado/raiva, 0=neutro, +10=satisfeito/grato)
-- OPERADOR: qualidade da postura (-10=pessimo/sarcastico, 0=profissional, +10=empatico/excelente)
-
-A polaridade e' o campo mais importante. NOTAS (QA/NPS) SAO DERIVADAS DA POLARIDADE.
-
-Cliente:
-- gritando, xingando, reclamando -> polaridade_cliente = -8 a -10
-- frustrado, impaciente, preocupado -> polaridade_cliente = -4 a -6
-- neutro, objetivo -> polaridade_cliente = -1 a +1
-- satisfeito, agradecendo, aliviado -> polaridade_cliente = +6 a +8
-
-Operador:
-- ironico, sarcastico, desinteressado -> polaridade_operador = -6 a -8
-- profissional, correto -> polaridade_operador = -1 a +4
-- paciente, empatico, alegre -> polaridade_operador = +5 a +8
-
-NAO atribua polaridade positiva a cliente irritado.
-NAO atribua polaridade negativa a operador educado.
-
-Exemplo CORRETO: {{"sentimentos_cliente":[{{"sentimento":"Irritado","probabilidade":0.85}},{{"sentimento":"Frustrado","probabilidade":0.15}}],"polaridade_cliente":-8,"nota_nps":1,"nota_qa":30}}
-NUNCA produza: {{"nota_nps":10}} <- INACEITAVEL (falta sentimento e polaridade)
-
---- SAIDA (JSON ESTRITO) ---
-{{"nota_geral": int, "nota_qualidade_operador": int, "nota_sentimento_cliente": int,
-"nome_atendente": "Nome do atendente" | null,
-"motivo_contato": "Descricao do motivo da chamada",
-"classificacao_motivo": "Cobrança Indevida|Suporte Técnico|Assistência Técnica|Cancelamento|Informações|Reclamação|Vendas|Outros",
-"fases": {{"apresentacao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_cliente": int (-10 a +10),
-  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_operador": int (-10 a +10)}},
-"resolucao": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_cliente": int (-10 a +10),
-  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_operador": int (-10 a +10)}},
-"fechamento": {{"nota_qa": int, "nota_nps": int, "analise": str,
-  "sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_cliente": int (-10 a +10),
-  "sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
-  "polaridade_operador": int (-10 a +10)}}}},
-"erro_critico": bool, "pontos_positivos": [str], "pontos_melhoria": [str],
-"recomendacao_treinamento": str, "humor_cliente": string,
-"humor_expert": string,
-"sentimentos_cliente": [{{"sentimento": string, "probabilidade": float}}],
-"sentimentos_operador": [{{"sentimento": string, "probabilidade": float}}],
-"erros_fatais_identificados": [str],
-"checklist_conformidade": [{{"item": str, "cumprido": bool}}],
-"oportunidade_venda_retencao": bool, "sucesso_venda_retencao": bool,
-"tipo_oportunidade": str, "argumentos_operador": [str]}}"""
-
-        eval_user = f"--- TRANSCRICAO DIARIZADA ---\n{mask_pii(transcript)}"
-
-        tasks = [
-            {"system_prompt": diarize_system, "user_prompt": diarize_user},
-            {"system_prompt": eval_system, "user_prompt": eval_user},
-        ]
-
-        # Tentar batch primeiro
-        if hasattr(self.client, 'batch_chat'):
-            try:
-                print("[Evaluator] Batch LLM (diarize + evaluate em 1 chamada)...", flush=True)
-                results = self.client.batch_chat(tasks, json_mode=True)
-                diarized = results[0] if results[0] else transcript
-                evaluation_raw = results[1] if results[1] else None
-
-                if not diarized or ('Operador:' not in diarized and 'Cliente:' not in diarized):
-                    print("[Evaluator] AVISO: diarizacao batch sem rotulos. Fallback diarize().", flush=True)
-                    diarized = self.diarize(transcript)
-
-                if evaluation_raw:
-                    try:
-                        evaluation = json.loads(evaluation_raw) if isinstance(evaluation_raw, str) else evaluation_raw
-                    except Exception as e:
-                        print(f"[Evaluator] Parse avaliacao batch falhou: {e}", flush=True)
-                        evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
-                else:
-                    evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
-
-                # Valida polaridade em todas as fases (log warning se ausente)
-                self._validate_polaridade(evaluation)
-
-                return {
-                    "diarized_transcript": diarized,
-                    "evaluation": evaluation,
-                }
-            except Exception as e:
-                print(f"[Evaluator] Batch LLM falhou ({e}), fallback chamadas separadas", flush=True)
-
-        # Fallback: chamadas separadas (codigo original)
+        """Diarize e avaliacao estruturada via LLM."""
         diarized = self.diarize(transcript)
         evaluation = self.evaluate(diarized, user_settings, pop_context, quality_form)
         self._validate_polaridade(evaluation)
