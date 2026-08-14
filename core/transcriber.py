@@ -134,9 +134,10 @@ class Transcriber:
         if size_bytes > 25 * 1024 * 1024:
             raise ValueError(f"Audio ({size_bytes / (1024*1024):.1f}MB) excede limite de 25MB da Groq API")
 
+        clean_key = api_key.strip().lstrip("\ufeff")
         url = f"{self.groq_base_url.rstrip('/')}/audio/transcriptions"
         headers = {
-            "Authorization": f"Bearer {api_key.strip().lstrip('\ufeff')}",
+            "Authorization": f"Bearer {clean_key}",
         }
 
         ext = os.path.splitext(audio_path)[1].lower() or ".wav"
