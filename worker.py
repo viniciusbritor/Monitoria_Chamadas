@@ -965,14 +965,17 @@ def main():
     watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
     watchdog_thread.start()
 
-    # Pre-aquecimento: instancia transcriber e evaluator
-    print(f"[Worker {WORKER_ID}] Pre-aquecendo modelos IA...", flush=True)
-    try:
-        get_transcriber()
-        get_evaluator()
-        print(f"[Worker {WORKER_ID}] Modelos IA prontos", flush=True)
-    except Exception as e:
-        print(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", flush=True)
+    # Pre-aquecimento assincrono: carrega modelos em thread background para nao bloquear startup probe do Cloud Run
+    def _warmup_async():
+        print(f"[Worker {WORKER_ID}] Pre-aquecendo modelos IA em background...", flush=True)
+        try:
+            get_transcriber()
+            get_evaluator()
+            print(f"[Worker {WORKER_ID}] Modelos IA prontos", flush=True)
+        except Exception as e:
+            print(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", flush=True)
+
+    threading.Thread(target=_warmup_async, daemon=True).start()
 
     with HEALTHZ_LOCK:
         WORKER_STATE["current_state"] = "ready"
