@@ -2,6 +2,30 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 13/08/2026 23:50 BRT — Debugging Crítico: DeepSeek Reasoning Tokens (max_tokens 8192) + MiniMax Fallback + Sanitização de Logs
+
+### Causa Raiz dos Erros Identificados
+1. **Truncamento de Tokens pelo Modo Reasoning do DeepSeek V4 Flash**:
+   - O `deepseek-v4-flash` gera tokens de raciocínio (`reasoning_content`) antes de emitir o JSON final.
+   - Com o limite anterior de `max_tokens=3000`, prompts complexos consumiam a janela inteira na etapa de raciocínio, fazendo a API retornar `"content": ""` (string vazia), o que gerava falha silenciosa e disparava o fallback.
+2. **Indisponibilidade do Provedor Secundário NVIDIA NIM (HTTP 410 Gone)**:
+   - A URL `https://integrate.api.nvidia.com/v1/chat/completions` com o modelo `deepseek-ai/deepseek-v4-flash` retornava `HTTP 410: Gone` (modelo desativado pela NVIDIA), deixando o sistema sem retaguarda quando o DeepSeek falhava.
+3. **Encoding de Emojis em Prints (`UnicodeEncodeError`)**:
+   - Prints com emojis (como `🤖` e `❌`) em `core/evaluator.py` causavam `UnicodeEncodeError` em terminais não-UTF8.
+4. **Sintaxe de F-Strings no Python 3.11 (`core/transcriber.py`)**:
+   - F-strings contendo `\ufeff` dentro de expressões `{...}` geravam erro de sintaxe no Python 3.11.
+
+### Alterações Realizadas
+1. **Aumento de `max_tokens` para 8192 (`core/llm_provider.py`)**:
+   - Alocada margem suficiente para reasoning completo + JSON de avaliação, além de fallback de extração de JSON a partir de `reasoning_content` caso `content` venha vazio.
+2. **Inclusão do Provedor MiniMax Text-01 (`core/llm_provider.py`)**:
+   - Criada a classe `MiniMaxClient` conectada ao endpoint oficial `https://api.minimax.chat/v1/text/chatcompletion_v2` utilizando a chave `MINIMAX_API_KEY`, substituindo a rota descontinuada da NVIDIA na cascata de resiliência.
+3. **Limpeza de Prints e Separação de Chamadas (`core/evaluator.py`)**:
+   - Eliminados todos os emojis em prints de terminal.
+   - `diarize_and_evaluate` refatorado para executar `diarize` e `evaluate` de forma sequencial, estável e com logs detalhados de cada etapa.
+
+---
+
 ## 13/08/2026 21:15 BRT — FinOps & Latência: Transcrição Groq Whisper Large v3 Turbo + Prompt Caching DeepSeek + Filtro de Chamadas Mudas
 
 ### Contexto
