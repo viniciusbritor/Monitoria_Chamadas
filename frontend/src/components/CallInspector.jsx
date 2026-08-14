@@ -129,6 +129,7 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
   const [exporting, setExporting] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
   const [audioError, setAudioError] = useState(null)
+  const [showTranscript, setShowTranscript] = useState(true)
 
   const handleExportExcel = async () => {
     try {
