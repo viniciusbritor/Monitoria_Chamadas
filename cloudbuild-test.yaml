@@ -33,7 +33,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
-      '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
+      '--no-cache',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '.'
