@@ -7,8 +7,6 @@ MONITORIA_COM_IA.zip
 __pycache__/
 *.log
 secrets/
-*.bak
-frontend/dist
 frontend/.cache-bust
 notas_*.txt
 uploads/
