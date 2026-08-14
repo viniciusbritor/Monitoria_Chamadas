@@ -43,7 +43,7 @@ def get_secret(key, default=""):
             client = secretmanager.SecretManagerServiceClient()
             name = f"projects/{gcp_project}/secrets/{key}/versions/latest"
             response = client.access_secret_version(request={"name": name})
-            val = response.payload.data.decode("utf-8").strip()
+            val = response.payload.data.decode("utf-8").strip().lstrip("\ufeff")
             if val:
                 return val
         except Exception:
@@ -58,8 +58,8 @@ def get_secret(key, default=""):
         cursor.execute("SELECT value FROM secrets WHERE key = ?", (key,))
         result = cursor.fetchone()
         conn.close()
-        if result:
-            return result[0]
+        if result and result[0]:
+            return result[0].strip().lstrip("\ufeff")
     except Exception as e:
         print(f"Warning: Erro ao ler secret '{key}' do banco local: {e}")
 
@@ -71,18 +71,18 @@ def get_secret(key, default=""):
             cursor.execute("SELECT value FROM secrets WHERE key = ?", (key,))
             result = cursor.fetchone()
             conn.close()
-            if result:
-                return result[0]
+            if result and result[0]:
+                return result[0].strip().lstrip("\ufeff")
         except Exception as e:
             print(f"Warning: Erro ao ler secret '{key}' do banco central: {e}")
 
     # 4. Fallback os.getenv (carregado via .env)
     env_val = os.getenv(key)
     if env_val:
-        return env_val
+        return env_val.strip().lstrip("\ufeff")
 
     # 5. Default
-    return default
+    return default.strip().lstrip("\ufeff") if isinstance(default, str) else default
 
 def set_secret(key, value, descricao=""):
     """Define ou atualiza uma secret no banco SQLite."""

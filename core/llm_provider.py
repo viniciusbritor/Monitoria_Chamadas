@@ -132,7 +132,7 @@ class DeepSeekClient:
         if temperature is None:
             temperature = 0.0  # (14/07/2026): alterado de 0.3 para 0.0 (consistencia maxima e determinismo de notas)
         if max_tokens is None:
-            max_tokens = 8192  # (13/08/2026): aumentado para 8192 (suporte a reasoning_tokens + JSON)
+            max_tokens = 16384  # (14/08/2026): aumentado para 16384 (evita truncamento quando CoT + JSON excedem 8k tokens)
 
         sp = system_prompt
         if json_mode and "json" not in sp.lower():
