@@ -363,26 +363,6 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                 Ver selecionadas ({selectedIds.length})
               </button>
             )}
-
-            <button
-              disabled={exporting}
-              onClick={() => handleExportExcel(selectedIds.length > 0 ? selectedIds : null)}
-              className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
-              title="Exportar dados analíticos para planilha Excel (.xlsx)"
-            >
-              <FileSpreadsheet size={16} />
-              Exportar Excel {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
-            </button>
-
-            <button
-              disabled={exporting}
-              onClick={() => handleExportPPTX(selectedIds.length > 0 ? selectedIds : null)}
-              className="flex items-center gap-2 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-4 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
-              title="Exportar apresentação executiva em PowerPoint (.pptx) - Limite 50 chamadas"
-            >
-              <Presentation size={16} />
-              Exportar PPTX {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
-            </button>
           </div>
         </div>
         <div className="overflow-x-auto">
