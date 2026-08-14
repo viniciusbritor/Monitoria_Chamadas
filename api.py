@@ -1,6 +1,6 @@
 """
-Modulo de Monitoria de Chamadas - API Backend
-============================================
+Modulo de Monitoria de Chamadas - API Backend (v2.4 - Export Excel & PPTX)
+============================================================
 
 OBJETIVO PRINCIPAL:
   1. Upload de chamada (audio file)
