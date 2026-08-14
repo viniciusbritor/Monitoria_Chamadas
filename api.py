@@ -65,7 +65,7 @@ from core.portal_auth import is_authorized_for_module, get_user_role_and_admin, 
 from core.masker import mask_pii
 from core import pubsub_admin
 from core.db import (
-    get_db, get_call, list_calls, list_calls_by_ids, update_call_status,
+    ChamadasDB, get_db, get_call, list_calls, list_calls_by_ids, update_call_status,
     cleanup_orphans as cleanup_orphans_db,
     get_user_settings, upsert_user_settings,
 )
