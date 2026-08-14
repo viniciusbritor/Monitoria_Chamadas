@@ -6,6 +6,7 @@ import QueueManager from './components/QueueManager'
 import BatchDashboard from './components/BatchDashboard'
 import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
 import { auth } from './firebase'
+import { onIdTokenChanged } from 'firebase/auth'
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -120,7 +121,21 @@ function App() {
     }
     // NEW (Sprint 2 - 03/07/2026): encerra bootstrap. Apos isso o componente pode decidir
     // entre mostrar login, validating ou dashboard, conforme o userToken atual.
+    // NEW (14/08/2026): auto-refresh de token Firebase Auth em background (evita expiracao de 1h)
+    const unsubscribe = onIdTokenChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const freshToken = await user.getIdToken()
+          localStorage.setItem('auth_token', freshToken)
+          setUserToken(freshToken)
+        } catch (e) {
+          console.error('[Firebase Auth] Auto-refresh de token falhou:', e)
+        }
+      }
+    })
+
     setBootstrapping(false)
+    return () => unsubscribe()
   }, [])
 
   const navigateTo = (view, callId = null, opts = {}) => {

@@ -3,8 +3,22 @@ import { Upload, Headphones, Loader2, CheckCircle, XCircle, Search, Trash2, Aler
 import axios from 'axios'
 import { fmtDateTimeBR } from '../lib/datetime'
 import { anonymizeFilename, anonymizeTranscript, canSeeFullData } from '../lib/anonymize'
+import { auth } from '../firebase'
 
 const API_URL = import.meta.env.VITE_API_URL || "https://monitoria-test-env-c5nbfc5meq-uc.a.run.app"
+
+const getValidToken = async (forceRefresh = false) => {
+  if (forceRefresh && auth.currentUser) {
+    try {
+      const refreshed = await auth.currentUser.getIdToken(true)
+      localStorage.setItem('auth_token', refreshed)
+      return refreshed
+    } catch (e) {
+      console.error('[Dashboard] Token refresh falhou:', e)
+    }
+  }
+  return localStorage.getItem('auth_token') || ''
+}
 
 // Polling adaptativo: 2s quando ha chamada processando, 10s quando idle.
 // Reduz latencia percebida sem sobrecarregar API quando nao ha atividade.
@@ -47,13 +61,25 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
 
   const fetchCalls = async () => {
     try {
-      const token = localStorage.getItem('auth_token')
+      let token = await getValidToken()
       const url = statusFilter
         ? `${API_URL}/api/calls?status=${encodeURIComponent(statusFilter)}`
         : `${API_URL}/api/calls`
-      const res = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      let res
+      try {
+        res = await axios.get(url, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      } catch (firstErr) {
+        if (firstErr.response?.status === 401 && auth.currentUser) {
+          token = await getValidToken(true)
+          res = await axios.get(url, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        } else {
+          throw firstErr
+        }
+      }
       setCalls(res.data)
       setFetchError(null)
     } catch (err) {
@@ -128,14 +154,25 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
       singleForm.append('file', validFiles[0])
       singleForm.append('diretrizes', diretrizes)
       try {
-        const token = localStorage.getItem('auth_token')
-        await axios.post(`${API_URL}${endpoint}`, singleForm, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        let token = await getValidToken()
+        try {
+          await axios.post(`${API_URL}${endpoint}`, singleForm, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        } catch (firstErr) {
+          if (firstErr.response?.status === 401 && auth.currentUser) {
+            token = await getValidToken(true)
+            await axios.post(`${API_URL}${endpoint}`, singleForm, {
+              headers: { Authorization: `Bearer ${token}` }
+            })
+          } else {
+            throw firstErr
+          }
+        }
         fetchCalls()
         setDiretrizes("")
       } catch (err) {
-        alert('Erro no upload')
+        alert(`Erro no upload: ${err.response?.data?.detail || err.message}`)
       } finally {
         setUploading(false)
         e.target.value = null
@@ -144,10 +181,24 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
     }
 
     try {
-      const token = localStorage.getItem('auth_token')
-      const { data } = await axios.post(`${API_URL}${endpoint}`, formData, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      let token = await getValidToken()
+      let data
+      try {
+        const res = await axios.post(`${API_URL}${endpoint}`, formData, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+        data = res.data
+      } catch (firstErr) {
+        if (firstErr.response?.status === 401 && auth.currentUser) {
+          token = await getValidToken(true)
+          const res = await axios.post(`${API_URL}${endpoint}`, formData, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+          data = res.data
+        } else {
+          throw firstErr
+        }
+      }
       if (data.errors > 0) {
         alert(`Upload parcial: ${data.queued} adicionados, ${data.errors} com erro`)
       }
