@@ -1,17 +1,20 @@
 import io
+import json
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from core.excel_exporter import _extract_call_fields
 
 def generate_pptx_report(calls: list[dict]) -> bytes:
     """
     Gera uma Apresentação Executiva em PowerPoint (.pptx) de 5 slides
-    estritamente limitada às 50 chamadas fornecidas.
+    estritamente limitada às 50 chamadas fornecidas, com todos os campos populados.
     """
     # Limita rigorosamente a 50 chamadas como ordenado nas diretrizes
     limited_calls = calls[:50]
+    extracted_calls = [_extract_call_fields(c) for c in limited_calls]
     
     prs = Presentation()
     prs.slide_width = Inches(13.333)
@@ -34,7 +37,6 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
         fill.fore_color.rgb = color
 
     def add_header(slide, title_text, subtitle_text=""):
-        # Header banner
         shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(0), Inches(13.333), Inches(1.1))
         shape.fill.solid()
         shape.fill.fore_color.rgb = DARK_SLATE
@@ -61,7 +63,6 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     slide1 = prs.slides.add_slide(blank_slide_layout)
     set_background(slide1, DARK_SLATE)
     
-    # Accent Line
     line = slide1.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(1.2), Inches(2.2), Inches(1.5), Inches(0.08))
     line.fill.solid()
     line.fill.fore_color.rgb = JADE_GREEN
@@ -78,7 +79,7 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     p_title.font.color.rgb = RGBColor(255, 255, 255)
     
     p_sub = tf1.add_paragraph()
-    p_sub.text = f"Coherence AI • Auditoria de Atendimentos ({len(limited_calls)} chamadas analisadas)"
+    p_sub.text = f"Coherence AI • Auditoria de Atendimentos ({len(extracted_calls)} chamadas analisadas)"
     p_sub.font.size = Pt(18)
     p_sub.font.color.rgb = RGBColor(148, 163, 184)
 
@@ -87,19 +88,26 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     # ----------------------------------------------------
     slide2 = prs.slides.add_slide(blank_slide_layout)
     set_background(slide2, LIGHT_BG)
-    add_header(slide2, "Visão Geral de Performance Operacional", "Métricas consolidadas do lote de chamadas")
+    add_header(slide2, "Visão Geral de Performance Operacional", "Métricas consolidadas do lote de chamadas auditadas")
     
-    concluidas = [c for c in limited_calls if c.get("status") in ["Concluído", "Concluido", "finalizado"]]
-    notas_qa = [float(c.get("nota") or 0) for c in concluidas if c.get("nota") is not None]
+    concluidas = [c for c in extracted_calls if str(c.get("status")).lower().startswith("conclu") or str(c.get("status")).lower() == "finalizado"]
+    notas_qa = [float(c["nota_qa"]) for c in concluidas if isinstance(c["nota_qa"], (int, float)) or (isinstance(c["nota_qa"], str) and c["nota_qa"].replace('.', '', 1).isdigit())]
     qa_medio = round(sum(notas_qa) / len(notas_qa), 1) if notas_qa else 0.0
     
-    nps_list = [float(c.get("nota_sentimento_cliente") or c.get("nps") or 0) for c in concluidas if c.get("nota_sentimento_cliente") or c.get("nps")]
+    nps_list = []
+    for c in concluidas:
+        val = c.get("nps_cli")
+        if val is not None and val != "-":
+            try:
+                nps_list.append(float(val))
+            except (ValueError, TypeError):
+                pass
     nps_medio = round(sum(nps_list) / len(nps_list), 1) if nps_list else 0.0
     
-    erros_criticos = sum(1 for c in concluidas if c.get("erro_critico"))
+    erros_criticos = sum(1 for c in concluidas if c.get("erro_crit") == "SIM")
     
     cards_data = [
-        ("Total Auditado", str(len(limited_calls)), "Chamadas analisadas"),
+        ("Total Auditado", str(len(extracted_calls)), "Chamadas na amostra"),
         ("QA Score Médio", f"{qa_medio}/100", "Nota técnica de qualidade"),
         ("NPS Sentimento", f"{nps_medio}/10", "Índice de satisfação do cliente"),
         ("Erros Críticos", str(erros_criticos), "Alertas de inconformidade"),
@@ -135,40 +143,62 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
         p3.font.color.rgb = TEXT_MUTED
 
     # ----------------------------------------------------
-    # SLIDE 3: Sentimento & Humor dos Clientes
+    # SLIDE 3: Sentimento & Humor dos Clientes e Atendentes
     # ----------------------------------------------------
     slide3 = prs.slides.add_slide(blank_slide_layout)
     set_background(slide3, LIGHT_BG)
-    add_header(slide3, "Análise de Sentimento & Humor dos Clientes", "Distribuição de humor e polaridade percebida na amostra")
+    add_header(slide3, "Análise de Sentimento & Humor", "Distribuição de humor do cliente e postura do atendente")
     
-    humores = {}
+    humores_cli = {}
+    humores_atend = {}
     for c in concluidas:
-        h = c.get("humor_cliente") or "Não Informado"
-        humores[h] = humores.get(h, 0) + 1
+        hc = c.get("humor_cli") or "Não Informado"
+        humores_cli[hc] = humores_cli.get(hc, 0) + 1
+        ha = c.get("humor_op") or "Não Informado"
+        humores_atend[ha] = humores_atend.get(ha, 0) + 1
         
-    left_c = Inches(0.8)
-    top_c = Inches(1.8)
+    # Box Clientes
+    box_cli = slide3.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_cli.fill.solid()
+    box_cli.fill.fore_color.rgb = CARD_BG
+    box_cli.line.color.rgb = BORDER_COLOR
     
-    box_humor = slide3.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left_c, top_c, Inches(11.733), Inches(4.8))
-    box_humor.fill.solid()
-    box_humor.fill.fore_color.rgb = CARD_BG
-    box_humor.line.color.rgb = BORDER_COLOR
+    tb_cli = slide3.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(5.2), Inches(4.4))
+    tf_cli = tb_cli.text_frame
+    tf_cli.word_wrap = True
+    p = tf_cli.paragraphs[0]
+    p.text = "👤 Humor do Cliente"
+    p.font.size = Pt(16)
+    p.font.bold = True
+    p.font.color.rgb = DARK_SLATE
     
-    tb_h = slide3.shapes.add_textbox(left_c + Inches(0.3), top_c + Inches(0.3), Inches(11.1), Inches(4.2))
-    tf_h = tb_h.text_frame
-    tf_h.word_wrap = True
-    
-    ph1 = tf_h.paragraphs[0]
-    ph1.text = "Distribuição de Humor Identificada:"
-    ph1.font.size = Pt(18)
-    ph1.font.bold = True
-    ph1.font.color.rgb = DARK_SLATE
-    
-    for h_name, h_count in humores.items():
+    for h_name, h_count in humores_cli.items():
         pct = round((h_count / max(len(concluidas), 1)) * 100, 1)
-        p_item = tf_h.add_paragraph()
+        p_item = tf_cli.add_paragraph()
         p_item.text = f"• {h_name}: {h_count} chamada(s) ({pct}%)"
-        p_item.font.size = Pt(14)
+        p_item.font.size = Pt(13)
+        p_item.font.color.rgb = TEXT_MAIN
+
+    # Box Atendentes
+    box_at = slide3.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_at.fill.solid()
+    box_at.fill.fore_color.rgb = CARD_BG
+    box_at.line.color.rgb = BORDER_COLOR
+    
+    tb_at = slide3.shapes.add_textbox(Inches(7.0), Inches(2.0), Inches(5.3), Inches(4.4))
+    tf_at = tb_at.text_frame
+    tf_at.word_wrap = True
+    p = tf_at.paragraphs[0]
+    p.text = "🎧 Postura / Humor do Atendente"
+    p.font.size = Pt(16)
+    p.font.bold = True
+    p.font.color.rgb = JADE_GREEN
+    
+    for h_name, h_count in humores_atend.items():
+        pct = round((h_count / max(len(concluidas), 1)) * 100, 1)
+        p_item = tf_at.add_paragraph()
+        p_item.text = f"• {h_name}: {h_count} chamada(s) ({pct}%)"
+        p_item.font.size = Pt(13)
         p_item.font.color.rgb = TEXT_MAIN
 
     # ----------------------------------------------------
@@ -176,54 +206,76 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     # ----------------------------------------------------
     slide4 = prs.slides.add_slide(blank_slide_layout)
     set_background(slide4, LIGHT_BG)
-    add_header(slide4, "Diagnóstico Operacional & Recomendações", "Pontos de destaque e plano de capacitação continua")
+    add_header(slide4, "Diagnóstico Operacional & Recomendações", "Pontos de destaque, oportunidades e plano de treinamento")
     
     # Pontos Positivos Box
-    box_pos = slide4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(5.6), Inches(4.8))
+    box_pos = slide4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(1.8), Inches(3.7), Inches(4.8))
     box_pos.fill.solid()
     box_pos.fill.fore_color.rgb = CARD_BG
     box_pos.line.color.rgb = BORDER_COLOR
     
-    tb_pos = slide4.shapes.add_textbox(Inches(1.0), Inches(2.0), Inches(5.2), Inches(4.4))
+    tb_pos = slide4.shapes.add_textbox(Inches(0.95), Inches(1.95), Inches(3.4), Inches(4.5))
     tf_pos = tb_pos.text_frame
     tf_pos.word_wrap = True
     p = tf_pos.paragraphs[0]
-    p.text = "🌟 Principais Pontos Positivos"
-    p.font.size = Pt(16)
+    p.text = "🌟 Pontos Positivos"
+    p.font.size = Pt(15)
     p.font.bold = True
     p.font.color.rgb = JADE_GREEN
     
     all_pos = []
     for c in concluidas:
-        all_pos.extend(c.get("pontos_positivos") or [])
+        all_pos.extend(c.get("pontos_positivos_list") or [])
     for item in (all_pos[:4] if all_pos else ["Cordialidade no atendimento inicial", "Clareza nas orientações prestadas"]):
         p_it = tf_pos.add_paragraph()
         p_it.text = f"✓ {item}"
-        p_it.font.size = Pt(12)
+        p_it.font.size = Pt(11)
         p_it.font.color.rgb = TEXT_MAIN
 
     # Pontos de Melhoria Box
-    box_neg = slide4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(6.8), Inches(1.8), Inches(5.7), Inches(4.8))
+    box_neg = slide4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(4.8), Inches(1.8), Inches(3.7), Inches(4.8))
     box_neg.fill.solid()
     box_neg.fill.fore_color.rgb = CARD_BG
     box_neg.line.color.rgb = BORDER_COLOR
     
-    tb_neg = slide4.shapes.add_textbox(Inches(7.0), Inches(2.0), Inches(5.3), Inches(4.4))
+    tb_neg = slide4.shapes.add_textbox(Inches(4.95), Inches(1.95), Inches(3.4), Inches(4.5))
     tf_neg = tb_neg.text_frame
     tf_neg.word_wrap = True
     p = tf_neg.paragraphs[0]
-    p.text = "🎯 Oportunidades de Melhoria & Treinamento"
-    p.font.size = Pt(16)
+    p.text = "🎯 Pontos de Melhoria"
+    p.font.size = Pt(15)
     p.font.bold = True
     p.font.color.rgb = DARK_SLATE
     
     all_neg = []
     for c in concluidas:
-        all_neg.extend(c.get("pontos_melhoria") or [])
+        all_neg.extend(c.get("pontos_melhoria_list") or [])
     for item in (all_neg[:4] if all_neg else ["Aprimorar contorno de objeções", "Reduzir tempo de espera em pausa"]):
         p_it = tf_neg.add_paragraph()
         p_it.text = f"⚠ {item}"
-        p_it.font.size = Pt(12)
+        p_it.font.size = Pt(11)
+        p_it.font.color.rgb = TEXT_MAIN
+
+    # Recomendação de Treinamento Box
+    box_rec = slide4.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(8.8), Inches(1.8), Inches(3.7), Inches(4.8))
+    box_rec.fill.solid()
+    box_rec.fill.fore_color.rgb = CARD_BG
+    box_rec.line.color.rgb = BORDER_COLOR
+    
+    tb_rec = slide4.shapes.add_textbox(Inches(8.95), Inches(1.95), Inches(3.4), Inches(4.5))
+    tf_rec = tb_rec.text_frame
+    tf_rec.word_wrap = True
+    p = tf_rec.paragraphs[0]
+    p.text = "💡 Plano de Treinamento"
+    p.font.size = Pt(15)
+    p.font.bold = True
+    p.font.color.rgb = JADE_GREEN
+    
+    all_recs = [c.get("rec_trein") for c in concluidas if c.get("rec_trein") and c.get("rec_trein") != "-"]
+    for item in (all_recs[:3] if all_recs else ["Capacitação em confirmação de dados e escuta ativa"]):
+        p_it = tf_rec.add_paragraph()
+        p_it.text = f"• {item}"
+        p_it.font.size = Pt(11)
         p_it.font.color.rgb = TEXT_MAIN
 
     # ----------------------------------------------------
@@ -231,10 +283,10 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     # ----------------------------------------------------
     slide5 = prs.slides.add_slide(blank_slide_layout)
     set_background(slide5, LIGHT_BG)
-    add_header(slide5, "Detalhamento Analítico dos Atendimentos", f"Amostra dos {len(limited_calls)} atendimentos auditados (Limite 50)")
+    add_header(slide5, "Detalhamento Analítico dos Atendimentos", f"Amostra dos {len(extracted_calls)} atendimentos auditados (Limite 50)")
     
-    rows = min(len(limited_calls) + 1, 12) # Exibe até 11 chamadas por slide na tabela principal
-    cols = 6
+    rows = min(len(extracted_calls) + 1, 12)
+    cols = 7
     left = Inches(0.8)
     top = Inches(1.6)
     width = Inches(11.733)
@@ -243,43 +295,45 @@ def generate_pptx_report(calls: list[dict]) -> bytes:
     table_shape = slide5.shapes.add_table(rows, cols, left, top, width, height)
     table = table_shape.table
     
-    table.columns[0].width = Inches(3.5) # Arquivo
+    table.columns[0].width = Inches(1.8) # ID Chamada
     table.columns[1].width = Inches(2.2) # Atendente
-    table.columns[2].width = Inches(1.4) # QA Score
-    table.columns[3].width = Inches(1.4) # NPS
-    table.columns[4].width = Inches(1.833) # Humor
-    table.columns[5].width = Inches(1.4) # Erro Crítico
+    table.columns[2].width = Inches(2.6) # Motivo do Contato
+    table.columns[3].width = Inches(1.2) # QA Score
+    table.columns[4].width = Inches(1.1) # NPS
+    table.columns[5].width = Inches(1.4) # Humor Cliente
+    table.columns[6].width = Inches(1.433) # Humor Atendente
     
-    headers = ["Arquivo / Atendimento", "Atendente", "QA Score", "NPS", "Humor Cliente", "Erro Crítico"]
+    headers = ["ID Chamada", "Atendente", "Motivo do Contato", "QA Score", "NPS", "Humor Cliente", "Humor Atendente"]
     for col_idx, h_text in enumerate(headers):
         cell = table.cell(0, col_idx)
         cell.text = h_text
         cell.fill.solid()
         cell.fill.fore_color.rgb = DARK_SLATE
         for p in cell.text_frame.paragraphs:
-            p.font.size = Pt(11)
+            p.font.size = Pt(10)
             p.font.bold = True
             p.font.color.rgb = RGBColor(255, 255, 255)
             p.alignment = PP_ALIGN.CENTER
             
-    for row_idx, c in enumerate(limited_calls[:11], start=1):
-        filename = c.get("filename") or c.get("arquivo") or "Chamada"
-        atendente = c.get("atendente") or c.get("nome_atendente") or "Operador"
-        qa = str(c.get("nota") or c.get("nota_geral") or "-")
-        nps = str(c.get("nota_sentimento_cliente") or c.get("nps") or "-")
-        humor = str(c.get("humor_cliente") or "-")
-        erro = "SIM" if c.get("erro_critico") else "Não"
+    for row_idx, c in enumerate(extracted_calls[:11], start=1):
+        cid_short = str(c["call_id"])[:8] + "..." if len(str(c["call_id"])) > 8 else str(c["call_id"])
+        atendente = str(c["atendente"])[:22]
+        motivo = str(c["motivo"])[:35]
+        qa = str(c["nota_qa"])
+        nps = str(c["nps_cli"])
+        humor_cli = str(c["humor_cli"])[:16]
+        humor_op = str(c["humor_op"])[:16]
         
-        row_values = [filename[:30], atendente, qa, nps, humor, erro]
+        row_values = [cid_short, atendente, motivo, qa, nps, humor_cli, humor_op]
         for col_idx, val in enumerate(row_values):
             cell = table.cell(row_idx, col_idx)
             cell.text = val
             cell.fill.solid()
             cell.fill.fore_color.rgb = RGBColor(241, 245, 249) if row_idx % 2 == 0 else RGBColor(255, 255, 255)
             for p in cell.text_frame.paragraphs:
-                p.font.size = Pt(10)
+                p.font.size = Pt(9)
                 p.font.color.rgb = TEXT_MAIN
-                if col_idx >= 2:
+                if col_idx in [0, 3, 4, 5, 6]:
                     p.alignment = PP_ALIGN.CENTER
 
     buffer = io.BytesIO()

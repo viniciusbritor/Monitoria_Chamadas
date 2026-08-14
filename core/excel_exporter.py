@@ -1,13 +1,162 @@
 import io
+import json
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+def _extract_call_fields(c: dict) -> dict:
+    raw = {}
+    if c.get("raw_evaluation"):
+        if isinstance(c["raw_evaluation"], dict):
+            raw = c["raw_evaluation"]
+        elif isinstance(c["raw_evaluation"], str):
+            try:
+                raw = json.loads(c["raw_evaluation"])
+            except Exception:
+                raw = {}
+                
+    atendente = (
+        raw.get("nome_atendente") 
+        or c.get("nome_atendente") 
+        or c.get("atendente") 
+        or c.get("operador") 
+        or "Não Identificado"
+    )
+    
+    motivo = (
+        raw.get("motivo_contato") 
+        or c.get("motivo_contato") 
+        or c.get("motivo") 
+        or "-"
+    )
+    
+    classif = (
+        raw.get("classificacao_motivo") 
+        or c.get("classificacao_motivo") 
+        or c.get("classificacao") 
+        or "-"
+    )
+    
+    humor_cli = raw.get("humor_cliente") or c.get("humor_cliente")
+    if not humor_cli and (raw.get("sentimentos_cliente") or c.get("sentimentos_cliente")):
+        s_cli = raw.get("sentimentos_cliente") or c.get("sentimentos_cliente")
+        if isinstance(s_cli, str):
+            try:
+                s_cli = json.loads(s_cli)
+            except Exception:
+                s_cli = []
+        if isinstance(s_cli, list) and len(s_cli) > 0 and isinstance(s_cli[0], dict):
+            humor_cli = s_cli[0].get("sentimento", "-")
+    humor_cli = humor_cli or "-"
+    
+    humor_op = (
+        raw.get("humor_expert") 
+        or raw.get("humor_operador") 
+        or raw.get("humor_atendente") 
+        or c.get("humor_expert") 
+        or c.get("humor_operador") 
+        or c.get("humor_atendente")
+    )
+    if not humor_op and (raw.get("sentimentos_operador") or c.get("sentimentos_operador")):
+        s_op = raw.get("sentimentos_operador") or c.get("sentimentos_operador")
+        if isinstance(s_op, str):
+            try:
+                s_op = json.loads(s_op)
+            except Exception:
+                s_op = []
+        if isinstance(s_op, list) and len(s_op) > 0 and isinstance(s_op[0], dict):
+            humor_op = s_op[0].get("sentimento", "-")
+    humor_op = humor_op or "-"
+    
+    fases = raw.get("fases") or c.get("fases") or {}
+    fase1 = fases.get("apresentacao") or fases.get("fase_1") or fases.get("inicio") or {}
+    fase2 = fases.get("resolucao") or fases.get("fase_2") or fases.get("desenvolvimento") or {}
+    fase3 = fases.get("fechamento") or fases.get("fase_3") or fases.get("conclusao") or {}
+    
+    fase1_qa = fase1.get("nota_qa") if fase1.get("nota_qa") is not None else "-"
+    fase1_nps = fase1.get("nota_nps") if fase1.get("nota_nps") is not None else "-"
+    fase1_analise = fase1.get("analise") or "-"
+    
+    fase2_qa = fase2.get("nota_qa") if fase2.get("nota_qa") is not None else "-"
+    fase2_nps = fase2.get("nota_nps") if fase2.get("nota_nps") is not None else "-"
+    fase2_analise = fase2.get("analise") or "-"
+    
+    fase3_qa = fase3.get("nota_qa") if fase3.get("nota_qa") is not None else "-"
+    fase3_nps = fase3.get("nota_nps") if fase3.get("nota_nps") is not None else "-"
+    fase3_analise = fase3.get("analise") or "-"
+    
+    p_pos_list = raw.get("pontos_positivos") or c.get("pontos_positivos") or []
+    if isinstance(p_pos_list, list):
+        p_pos = "\n".join(f"• {p}" for p in p_pos_list) if p_pos_list else "-"
+    else:
+        p_pos = str(p_pos_list)
+        
+    p_neg_list = raw.get("pontos_melhoria") or c.get("pontos_melhoria") or []
+    if isinstance(p_neg_list, list):
+        p_neg = "\n".join(f"• {p}" for p in p_neg_list) if p_neg_list else "-"
+    else:
+        p_neg = str(p_neg_list)
+        
+    rec_trein = (
+        raw.get("recomendacao_treinamento") 
+        or c.get("recomendacao_treinamento") 
+        or "-"
+    )
+    
+    nota_qa = raw.get("nota_geral") or c.get("nota") or c.get("nota_geral") or 0
+    nota_op = raw.get("nota_qualidade_operador") or c.get("nota_qualidade_operador") or "-"
+    nps_cli = raw.get("nota_sentimento_cliente") or c.get("nota_sentimento_cliente") or c.get("nps") or "-"
+    erro_crit = "SIM" if (raw.get("erro_critico") or c.get("erro_critico") or len(raw.get("erros_fatais_identificados") or c.get("erros_fatais") or []) > 0) else "Não"
+    
+    transcricao = (
+        c.get("transcricao_diarizada") 
+        or c.get("diarized_transcript") 
+        or c.get("transcricao") 
+        or "-"
+    )
+    
+    call_id = c.get("id") or c.get("call_id") or ""
+    created_at = c.get("created_at") or c.get("uploaded_at") or c.get("data") or ""
+    filename = c.get("filename") or c.get("arquivo") or ""
+    setor = raw.get("setor") or c.get("setor") or c.get("equipe") or "Geral"
+    
+    return {
+        "call_id": call_id,
+        "created_at": created_at,
+        "filename": filename,
+        "atendente": atendente,
+        "setor": setor,
+        "nota_qa": nota_qa,
+        "nota_op": nota_op,
+        "nps_cli": nps_cli,
+        "motivo": motivo,
+        "classif": classif,
+        "humor_cli": humor_cli,
+        "humor_op": humor_op,
+        "erro_crit": erro_crit,
+        "fase1_qa": fase1_qa,
+        "fase1_nps": fase1_nps,
+        "fase1_analise": fase1_analise,
+        "fase2_qa": fase2_qa,
+        "fase2_nps": fase2_nps,
+        "fase2_analise": fase2_analise,
+        "fase3_qa": fase3_qa,
+        "fase3_nps": fase3_nps,
+        "fase3_analise": fase3_analise,
+        "pontos_positivos": p_pos,
+        "pontos_melhoria": p_neg,
+        "pontos_positivos_list": p_pos_list if isinstance(p_pos_list, list) else [],
+        "pontos_melhoria_list": p_neg_list if isinstance(p_neg_list, list) else [],
+        "rec_trein": rec_trein,
+        "transcricao": transcricao,
+        "status": c.get("status", "")
+    }
 
 def generate_excel_report(calls: list[dict]) -> bytes:
     """
     Gera uma planilha Excel analítica profissional contendo:
     1. Resumo Executivo (KPIs & Estatísticas)
-    2. Detalhamento Analítico por Chamada
+    2. Detalhamento Analítico por Chamada (populado com todos os campos)
     3. Transcrições Diarizadas
     """
     wb = Workbook()
@@ -31,6 +180,8 @@ def generate_excel_report(calls: list[dict]) -> bytes:
     align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     align_left = Alignment(horizontal="left", vertical="top", wrap_text=True)
     
+    extracted_calls = [_extract_call_fields(c) for c in calls]
+    
     # ----------------------------------------------------
     # TAB 1: Resumo Executivo
     # ----------------------------------------------------
@@ -45,25 +196,24 @@ def generate_excel_report(calls: list[dict]) -> bytes:
     cell_title.alignment = Alignment(horizontal="left", vertical="center", indent=1)
     ws_summary.row_dimensions[1].height = 40
     
-    total_chamadas = len(calls)
-    concluidas = [c for c in calls if c.get("status") in ["Concluído", "Concluido", "finalizado"]]
+    total_chamadas = len(extracted_calls)
+    concluidas = [c for c in extracted_calls if str(c.get("status")).lower().startswith("conclu") or str(c.get("status")).lower() == "finalizado"]
     total_concluidas = len(concluidas)
     
-    notas_qa = [float(c.get("nota") or 0) for c in concluidas if c.get("nota") is not None]
+    notas_qa = [float(c["nota_qa"]) for c in concluidas if isinstance(c["nota_qa"], (int, float)) or (isinstance(c["nota_qa"], str) and c["nota_qa"].replace('.', '', 1).isdigit())]
     qa_medio = round(sum(notas_qa) / len(notas_qa), 1) if notas_qa else 0.0
     
-    # NPS / Sentimento do Cliente
     nps_list = []
     for c in concluidas:
-        val = c.get("nota_sentimento_cliente") or c.get("nps")
-        if val is not None:
+        val = c.get("nps_cli")
+        if val is not None and val != "-":
             try:
                 nps_list.append(float(val))
             except (ValueError, TypeError):
                 pass
     nps_medio = round(sum(nps_list) / len(nps_list), 1) if nps_list else 0.0
     
-    erros_criticos = sum(1 for c in concluidas if c.get("erro_critico"))
+    erros_criticos = sum(1 for c in concluidas if c.get("erro_crit") == "SIM")
     
     kpis = [
         ("Métrica Executiva", "Valor"),
@@ -93,7 +243,6 @@ def generate_excel_report(calls: list[dict]) -> bytes:
             c1.border = thin_border
             c2.border = thin_border
             
-    # Auto-fit tab 1
     ws_summary.column_dimensions['A'].width = 35
     ws_summary.column_dimensions['B'].width = 25
 
@@ -122,56 +271,32 @@ def generate_excel_report(calls: list[dict]) -> bytes:
         cell.alignment = align_center
         cell.border = thin_border
 
-    for row_idx, c in enumerate(calls, start=2):
-        created_at = c.get("created_at") or c.get("data") or ""
-        filename = c.get("filename") or c.get("arquivo") or ""
-        atendente = c.get("atendente") or c.get("nome_atendente") or "Não Identificado"
-        setor = c.get("setor") or c.get("equipe") or "Geral"
-        
-        nota_qa = c.get("nota") or c.get("nota_geral") or 0
-        nota_op = c.get("nota_qualidade_operador") or "-"
-        nps_cli = c.get("nota_sentimento_cliente") or c.get("nps") or "-"
-        
-        motivo = c.get("motivo_contato") or "-"
-        classif = c.get("classificacao_motivo") or "-"
-        humor_cli = c.get("humor_cliente") or "-"
-        humor_op = c.get("humor_expert") or "-"
-        erro_crit = "SIM" if c.get("erro_critico") else "Não"
-        
-        fases = c.get("fases") or {}
-        fase1 = fases.get("apresentacao") or fases.get("inicio") or {}
-        fase2 = fases.get("resolucao") or {}
-        fase3 = fases.get("fechamento") or {}
-        
-        p_pos = "\n".join(c.get("pontos_positivos") or [])
-        p_neg = "\n".join(c.get("pontos_melhoria") or [])
-        rec_trein = c.get("recomendacao_treinamento") or "-"
-        
+    for row_idx, c in enumerate(extracted_calls, start=2):
         row_data = [
-            c.get("id", ""),
-            str(created_at),
-            str(filename),
-            str(atendente),
-            str(setor),
-            nota_qa,
-            nota_op,
-            nps_cli,
-            str(motivo),
-            str(classif),
-            str(humor_cli),
-            str(humor_op),
-            erro_crit,
-            fase1.get("nota_qa", "-"), fase1.get("nota_nps", "-"), str(fase1.get("analise", "-")),
-            fase2.get("nota_qa", "-"), fase2.get("nota_nps", "-"), str(fase2.get("analise", "-")),
-            fase3.get("nota_qa", "-"), fase3.get("nota_nps", "-"), str(fase3.get("analise", "-")),
-            p_pos,
-            p_neg,
-            rec_trein
+            str(c["call_id"]),
+            str(c["created_at"]),
+            str(c["filename"]),
+            str(c["atendente"]),
+            str(c["setor"]),
+            c["nota_qa"],
+            c["nota_op"],
+            c["nps_cli"],
+            str(c["motivo"]),
+            str(c["classif"]),
+            str(c["humor_cli"]),
+            str(c["humor_op"]),
+            c["erro_crit"],
+            c["fase1_qa"], c["fase1_nps"], str(c["fase1_analise"]),
+            c["fase2_qa"], c["fase2_nps"], str(c["fase2_analise"]),
+            c["fase3_qa"], c["fase3_nps"], str(c["fase3_analise"]),
+            str(c["pontos_positivos"]),
+            str(c["pontos_melhoria"]),
+            str(c["rec_trein"])
         ]
         
         ws_detail.append(row_data)
         current_row = ws_detail.row_dimensions[row_idx]
-        current_row.height = 35
+        current_row.height = 45
         
         row_fill = zebra_fill if row_idx % 2 == 0 else white_fill
         
@@ -190,7 +315,7 @@ def generate_excel_report(calls: list[dict]) -> bytes:
             val_str = str(cell.value or "")
             if len(val_str) > max_len:
                 max_len = len(val_str)
-        ws_detail.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 45)
+        ws_detail.column_dimensions[col_letter].width = min(max(max_len + 3, 14), 50)
 
     # ----------------------------------------------------
     # TAB 3: Transcrições Diarizadas
@@ -206,13 +331,12 @@ def generate_excel_report(calls: list[dict]) -> bytes:
         cell.alignment = align_center
         cell.border = thin_border
         
-    for row_idx, c in enumerate(calls, start=2):
-        diarized = c.get("diarized_transcript") or c.get("transcricao") or "-"
+    for row_idx, c in enumerate(extracted_calls, start=2):
         row_data = [
-            c.get("id", ""),
-            c.get("filename", ""),
-            c.get("atendente", "Não Identificado"),
-            diarized
+            str(c["call_id"]),
+            str(c["filename"]),
+            str(c["atendente"]),
+            str(c["transcricao"])
         ]
         ws_trans.append(row_data)
         ws_trans.row_dimensions[row_idx].height = 60
@@ -225,12 +349,11 @@ def generate_excel_report(calls: list[dict]) -> bytes:
             cell.border = thin_border
             cell.alignment = align_left
             
-    ws_trans.column_dimensions['A'].width = 20
+    ws_trans.column_dimensions['A'].width = 25
     ws_trans.column_dimensions['B'].width = 30
     ws_trans.column_dimensions['C'].width = 20
-    ws_trans.column_dimensions['D'].width = 80
+    ws_trans.column_dimensions['D'].width = 85
     
-    # Renderiza para buffer em memória
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
