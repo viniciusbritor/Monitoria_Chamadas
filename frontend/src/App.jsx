@@ -102,23 +102,51 @@ function App() {
   const PORTAL_URL = import.meta.env.VITE_PORTAL_URL || "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app"
 
   // Detecta token vindo do Portal (?token=...). Tem prioridade sobre localStorage.
-  // Se nao vier ?token=, usa o do localStorage (usuario voltou em outra aba).
-  // CRITICO: este useEffect roda ANTES do validateTokenOnMount. Nao chama handleLogout.
+  // 🔒 Detecta token vindo do Portal via Hash (#token=...) ou Query (?token=...).
+  // Prioridade para Hash/Query, salvando em localStorage e limpando a URL imediatamente.
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search)
-    const tokenFromUrl = urlParams.get('token')
-    if (tokenFromUrl) {
-      localStorage.setItem('auth_token', tokenFromUrl)
-      setUserToken(tokenFromUrl)
-      // Limpa a URL para nao expor token no historico
-      window.history.replaceState({}, document.title, window.location.pathname)
+    let tokenFound = null
+
+    // 1. Prioridade: Hash fragment (#token=...)
+    if (window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1))
+      tokenFound = hashParams.get('token') || hashParams.get('access_token') || hashParams.get('jwt')
+    }
+
+    // 2. Fallback de transição: Query search (?token=...)
+    if (!tokenFound && window.location.search) {
+      const urlParams = new URLSearchParams(window.location.search)
+      tokenFound = urlParams.get('token') || urlParams.get('access_token') || urlParams.get('jwt')
+    }
+
+    if (tokenFound) {
+      localStorage.setItem('auth_token', tokenFound)
+      setUserToken(tokenFound)
+      // Expurga imediatamente o token da URL e do histórico do navegador
+      const url = new URL(window.location.href)
+      url.searchParams.delete('token')
+      url.searchParams.delete('access_token')
+      url.searchParams.delete('jwt')
+      let cleanHash = window.location.hash.replace(/[?&#](token|access_token|jwt)=[^&]*/g, '')
+      if (cleanHash === '#' || cleanHash === '') cleanHash = ''
+      const cleanUrl = url.origin + url.pathname + (url.searchParams.toString() ? '?' + url.searchParams.toString() : '') + cleanHash
+      window.history.replaceState({}, document.title, cleanUrl)
     } else {
-      // Sem ?token= na URL: usa o do localStorage (sessao anterior)
+      // Sem token na URL: usa o do localStorage (sessão anterior)
       const stored = localStorage.getItem('auth_token')
       if (stored) {
         setUserToken(stored)
       }
     }
+
+    // Listener para comunicação via postMessage (se aberto em iframe/modal)
+    const handleMessage = (event) => {
+      if (event.data && event.data.type === 'COHERENCE_AUTH_TOKEN' && event.data.token) {
+        localStorage.setItem('auth_token', event.data.token)
+        setUserToken(event.data.token)
+      }
+    }
+    window.addEventListener('message', handleMessage)
     // NEW (Sprint 2 - 03/07/2026): encerra bootstrap. Apos isso o componente pode decidir
     // entre mostrar login, validating ou dashboard, conforme o userToken atual.
     // NEW (14/08/2026): auto-refresh de token Firebase Auth em background (evita expiracao de 1h)
