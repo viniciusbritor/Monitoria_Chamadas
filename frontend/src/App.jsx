@@ -139,14 +139,36 @@ function App() {
       }
     }
 
-    // Listener para comunicação via postMessage (se aberto em iframe/modal)
+    let authTimer = null
+
+    // 🔒 Handshake de Memória: Se não houver token local, requisita ao Portal pai via postMessage
+    if (!tokenFound && !localStorage.getItem('auth_token')) {
+      if (window.opener) {
+        try {
+          window.opener.postMessage({ type: 'COHERENCE_REQUEST_AUTH' }, '*')
+        } catch (_) {}
+        // Aguarda até 3.5 segundos pelo handshake do Portal pai antes de encerrar o bootstrap
+        authTimer = setTimeout(() => {
+          setBootstrapping(false)
+        }, 3500)
+      } else {
+        setBootstrapping(false)
+      }
+    } else {
+      setBootstrapping(false)
+    }
+
+    // Listener para comunicação via postMessage (se aberto em nova aba/modal)
     const handleMessage = (event) => {
       if (event.data && event.data.type === 'COHERENCE_AUTH_TOKEN' && event.data.token) {
+        if (authTimer) clearTimeout(authTimer)
         localStorage.setItem('auth_token', event.data.token)
         setUserToken(event.data.token)
+        setBootstrapping(false)
       }
     }
     window.addEventListener('message', handleMessage)
+
     // NEW (Sprint 2 - 03/07/2026): encerra bootstrap. Apos isso o componente pode decidir
     // entre mostrar login, validating ou dashboard, conforme o userToken atual.
     // NEW (14/08/2026): auto-refresh de token Firebase Auth em background (evita expiracao de 1h)
@@ -162,8 +184,11 @@ function App() {
       }
     })
 
-    setBootstrapping(false)
-    return () => unsubscribe()
+    return () => {
+      if (authTimer) clearTimeout(authTimer)
+      window.removeEventListener('message', handleMessage)
+      unsubscribe()
+    }
   }, [])
 
   const navigateTo = (view, callId = null, opts = {}) => {

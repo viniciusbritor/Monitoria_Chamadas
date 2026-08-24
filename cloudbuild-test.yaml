@@ -99,7 +99,7 @@ steps:
           "$$PORTAL_URL/api/admin/modules/monitoria-chamadas-test?admin_email=$$ADMIN_EMAIL" \
           -H "Authorization: Bearer $$TOKEN" \
           -H "Content-Type: application/json" \
-          -d "{\"name\":\"Monitoria de Chamadas\",\"url\":\"$$SERVICE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
+          -d "{\"name\":\"Monitoria de Chamadas (Teste)\",\"url\":\"$$SERVICE_URL\",\"revision\":\"$$REVISION\",\"description\":\"Transcricao e avaliacao QA de chamadas\",\"icon\":\"Headphones\"}")
         echo "Portal notify response: $$RESPONSE"
         HTTP_STATUS=$$(echo "$$RESPONSE" | grep -oP 'HTTP_STATUS:\K[0-9]+' || echo "unknown")
         if [ "$$HTTP_STATUS" != "200" ]; then
