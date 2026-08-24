@@ -103,7 +103,15 @@ class ChamadasDB:
     @property
     def _db(self) -> firestore.Client:
         if self._client is None:
-            self._client = firestore.Client(project=self._project_id)
+            try:
+                import firebase_admin
+                from firebase_admin import credentials, firestore as fb_firestore
+                if not firebase_admin._apps:
+                    firebase_admin.initialize_app(credentials.ApplicationDefault(), {"projectId": self._project_id})
+                self._client = fb_firestore.client()
+            except Exception as exc:
+                logger.warning(f"[core/db.py] Fallback firestore.Client: {exc}")
+                self._client = firestore.Client(project=self._project_id)
         return self._client
 
     @property

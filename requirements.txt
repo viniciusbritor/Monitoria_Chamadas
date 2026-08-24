@@ -11,7 +11,8 @@ httpx
 pyjwt
 google-cloud-pubsub
 google-cloud-storage
-google-cloud-firestore
+google-cloud-firestore==2.16.0
+google-api-core<2.20.0
 google-cloud-secret-manager
 openpyxl
 python-pptx
