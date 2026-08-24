@@ -153,13 +153,19 @@ function App() {
         sendAuthRequest()
         pingInterval = setInterval(sendAuthRequest, 250)
 
-        // Aguarda até 4 segundos pelo handshake do Portal pai antes de encerrar o bootstrap
+        // Aguarda até 3.5 segundos pelo handshake do Portal pai. Se expirar, redireciona ao Portal.
         authTimer = setTimeout(() => {
           if (pingInterval) clearInterval(pingInterval)
-          setBootstrapping(false)
-        }, 4000)
+          if (!localStorage.getItem('auth_token')) {
+            window.location.href = PORTAL_URL + '/dashboard'
+          } else {
+            setBootstrapping(false)
+          }
+        }, 3500)
       } else {
-        setBootstrapping(false)
+        // Acesso direto sem Portal: redireciona imediatamente
+        window.location.href = PORTAL_URL + '/dashboard'
+        return
       }
     } else {
       setBootstrapping(false)
@@ -233,13 +239,11 @@ function App() {
           if (res.status === 403) {
             setAccessDenied(true)
           }
-          // 401/500/etc: NAO chama handleLogout (isso causava o redirect indevido).
-          // Apenas limpa o token. O user pode re-tentar.
           if (res.status === 401) {
             localStorage.removeItem('auth_token')
             setUserToken(null)
+            window.location.href = PORTAL_URL + '/dashboard'
           }
-          // 5xx: nao faz nada (transient)
         } else {
           const userData = await res.json()
           setUserRole(userData.role)
@@ -247,17 +251,12 @@ function App() {
         }
       } catch (err) {
         console.error("[Monitoria SSO] validateTokenOnMount error:", err)
-        // Erro de rede: NAO chama handleLogout (que faz redirect)
-        // Apenas continua; o user vera a tela de login e pode tentar de novo
       } finally {
         setValidating(false)
       }
     }
     validateTokenOnMount()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userToken])
-
-  // NEW (05/07/2026): loader brandado compartilhado (definido em escopo de modulo acima).
 
   if (bootstrapping) {
     return <BrandedLoader message="Conectando ao Portal Coherence..." />
@@ -287,42 +286,8 @@ function App() {
   }
 
   if (!userToken) {
-    // Acesso direto (sem ?token= vindo do Portal): modulo NAO expoe Login proprio.
-    // Usuario deve passar pelo Portal Coherence.
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-surface px-4 transition-page">
-        <div className="flex flex-col items-center gap-5 max-w-md animate-fadeInUp">
-          <div className="flex items-center gap-3 mb-1">
-            <img
-              src="/logo-top-v2.png"
-              alt="Coherence"
-              className="h-[24px] w-auto object-contain"
-              onError={(e) => { e.target.src = '/logo-v2.png' }}
-            />
-            <div className="h-6 w-[1px] bg-black/10"></div>
-            <div className="flex items-center space-x-1.5 text-xs font-semibold tracking-[0.2em] uppercase whitespace-nowrap">
-              <span className="text-[#3b82f6] font-medium">MONITORIA DE</span>
-              <span className="text-slate-700 font-bold">CHAMADA</span>
-            </div>
-          </div>
-
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-            <Headphones size={32} />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Acesso via Portal Coherence</h1>
-          <p className="text-black/60 text-center text-sm leading-relaxed">
-            A Monitoria de Chamadas é um módulo do ecossistema Coherence e pode ser acessada
-            exclusivamente pelo Portal. Faça login no Portal e abra o card "Monitoria de Chamadas".
-          </p>
-          <button
-            onClick={() => window.location.href = PORTAL_URL + '/dashboard'}
-            className="bg-primary hover:bg-primary/90 text-white font-medium py-3 px-8 rounded-xl transition-all shadow-sm mt-2"
-          >
-            Ir para o Portal Coherence
-          </button>
-        </div>
-      </div>
-    )
+    window.location.href = PORTAL_URL + '/dashboard'
+    return <BrandedLoader message="Redirecionando para o Portal Coherence..." />
   }
 
   if (validating) {
