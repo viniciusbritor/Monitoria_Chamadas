@@ -140,17 +140,24 @@ function App() {
     }
 
     let authTimer = null
+    let pingInterval = null
 
     // 🔒 Handshake de Memória: Se não houver token local, requisita ao Portal pai via postMessage
     if (!tokenFound && !localStorage.getItem('auth_token')) {
       if (window.opener) {
-        try {
-          window.opener.postMessage({ type: 'COHERENCE_REQUEST_AUTH' }, '*')
-        } catch (_) {}
-        // Aguarda até 3.5 segundos pelo handshake do Portal pai antes de encerrar o bootstrap
+        const sendAuthRequest = () => {
+          try {
+            window.opener.postMessage({ type: 'COHERENCE_REQUEST_AUTH' }, '*')
+          } catch (_) {}
+        }
+        sendAuthRequest()
+        pingInterval = setInterval(sendAuthRequest, 250)
+
+        // Aguarda até 4 segundos pelo handshake do Portal pai antes de encerrar o bootstrap
         authTimer = setTimeout(() => {
+          if (pingInterval) clearInterval(pingInterval)
           setBootstrapping(false)
-        }, 3500)
+        }, 4000)
       } else {
         setBootstrapping(false)
       }
@@ -162,6 +169,7 @@ function App() {
     const handleMessage = (event) => {
       if (event.data && event.data.type === 'COHERENCE_AUTH_TOKEN' && event.data.token) {
         if (authTimer) clearTimeout(authTimer)
+        if (pingInterval) clearInterval(pingInterval)
         localStorage.setItem('auth_token', event.data.token)
         setUserToken(event.data.token)
         setBootstrapping(false)
@@ -186,6 +194,7 @@ function App() {
 
     return () => {
       if (authTimer) clearTimeout(authTimer)
+      if (pingInterval) clearInterval(pingInterval)
       window.removeEventListener('message', handleMessage)
       unsubscribe()
     }
