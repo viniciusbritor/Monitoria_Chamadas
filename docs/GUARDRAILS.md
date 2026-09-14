@@ -313,4 +313,17 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 3. **Filtro Determinístico de Chamadas Mudas / Sem Diálogo**:
    - Áudios cuja transcrição resulte em menos de 20 caracteres ou menos de 4 palavras DEVEM ser categorizados diretamente como "Chamada Muda / Sem Contato" no worker, sem acionar inferência de LLM, evitando desperdício de tokens.
 
+## Regra #28 — Obediência Estrita à Esteira CI/CD v3 (Portão de PR, Auto-Merge CAS e Deploy Guard)
 
+**Aplicável a partir de 14/09/2026. Regra Absoluta.**
+
+1. **Proibição Absoluta de Push Direto**:
+   - É **TERMINANTEMENTE PROIBIDO** realizar `git push` diretamente nas branches `test`, `main` ou `master`.
+   - Todo e qualquer desenvolvimento deve ser realizado em branch dedicada (`feat/*`, `fix/*`, `chore/*`) a partir da `test` e integrado exclusivamente via Pull Request.
+2. **Ciclo Inegociável do Portão de PR**:
+   - `branch a partir de test` → `implementar` → `Shift-Left testing local (pytest tests/)` → `commit padronizado` → `push` → `abrir PR contra test` → `PORTÃO GITHUB ACTIONS (.github/workflows/pr-tests.yml)` → `AUTO-MERGE ATÔMICO NO VERDE (CAS)` → `Cloud Build disparado pelo push do merge`.
+3. **Trava de Ordem no Cloud Build (Deploy Guard)**:
+   - Nenhum deploy no Cloud Run pode ocorrer sem validação da etapa `deploy-guard`.
+   - Se um build mais recente do trigger estiver em execução ou concluído, o deploy do build superado deve ser abortado silenciosamente para garantir que o commit mais recente vença.
+4. **Free Tier FinOps no Cloud Build**:
+   - Manter obrigatoriamente `machineType: 'E2_STANDARD_2'` (120 min/dia gratuitos), BuildKit (`DOCKER_BUILDKIT=1`) e reuso de cache `--cache-from` da imagem anterior.

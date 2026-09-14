@@ -2769,4 +2769,30 @@ if (!res.ok) {
   - **Sincronismo Global de FinOps:** Criação da Regra #9 no `AGENTS.md` global e espelhamento automático para o OpenCode (`C:\Users\vinic\.config\opencode\AGENTS.md`), garantindo que todos os agentes autônomos em qualquer projeto apliquem as diretrizes rígidas de contenção de custos GCP.
   - **Visualização FinOps de Projetos Ativos:** Reformatação de gráficos comparativos focando exclusivamente nos 2 projetos que possuem custos ativos (`coherence-ominichannel-fs` e `whatsapp-server-fs`), demonstrando uma redução combinada de **-89,7% (- R$ 1.760,87 / mês)**.
 
+## 14/09/2026 - Implantação da Esteira CI/CD v3 (Portão de PR, Auto-Merge CAS e Deploy Guard)
 
+- **Contexto & Diagnóstico:**
+  - O repositório `Monitoria_Chamadas` dependia exclusivamente de builds acionados pelo Cloud Build após push manual na `test`, sem portão de testes prévio no GitHub Actions.
+  - Além disso, a suíte local continha o arquivo `tests/test_conexao_modulo_schema.py` quebrado desde a remoção de `docs/conexao_modulo.json` (substituído pelo padrão `docs/MODULE_INTEGRATION.md`).
+  - Não havia trava de concorrência contra múltiplos deploys simultâneos no Cloud Build, gerando risco de um commit antigo sobrescrever o mais novo no Cloud Run.
+
+- **Ações Executadas (Alinhamento com a Esteira Canônica do ChatBotWhatsapp):**
+  1. **Shift-Left Testing Local:**
+     - Removido `tests/test_conexao_modulo_schema.py` obsoleto.
+     - Criado `tests/test_module_integration.py` para validar o contrato de integração com o Portal Coherence.
+     - Criado `tests/test_build_config.py` para blindar a configuração do Cloud Build e GitHub Actions.
+     - Suíte local validada com 21/21 testes passando (100% verde em ~2.1s).
+  2. **Portão de PR Atômico (`.github/workflows/pr-tests.yml`):**
+     - Implementado linter semântico de título de PR (`Conventional Commits`).
+     - Job `alvo`: fixa a `test` num SHA e monta a árvore de merge (CAS).
+     - Job `suite`: executa a suíte de testes chamando `.github/scripts/pytest-shard.sh`.
+     - Job `auto-merge`: compara árvores e faz push direto na branch `test` sem `--force` apenas com o portão verde, suportando até 3 tentativas de reteste automático caso a `test` ande no meio do caminho.
+  3. **Otimização FinOps do Cloud Build (`cloudbuild-test.yaml`):**
+     - Adicionado `machineType: 'E2_STANDARD_2'` (Free Tier de 120 min/dia).
+     - Habilitado Docker BuildKit (`DOCKER_BUILDKIT=1`) e reuso de cache `--cache-from`.
+     - Implementada a trava `deploy-guard` (cancela deploys superados por builds mais recentes).
+  4. **Zero-Ops GitHub:**
+     - Habilitada a flag `--delete-branch-on-merge` no repositório GitHub para remoção automática de branches mescladas.
+  5. **Governança & Guardrails:**
+     - Criada a **Regra #28** em `docs/GUARDRAILS.md` proibindo pushes diretos em `test` ou `main`.
+     - Atualizado `docs/HARNESS.md` com o guia operacional da esteira v3.

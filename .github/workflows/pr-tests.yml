@@ -1,0 +1,269 @@
+﻿# Portão de PR: roda a suíte ANTES do código entrar na branch test
+# Conforme modelo canônico da Esteira CI/CD v3 (ChatBotWhatsapp / ci_cd_workflow_v3).
+#
+# O que entra na test é EXATAMENTE o que foi testado:
+#   1. `alvo` fixa a test num SHA e monta o merge (test fixada + cabeça do PR).
+#      Publica o SHA e o hash da árvore resultante.
+#   2. A suíte monta o mesmo merge e confere que a árvore é a mesma antes de testar.
+#   3. `auto-merge` monta o mesmo merge de novo, confere a árvore e empurra
+#      para a test SEM --force. O git só aceita se a test ainda estiver no
+#      SHA fixado: é um compare-and-swap (CAS).
+# O Cloud Build é disparado apenas pelo push em `test` após o portão verde.
+
+name: PR — testes antes da test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches-ignore:
+      - main
+      - master
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ==========================================================================
+  # Linter Semântico de Título do PR (Conventional Commits)
+  # ==========================================================================
+  lint-title:
+    name: Validar título semântico (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checar título do PR
+        env:
+          TITULO: ${{ github.event.pull_request.title }}
+        run: |
+          echo "Validando título: $TITULO"
+          PADRAO='^(feat|fix|chore|docs|style|refactor|perf|test|build|ci|revert)(\([a-zA-Z0-9_-]+\))?: .+'
+          if [[ ! "$TITULO" =~ $PADRAO ]]; then
+            echo "::error::Título de PR inválido: '$TITULO'."
+            echo "Deve seguir o padrão Conventional Commits: 'feat: ...', 'fix: ...', 'chore: ...', etc."
+            exit 1
+          fi
+          echo "Título em conformidade semântica."
+
+  # ==========================================================================
+  # Fixa a test num SHA e monta o merge que vai ser testado
+  # ==========================================================================
+  alvo:
+    name: Fixar a test e montar o merge
+    needs: lint-title
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      base: ${{ steps.merge.outputs.base }}
+      arvore: ${{ steps.merge.outputs.arvore }}
+    steps:
+      - name: Checkout (cabeça do PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Juntar com a test
+        id: merge
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config user.name "portao-ci"
+          git config user.email "portao-ci@users.noreply.github.com"
+          git fetch -q origin test
+          BASE=$(git rev-parse origin/test)
+          git checkout -q --detach "$BASE"
+          if ! git merge -q --no-ff --no-edit "$HEAD_SHA"; then
+            echo "::error::Conflito com a test. Atualize a branch do PR com a test e empurre de novo."
+            exit 1
+          fi
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "arvore=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          echo "Vai ser testado: PR $HEAD_SHA + test $BASE"
+
+  # ==========================================================================
+  # Executa a suíte de testes com paralelização na árvore unificada
+  # ==========================================================================
+  suite:
+    name: pytest (suíte do portão)
+    needs: alvo
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (cabeça do PR)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Montar o merge fixado pelo alvo
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE: ${{ needs.alvo.outputs.base }}
+          ARVORE: ${{ needs.alvo.outputs.arvore }}
+        run: |
+          git config user.name "portao-ci"
+          git config user.email "portao-ci@users.noreply.github.com"
+          git fetch -q origin test
+          git checkout -q --detach "$BASE"
+          git merge -q --no-ff --no-edit "$HEAD_SHA"
+          if [ "$(git rev-parse 'HEAD^{tree}')" != "$ARVORE" ]; then
+            echo "::error::A árvore montada aqui difere da do job alvo."
+            exit 1
+          fi
+          echo "Testando PR $HEAD_SHA + test $BASE (árvore $ARVORE)"
+
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-xdist pyyaml
+
+      - name: Rodar suíte
+        run: bash .github/scripts/pytest-shard.sh ALL "$GITHUB_WORKSPACE/resultado-shard.xml"
+
+      - name: Guardar o relatório
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultado-shard
+          path: resultado-shard.xml
+          retention-days: 14
+
+  # ==========================================================================
+  # Auto-merge Compare-and-Swap (apenas com o portão verde)
+  # ==========================================================================
+  auto-merge:
+    name: Merge automático (só com o portão verde)
+    needs: [alvo, suite]
+    if: >-
+      success()
+      && github.event.pull_request.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BASE: ${{ github.event.pull_request.base.ref }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
+      TITULO: ${{ github.event.pull_request.title }}
+      DONO: ${{ github.repository_owner }}
+      BASE_TESTADA: ${{ needs.alvo.outputs.base }}
+      ARVORE_TESTADA: ${{ needs.alvo.outputs.arvore }}
+    steps:
+      - name: Draft agora?
+        run: |
+          if [ "$(gh pr view "$PR" --repo "$REPO" --json isDraft --jq .isDraft)" = "true" ]; then
+            echo "PR #$PR está em draft. Portão verde, merge segurado."
+            echo "SEGURAR_MERGE=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: PR empilhado vai para a test
+        if: env.SEGURAR_MERGE != '1' && github.event.pull_request.base.ref != 'test'
+        run: |
+          PAI=$(gh pr list --repo "$REPO" --head "$BASE" --state open \
+            --json number,isDraft --jq '.[0] | select(.) | "\(.number) \(.isDraft)"')
+          if [ -n "$PAI" ] && [ "${PAI#* }" = "true" ]; then
+            echo "::warning::A base ($BASE) é o PR #${PAI% *}, em draft. Não mergeio: levaria junto o código do draft."
+            echo "SEGURAR_MERGE=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "Base $BASE -> test."
+          gh pr edit "$PR" --repo "$REPO" --base test
+
+      - name: Checkout (para montar o merge)
+        if: env.SEGURAR_MERGE != '1'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Mergear na test o commit testado
+        if: env.SEGURAR_MERGE != '1'
+        run: |
+          AFRENTE=$(gh api "repos/$REPO/compare/test...$HEAD_SHA" --jq .ahead_by)
+          if [ "$AFRENTE" = "0" ]; then
+            ESTADO=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+            echo "Os commits do PR #$PR já estão na test (estado: $ESTADO). Nada a mergear."
+            if [ "$ESTADO" = "OPEN" ]; then
+              gh pr close "$PR" --repo "$REPO" \
+                --comment "Os commits deste PR já entraram na test por um PR empilhado em cima dele."
+            fi
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch -q origin test
+          git checkout -q -f --detach "$BASE_TESTADA"
+          git merge -q --no-ff --no-edit \
+            -m "Merge pull request #$PR from $DONO/$HEAD_REF" -m "$TITULO" "$HEAD_SHA"
+          if [ "$(git rev-parse 'HEAD^{tree}')" != "$ARVORE_TESTADA" ]; then
+            echo "::error::A árvore deste merge difere da que a suíte testou. Não empurro."
+            exit 1
+          fi
+          if git push -q origin HEAD:refs/heads/test; then
+            echo "Portão verde. PR #$PR entrou na test: $(git rev-parse --short HEAD)."
+            echo "MERGEADO=1" >> "$GITHUB_ENV"
+          else
+            echo "::notice::A test andou desde o teste (fixada em ${BASE_TESTADA:0:7}). Retestando."
+            echo "RETESTAR=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: "Reteste: dependências"
+        if: env.RETESTAR == '1'
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-xdist pyyaml
+
+      - name: "Reteste: testar a combinação nova e mergear"
+        if: env.RETESTAR == '1'
+        run: |
+          for TENTATIVA in 1 2 3; do
+            git fetch -q origin test
+            NOVA=$(git rev-parse origin/test)
+            git checkout -q -f --detach "$NOVA"
+            if ! git merge -q --no-ff --no-edit \
+                -m "Merge pull request #$PR from $DONO/$HEAD_REF" -m "$TITULO" "$HEAD_SHA"; then
+              echo "::error::Conflito com a test nova (${NOVA:0:7}). Atualize a branch do PR e empurre de novo."
+              exit 1
+            fi
+            echo "Tentativa $TENTATIVA: PR $HEAD_SHA + test ${NOVA:0:7}"
+            if ! bash .github/scripts/pytest-shard.sh ALL; then
+              echo "::error::O PR passou contra a test antiga e QUEBROU junto com o que entrou depois."
+              exit 1
+            fi
+            if git push -q origin HEAD:refs/heads/test; then
+              echo "PR #$PR entrou na test: $(git rev-parse --short HEAD) (retestado contra ${NOVA:0:7})."
+              echo "MERGEADO=1" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "A test andou de novo durante o reteste."
+          done
+          echo "::error::A test andou 3 vezes durante o reteste. Rode o portão de novo."
+          exit 1
+
+      - name: Apagar a branch mergeada
+        if: env.MERGEADO == '1'
+        run: |
+          for i in $(seq 1 12); do
+            if [ "$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)" = "MERGED" ]; then
+              git push -q origin --delete "$HEAD_REF" || echo "::warning::Não foi possível apagar a branch $HEAD_REF."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::Branch mantida (tempo limite de confirmação de merge excedido)."
