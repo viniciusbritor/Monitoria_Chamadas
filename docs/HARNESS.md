@@ -215,6 +215,38 @@ O `secrets_manager.py` usa GCP Secret Manager (via `google.cloud.secretmanager`)
 
 IAM necessario: Cloud Run SA precisa de `roles/secretmanager.secretAccessor` no projeto.
 
+## Esteira CI/CD v3 (Portão de PR & Shift-Left Testing)
+
+A partir de 14/09/2026, a esteira foi alinhada ao modelo canônico do **ChatBotWhatsapp** (skill `ci_cd_workflow_v3`):
+
+1. **Shift-Left Testing (Pre-Push Obrigatório):**
+   ```powershell
+   python -m pytest tests/ -v
+   ```
+   A suíte de testes deve passar 100% verde antes de qualquer push.
+
+2. **Fluxo de Trabalho via Portão de PR:**
+   ```powershell
+   git checkout test && git pull origin test
+   git checkout -b feat/<nome-da-feature>
+   # implementar e testar localmente
+   git add . && git commit -m "feat: descricao concisa"
+   git push -u origin feat/<nome-da-feature>
+   gh pr create --title "feat: descricao concisa" --body "Detalhes das alteracoes" --base test
+   ```
+
+3. **Execução do Portão (.github/workflows/pr-tests.yml):**
+   - Valida o título no padrão Conventional Commits (`feat:`, `fix:`, `chore:`, etc.).
+   - Fixa a base `test` e monta o merge (CAS).
+   - Roda os testes no runner do GitHub Actions via `.github/scripts/pytest-shard.sh`.
+   - Em caso de aprovação (verde), o job `auto-merge` executa o merge atômico na `test` e apaga a branch de feature automaticamente.
+
+4. **Cloud Build (Deploy Guard & FinOps):**
+   - O Cloud Build é acionado pelo push em `test` após o merge.
+   - Não executa testes redundantes (já verificados no Portão).
+   - Possui trava `deploy-guard` para prevenir concorrência de deploys.
+   - Utiliza máquina `E2_STANDARD_2` (Free Tier) e cache BuildKit.
+
 ## Ver tambem
 
 - [ARQUITETURA.md](ARQUITETURA.md) - Detalhes tecnicos do sistema

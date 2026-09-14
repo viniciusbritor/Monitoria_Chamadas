@@ -1,99 +1,134 @@
-options:
+﻿options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_STANDARD_2'
 
 steps:
-  # NEW (08/07/2026 - C4): CI check LGPD (bloqueia merge se houver violacao).
+  # Etapa 0: Verificação de Conformidade LGPD
   - name: 'python:3.11-slim'
+    id: 'check-lgpd'
+    waitFor: ['-']
     entrypoint: 'bash'
     dir: '.'
     args:
       - '-c'
       - 'python -c "import urllib.request; exec(urllib.request.urlopen(\"https://raw.githubusercontent.com/viniciusbritor/workspace_antigravity/main/OmniChannel/scripts/check_lgpd_compliance.py\").read())" -- --repo . || (echo "WARN: LGPD check falhou (verifique acesso ao repo OmniChannel)" && exit 0)'
 
-  # Etapa 1: Instala dependências do Frontend
+  # Etapa 1: Puxa imagem anterior em paralelo como cache
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-cache-pull'
+    waitFor: ['-']
+    args: ['pull', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest']
+    allowFailure: true
+
+  # Etapa 2: Instala dependências do Frontend
   - name: 'node:20'
+    id: 'frontend-install'
+    waitFor: ['-']
     entrypoint: 'npm'
     dir: 'frontend'
     args: ['install']
 
-  # Etapa 2: Build do Frontend (env vars via substitutions)
+  # Etapa 3: Build do Frontend
   - name: 'node:20'
+    id: 'frontend-build'
+    waitFor: ['frontend-install']
     entrypoint: 'bash'
     dir: 'frontend'
     args:
       - '-c'
       - 'rm -rf dist && touch .cache-bust && date > .cache-bust && export VITE_API_URL=$_VITE_API_URL VITE_FIREBASE_API_KEY=$_VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$_VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$_VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_STORAGE_BUCKET=$_VITE_FIREBASE_STORAGE_BUCKET VITE_FIREBASE_MESSAGING_SENDER_ID=$_VITE_FIREBASE_MESSAGING_SENDER_ID VITE_FIREBASE_APP_ID=$_VITE_FIREBASE_APP_ID VITE_PORTAL_URL=$_VITE_PORTAL_URL VITE_GOOGLE_CLIENT_ID=$_VITE_GOOGLE_CLIENT_ID && npm run build'
 
-  # Etapa 0: Puxa imagem anterior como cache
+  # Etapa 4: Build da imagem Docker (com cache BuildKit)
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['pull', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest']
-    allowFailure: true
-
-  # Etapa 3: Build da imagem Docker (com cache)
-  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-build'
+    waitFor: ['frontend-build', 'docker-cache-pull', 'check-lgpd']
+    env:
+      - 'DOCKER_BUILDKIT=1'
     args: [
       'build',
-      '--no-cache',
+      '--build-arg', 'BUILDKIT_INLINE_CACHE=1',
+      '--cache-from', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA',
       '-t', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest',
       '.'
     ]
 
-  # Etapa 4: Push das imagens
+  # Etapa 5: Push concorrente das imagens
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/monitoria-test-env:latest']
-
-  # Etapa 5: Deploy no Cloud Run (ambiente TESTE — service monitoria-test-env)
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
+    id: 'docker-push'
+    waitFor: ['docker-build']
+    entrypoint: 'bash'
     args:
-      - 'run'
-      - 'deploy'
-      - 'monitoria-test-env'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA'
-      - '--region'
-      - 'us-central1'
-      - '--execution-environment=gen2'
-      - '--allow-unauthenticated'
-      - '--cpu=4'
-      - '--memory=8Gi'
-      - '--port=8080'
-      # NEW (04/08/2026): cpu-throttling=true. Evita cobranca 24/7 de CPU/RAM ociosa.
-      - '--cpu-throttling'
-      # REMOVIDO (06/07/2026 - Plano A++): GCS FUSE mount do SQLite.
-      # Migracao completa para Firestore — nao ha mais SQLite local.
-      # Bucket `coherence-ominichannel-fs-db-bucket` ainda existe mas nao e' mais usado.
-      # Sera removido em sprint futura de cleanup.
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,GCP_PROJECT=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
-      - '--quiet'
+      - '-c'
+      - 'docker push gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA & docker push gcr.io/$PROJECT_ID/monitoria-test-env:latest & wait'
 
-  # NEW (08/07/2026 - Padrao de Integracao Portal <-> Modulos):
-  # Apos deploy, notifica Portal Coherence para registrar/atualizar este modulo
-  # no Firestore `modules/monitoria-chamadas`. Card aparece automaticamente no Dashboard.
-  # Ver OmniChannel/docs/MODULE_INTEGRATION.md e skill coherence_module_integration.
-  # Pre-requisito: Cloud Build SA deve ser super-admin no Portal (adicionado em
-  # SUPER_ADMIN_EMAILS env var do Portal Cloud Run).
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: bash
+  # Etapa 6: Trava de Ordem (Deploy Guard) — somente o build mais novo do trigger deploya
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'deploy-guard'
+    waitFor: ['docker-push']
+    entrypoint: 'bash'
     args:
       - '-c'
       - |
+        set -eu
+        MINE=$$(gcloud builds describe $$BUILD_ID --region=us-central1 --format="value(createTime.date('%Y%m%d%H%M%S'))" 2>/dev/null || date +%Y%m%d%H%M%S)
+        LISTA=$$(gcloud builds list --region=us-central1 --limit=20 --format="value(id,createTime.date('%Y%m%d%H%M%S'),status,substitutions.TRIGGER_NAME)" 2>/dev/null || true)
+        NEWER=$$(printf '%s\n' "$$LISTA" | awk -v mine="$$MINE" -v me="$$BUILD_ID" -v trig="$${TRIGGER_NAME:-$_TRIGGER_NAME}" \
+          '$$1 != me && $$4 == trig && $$2 > mine && ($$3=="PENDING"||$$3=="QUEUED"||$$3=="WORKING"||$$3=="SUCCESS") {print $$1; exit}')
+        if [ -n "$$NEWER" ]; then
+          echo "SUPERADO: o build $$NEWER e mais novo que este ($$BUILD_ID). Sem deploy."
+          touch /workspace/.deploy_superado
+        else
+          echo "Nenhum build mais novo de $${TRIGGER_NAME:-$_TRIGGER_NAME}. Deploy liberado para $$COMMIT_SHA."
+        fi
+
+  # Etapa 7: Deploy no Cloud Run (ambiente TESTE — service monitoria-test-env)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    waitFor: ['deploy-guard']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy_superado ]; then
+          echo "Deploy pulado: build superado (ver deploy-guard)."
+          exit 0
+        fi
+        gcloud run deploy monitoria-test-env \
+          --image="gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA" \
+          --region="us-central1" \
+          --execution-environment="gen2" \
+          --allow-unauthenticated \
+          --cpu=4 \
+          --memory=8Gi \
+          --port=8080 \
+          --min-instances=0 \
+          --cpu-throttling \
+          --set-env-vars="FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,GCP_PROJECT=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1" \
+          --quiet
+
+  # Etapa 8: Notificação de registro do módulo no Portal Coherence
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'portal-notify'
+    waitFor: ['deploy']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy_superado ]; then
+          echo "Notificacao ao Portal pulada: build superado."
+          exit 0
+        fi
         set -e
         SERVICE_URL=$$(gcloud run services describe monitoria-test-env --region=us-central1 --format="value(status.url)")
         REVISION=$$(gcloud run services describe monitoria-test-env --region=us-central1 --format="value(status.latestReadyRevisionName)")
         PORTAL_URL="https://coherence-portal-test-c5nbfc5meq-uc.a.run.app"
-        # OIDC token com audience = Portal URL (assina com audience correta)
         TOKEN=$$(curl -s -H "Metadata-Flavor: Google" \
           "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=$$PORTAL_URL")
         if [ -z "$$TOKEN" ]; then
-          echo "WARN: nao foi possivel obter OIDC token; modulo nao foi registrado no Portal. Faca manualmente."
+          echo "WARN: nao foi possivel obter OIDC token; modulo nao foi registrado no Portal."
           exit 0
         fi
-        # admin_email via query param (Cloud Build SA = 894828119087-compute@developer.gserviceaccount.com,
-        # que ja esta em SUPER_ADMIN_EMAILS)
         ADMIN_EMAIL="894828119087-compute@developer.gserviceaccount.com"
         RESPONSE=$$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
           "$$PORTAL_URL/api/admin/modules/monitoria-chamadas-test?admin_email=$$ADMIN_EMAIL" \
@@ -104,7 +139,6 @@ steps:
         HTTP_STATUS=$$(echo "$$RESPONSE" | grep -oP 'HTTP_STATUS:\K[0-9]+' || echo "unknown")
         if [ "$$HTTP_STATUS" != "200" ]; then
           echo "WARN: Portal retornou HTTP $$HTTP_STATUS. Modulo NAO foi registrado."
-          echo "WARN: Cloud Build NAO vai falhar (step eh best-effort). Faca manualmente se necessario."
           exit 0
         fi
         echo "OK: Portal registrou monitoria-chamadas com url=$$SERVICE_URL revision=$$REVISION"
@@ -119,6 +153,7 @@ substitutions:
   _VITE_FIREBASE_APP_ID: '1:894828119087:web:3cb2164c2d1efd80e2f2da'
   _VITE_GOOGLE_CLIENT_ID: '4105010761-t3s393nba2m4asemki2k1ffotqeh5ep4.apps.googleusercontent.com'
   _VITE_PORTAL_URL: 'https://coherence-portal-test-c5nbfc5meq-uc.a.run.app'
+  _TRIGGER_NAME: 'Deploy-monitoria-test-env'
 
 images:
   - 'gcr.io/$PROJECT_ID/monitoria-test-env:$COMMIT_SHA'
