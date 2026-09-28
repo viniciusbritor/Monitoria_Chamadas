@@ -79,7 +79,7 @@ steps:
           echo "SUPERADO: o build $$NEWER e mais novo que este ($BUILD_ID). Sem deploy."
           touch /workspace/.deploy_superado
         else
-          echo "Nenhum build mais novo de $${TRIGGER_NAME:-$_TRIGGER_NAME}. Deploy liberado para $$COMMIT_SHA."
+          echo "Nenhum build mais novo de $${TRIGGER_NAME:-$_TRIGGER_NAME}. Deploy liberado para $COMMIT_SHA."
         fi
 
   # Etapa 7: Deploy no Cloud Run (ambiente TESTE — service monitoria-test-env)
