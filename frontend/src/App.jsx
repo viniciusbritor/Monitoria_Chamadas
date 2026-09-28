@@ -57,7 +57,7 @@ function BrandedLoader({ message = 'Conectando ao Portal Coherence...' }) {
           <img
             src="/logo-top-v2.png"
             alt="Coherence"
-            className="h-[28px] w-auto object-contain"
+            className="h-[26px] w-auto object-contain"
             onError={(e) => { e.target.src = '/logo-v2.png' }}
           />
           <div className="h-7 w-[1px] bg-black/10"></div>
@@ -306,7 +306,7 @@ function App() {
               <img 
                 src="/logo-top-v2.png" 
                 alt="Coherence" 
-                className="h-[15px] w-auto object-contain"
+                className="h-[14px] w-auto object-contain"
                 onError={(e) => {
                   e.target.style.display = 'none';
                   e.target.nextSibling.style.display = 'flex';
