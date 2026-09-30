@@ -261,9 +261,9 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 min-[700px]:grid-cols-3 gap-6">
         {/* Upload Card */}
-        <div className="glass-panel p-6 flex flex-col items-center justify-center text-center space-y-4 md:col-span-1">
+        <div className="glass-panel p-6 flex flex-col items-center justify-center text-center space-y-4 min-[700px]:col-span-1">
           <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
             <Upload className="text-primary" size={24} />
           </div>
@@ -278,7 +278,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
               value={diretrizes}
               onChange={(e) => setDiretrizes(e.target.value)}
               placeholder="Ex: O operador deve oferecer o seguro de vida."
-              className="w-full text-sm bg-background border border-black/10 rounded-lg p-2 text-textMain focus:outline-none focus:border-primary resize-none h-16"
+              className="w-full text-base sm:text-sm bg-background border border-black/10 rounded-lg p-2 text-textMain focus:outline-none focus:border-primary resize-none h-16"
             />
           </div>
 
@@ -293,7 +293,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
         </div>
 
         {/* Stats */}
-        <div className="glass-panel p-6 flex flex-col justify-center md:col-span-2">
+        <div className="glass-panel p-6 flex flex-col justify-center min-[700px]:col-span-2">
           <h3 className="font-semibold text-textMain mb-6">Visão Geral</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-background rounded-xl p-4 border border-black/5">
@@ -334,12 +334,12 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
       {/* Tabela de Chamadas */}
       <div className="glass-panel overflow-hidden">
         <div className="p-6 border-b border-black/5 flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-textMain mr-2">Últimas Monitorias</h3>
             {/* Filtros de status */}
             {['', 'Concluído', 'Erro'].map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
-                className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
+                className={`text-xs px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-full font-medium transition-colors ${
                   statusFilter === s
                     ? 'bg-primary text-white'
                     : 'bg-black/5 text-textMuted hover:bg-black/10'
@@ -348,9 +348,9 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                 {s || 'Todas'}
               </button>
             ))}
-            <span className="mx-2 text-textMuted text-xs">|</span>
+            <span className="hidden sm:inline mx-2 text-textMuted text-xs">|</span>
             <span title="Marque as chamadas com ☐ e clique aqui para ver o painel do grupo"
-              className="text-xs text-textMuted cursor-help">
+              className="hidden sm:inline text-xs text-textMuted cursor-help">
               ☐ marque para agrupar
             </span>
           </div>
@@ -400,7 +400,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Headphones className="text-primary" size={16} />
                       </div>
-                       <span className="font-medium text-textMain max-w-[150px] truncate" title={showFullData ? call.filename : 'Dados anonimizados (LGPD)'}>
+                       <span className="font-medium text-textMain max-w-[110px] sm:max-w-[150px] truncate" title={showFullData ? call.filename : 'Dados anonimizados (LGPD)'}>
                          {showFullData ? call.filename : anonymizeFilename(call.filename)}
                        </span>
                     </div>
@@ -428,7 +428,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                           <>
                             <div className="flex items-center gap-2">
                               <div
-                                className="w-[180px] h-[3px] bg-black/5 rounded-full overflow-hidden"
+                                className="w-[180px] max-w-full h-[3px] bg-black/5 rounded-full overflow-hidden"
                                 role="progressbar"
                                 aria-label="Progresso do processamento"
                                 aria-valuemin={0}
@@ -477,13 +477,13 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                         }
                       }}
                       disabled={call.status !== 'Concluído' && !call.status?.startsWith('Erro')}
-                      className="text-primary hover:text-primary/80 font-medium text-sm disabled:opacity-30 transition-colors"
+                      className="text-primary hover:text-primary/80 font-medium text-sm min-h-[44px] sm:min-h-0 px-2 disabled:opacity-30 transition-colors"
                     >
                       {call.status?.startsWith('Erro') ? 'Detalhes' : 'Inspecionar'}
                     </button>
                     <button
                       onClick={() => handlePlay(call)}
-                      className="text-textMuted hover:text-primary p-1.5 rounded hover:bg-black/5 transition-colors ml-1"
+                      className="text-textMuted hover:text-primary p-3 sm:p-1.5 rounded hover:bg-black/5 transition-colors ml-1"
                       title="Ouvir chamada"
                     >
                       <Volume2 size={14} />
@@ -502,7 +502,7 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
                           alert('Falha ao deletar: ' + (e.response?.data?.detail || e.message))
                         }
                       }}
-                      className="text-textMuted hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition-colors ml-2"
+                      className="text-textMuted hover:text-red-500 p-3 sm:p-1.5 rounded hover:bg-red-50 transition-colors ml-2"
                       title="Deletar chamada"
                     >
                       <Trash2 size={14} />
@@ -525,12 +525,12 @@ export default function Dashboard({ onInspectCall, onPlayAudio, onViewBatch }) {
       {modalAudio && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
           onClick={() => setModalAudio(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 border border-black/10"
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 space-y-4 border border-black/10"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-textMain truncate pr-4">{modalAudio.filename}</h3>
               <button onClick={() => setModalAudio(null)}
-                className="text-textMuted hover:text-textMain text-xl leading-none p-1 rounded hover:bg-black/5">&times;</button>
+                className="text-textMuted hover:text-textMain text-xl leading-none p-1 min-w-[44px] min-h-[44px] rounded hover:bg-black/5">&times;</button>
             </div>
             <audio controls autoPlay className="w-full h-10 outline-none" src={modalAudio.url}
               onError={() => { alert('Falha ao carregar o áudio'); setModalAudio(null) }} />

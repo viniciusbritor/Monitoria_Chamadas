@@ -298,7 +298,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b border-black/10 bg-surface/80 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-2">
           <div 
             className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
             onClick={() => navigateTo('dashboard')}
@@ -320,45 +320,48 @@ function App() {
                 <span className="font-bold text-xl tracking-tight">Coherence</span>
               </div>
               
-              <div className="h-6 w-[1px] bg-black/10 self-center"></div>
+              <div className="hidden sm:block h-6 w-[1px] bg-black/10 self-center"></div>
               
-              <div className="flex items-center space-x-1 sm:space-x-1.5 text-[0.65rem] sm:text-[0.75rem] font-semibold tracking-[0.15em] sm:tracking-[0.2em] uppercase whitespace-nowrap self-center">
+              <div className="hidden sm:flex items-center space-x-1 sm:space-x-1.5 text-[0.65rem] sm:text-[0.75rem] font-semibold tracking-[0.15em] sm:tracking-[0.2em] uppercase whitespace-nowrap self-center">
                 <span className="text-[#3b82f6] font-medium">MONITORIA DE</span>
                 <span className="text-slate-700 font-bold">CHAMADA</span>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1 sm:gap-4">
             {userRole === 'admin' && (
               <button
+                aria-label="Fila"
                 onClick={() => navigateTo(currentView === 'queue' ? 'dashboard' : 'queue')}
-                className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+                className={`flex items-center justify-center gap-1.5 text-sm font-semibold min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-3 py-1.5 rounded-xl border transition-all ${
                   currentView === 'queue'
                     ? 'border-primary bg-primary/5 text-primary'
                     : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
                 }`}
               >
                 <Inbox size={16} />
-                Fila
+                <span className="hidden sm:inline">Fila</span>
               </button>
             )}
             <button
+              aria-label="Configurações"
               onClick={() => navigateTo(currentView === 'settings' ? 'dashboard' : 'settings')}
-              className={`flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-xl border transition-all ${
+              className={`flex items-center justify-center gap-1.5 text-sm font-semibold min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-3 py-1.5 rounded-xl border transition-all ${
                 currentView === 'settings'
                   ? 'border-primary bg-primary/5 text-primary'
                   : 'border-black/5 hover:bg-black/5 text-black/60 hover:text-black'
               }`}
             >
               <Settings size={16} />
-              Configurações
+              <span className="hidden sm:inline">Configurações</span>
             </button>
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 text-sm text-black/60 hover:text-black transition-colors"
+              aria-label="Sair"
+              className="flex items-center justify-center gap-2 text-sm text-black/60 hover:text-black transition-colors min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 px-2"
             >
               <LogOut size={16} />
-              Sair
+              <span className="hidden sm:inline">Sair</span>
             </button>
           </div>
         </div>
