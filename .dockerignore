@@ -7,3 +7,15 @@ env/
 uploads/
 chamadas_simuladas/
 temp_docx/
+# 30/09/2026 (perf): nada disto e' lido em runtime (api.py, worker.py, core/).
+# Docker le este arquivo para a API e para o worker (mesmo contexto).
+docs/
+chamadas_testes/
+tests/
+media/
+scripts/
+.github/
+frontend/src/
+frontend/public/
+cloudbuild*.yaml
+*.md

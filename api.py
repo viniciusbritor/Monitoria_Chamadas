@@ -23,12 +23,13 @@ DEPLOY:
 """
 import os
 import time
+_BOOT_T0 = time.time()  # 30/09/2026: medir o boot (imports + startup) nos logs
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
-from core.excel_exporter import generate_excel_report
-from core.pptx_exporter import generate_pptx_report
+# excel/pptx (openpyxl/numpy/python-pptx, ~9 s de import a frio) so' carregam no primeiro export.
 import uuid
 import shutil
 from datetime import datetime
@@ -74,6 +75,8 @@ MODULE_ID = "monitoria-chamadas"
 
 app = FastAPI(title="Monitoria de Chamadas API")
 
+# gzip (30/09/2026, perf): JS/CSS/HTML do frontend iam sem compressao.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -137,7 +140,12 @@ async def enforce_portal_only_access(request, call_next):
                 flush=True,
             )
 
-    return await call_next(request)
+    response = await call_next(request)
+    # 30/09/2026 (perf): arquivo com hash em /assets nunca muda -> cache de 1 ano
+    # (o index.html continua no-store, ver serve_index).
+    if path.startswith("/assets/") and response.status_code == 200:
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -158,16 +166,19 @@ def init_db():
 
 @app.on_event("startup")
 def startup_event():
+    t0 = time.time()
     init_db()
+    t_init = time.time()
     if fb_auth is None:
         print("ERRO CRITICO: firebase-admin nao foi inicializado. Verifique FIRESTORE_PROJECT_ID.", flush=True)
-    # Otimizacao C: pre-carregar modelo Whisper no startup
-    # Salva ~33s no primeiro upload
-    try:
-        get_transcriber()
-        print("Transcriber pre-carregado no startup", flush=True)
-    except Exception as e:
-        print(f"AVISO: Falha ao pre-carregar Transcriber: {e}", flush=True)
+    # 30/09/2026 (perf): o Transcriber nao e' mais construido aqui. O construtor le
+    # 2 segredos (Secret Manager) e o modelo Whisper ja era lazy; get_transcriber()
+    # constroi no primeiro uso (caminho de reserva in-process, nao o Pub/Sub).
+    print(
+        f"[Boot] imports={t0 - _BOOT_T0:.2f}s init_db={t_init - t0:.2f}s "
+        f"startup={time.time() - t0:.2f}s total_desde_import={time.time() - _BOOT_T0:.2f}s",
+        flush=True,
+    )
 
 def get_current_user(authorization: str = Header(None)):
     """Valida Firebase token, valida permissao no Portal via /api/auth/me, retorna user info.
@@ -1322,6 +1333,7 @@ def export_excel_report(
         else:
             calls = db.list_all(limit=500)
             
+        from core.excel_exporter import generate_excel_report
         excel_bytes = generate_excel_report(calls)
         filename = f"relatorio_analitico_monitoria_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
@@ -1352,6 +1364,7 @@ def export_pptx_report(
         else:
             calls = db.list_all(limit=50)
             
+        from core.pptx_exporter import generate_pptx_report
         pptx_bytes = generate_pptx_report(calls)
         filename = f"apresentacao_executiva_monitoria_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pptx"
         

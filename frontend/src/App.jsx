@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
-import Dashboard from './components/Dashboard'
-import CallInspector from './components/CallInspector'
-import SettingsPanel from './components/SettingsPanel'
-import QueueManager from './components/QueueManager'
-import BatchDashboard from './components/BatchDashboard'
+import { useState, useEffect, lazy, Suspense } from 'react'
+// Telas sob demanda (30/09/2026): o JS inicial nao carrega o que nao esta na tela.
+const Dashboard = lazy(() => import('./components/Dashboard'))
+const CallInspector = lazy(() => import('./components/CallInspector'))
+const SettingsPanel = lazy(() => import('./components/SettingsPanel'))
+const QueueManager = lazy(() => import('./components/QueueManager'))
+const BatchDashboard = lazy(() => import('./components/BatchDashboard'))
 import { Headphones, LogOut, Settings, Inbox } from 'lucide-react'
 import { auth } from './firebase'
 import { onIdTokenChanged } from 'firebase/auth'
@@ -365,6 +366,7 @@ function App() {
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8">
         <div key={currentView + (selectedCallId || '') + (batchViewIds.length || '')}>
+          <Suspense fallback={<div className="py-16 text-center text-sm text-black/50">Carregando...</div>}>
           {currentView === 'dashboard' && (
             <Dashboard onInspectCall={(id) => navigateTo('inspector', id)}
               onPlayAudio={(id) => navigateTo('inspector', id, { playAudio: true })}
@@ -390,6 +392,7 @@ function App() {
           {currentView === 'queue' && (
             <QueueManager userToken={userToken} onBack={() => navigateTo('dashboard')} />
           )}
+          </Suspense>
         </div>
       </main>
     </div>
