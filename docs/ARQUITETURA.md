@@ -238,3 +238,10 @@ Modelo large-v3 substituido por base (74MB, ~0.1x tempo real).
 - [CUSTOS.md](CUSTOS.md) - Projeção de custos e FinOps
 - [conexao_modulo.md](conexao_modulo.md) - Spec do contrato com Portal
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
+
+## Entrega e boot da API (30/09/2026)
+
+- `api.py` marca `_BOOT_T0` no topo e loga no `startup_event`: `[Boot] imports=... init_db=... startup=...`. O startup não constrói mais o `Transcriber` (construído no primeiro uso por `get_transcriber()`; o modelo faster-whisper já era lazy em `_get_local_model`).
+- `core.excel_exporter` e `core.pptx_exporter` são importados dentro de `/api/export/excel` e `/api/export/pptx`.
+- O frontend é servido de `frontend/dist`: `GZipMiddleware` (mínimo 1000 bytes) e `Cache-Control: immutable` em `/assets/*`; `index.html` com `no-store`. As 5 telas do React carregam com `React.lazy`.
+- Boot medido em 30/09/2026: `imports=18.15s` e `19.02s` em duas revisões da `test`, quase todo de leitura a frio de ~975 módulos (`google.*`, `grpc`, `cryptography`).
