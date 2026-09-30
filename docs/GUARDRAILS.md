@@ -327,3 +327,13 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
    - Se um build mais recente do trigger estiver em execução ou concluído, o deploy do build superado deve ser abortado silenciosamente para garantir que o commit mais recente vença.
 4. **Free Tier FinOps no Cloud Build**:
    - Manter obrigatoriamente `machineType: 'E2_STANDARD_2'` (120 min/dia gratuitos), BuildKit (`DOCKER_BUILDKIT=1`) e reuso de cache `--cache-from` da imagem anterior.
+
+## Regra #N — Desempenho e mobile da Monitoria (30/09/2026)
+
+1. **O Whisper fica na API.** O caminho de reserva de `/api/upload` (worker indisponível ou áudio > 50 MB) não pode ser removido nem trocado; o `Transcriber` é construído no primeiro uso (`get_transcriber()`), nunca no startup. Fila Pub/Sub `monitoria-whisper-jobs` e workers não mudam por desempenho de boot.
+2. **Testes dos dois caminhos são obrigatórios** ao mexer em `/api/upload`: `tests/test_upload_e_boot.py` cobre Pub/Sub e reserva in-process (com dublês, sem rede).
+3. **Custo zero:** nenhuma flag faturável de Cloud Run muda (cpu, memória, instâncias, concorrência, `cpu-throttling`, `cpu-boost`); sem dependência nova para gzip (usar `GZipMiddleware`).
+4. **`.dockerignore`** é compartilhado por `Dockerfile`, `Dockerfile.worker` e `Dockerfile.loadtest`. Antes de ignorar um arquivo, conferir que nenhum `COPY` nem código de runtime o lê (`loadtest.py` precisa continuar no contexto).
+5. **Assets:** `Cache-Control: immutable` só em `/assets/*` (200); `index.html` continua `no-store`.
+6. **Mobile:** sem rolagem horizontal da página de 360 a 1366 px (inclui 476 px, 761 px e 1088 px do Z Fold 8); tabelas com rolagem própria; alvos de toque de 44 px e inputs de 16 px só no celular (`sm:` restaura o desktop); 2 colunas a partir de 700 px (`min-[700px]:`).
+7. **Boot:** o log `[Boot]` deve ser mantido; qualquer PR que diga melhorar o boot reporta o número dele depois do deploy.

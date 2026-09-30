@@ -253,3 +253,10 @@ A partir de 14/09/2026, a esteira foi alinhada ao modelo canônico do **ChatBotW
 - [GUARDRAILS.md](GUARDRAILS.md) - Regras inegociaveis
 - [conexao_modulo.md](conexao_modulo.md) - Spec do contrato com Portal
 - [DIARIO_BORDO.md](DIARIO_BORDO.md) - Historico de mudancas
+
+## Como medir boot e mobile da Monitoria (30/09/2026)
+
+- **Portão:** `bash .github/scripts/pytest-shard.sh ALL` (Python 3.11; no Windows instale também `tzdata`). O portão de PR é o GitHub Actions `pr-tests.yml`, com merge automático no verde.
+- **Boot:** depois do deploy, procurar `[Boot]` nos logs da revisão (Cloud Logging, `textPayload:"[Boot]"`) e comparar com a latência da primeira resposta fria (`httpRequest.latency` do primeiro `GET /` da revisão). Localmente, `python -X importtime -c "import api"` mostra o custo por módulo (a frio, sem cache de disco).
+- **Viewports sem credencial:** build de teste (fora do repositório) com `firebase/auth` em stub, `localStorage.auth_token` preenchido e `page.route` simulando `/api/*`; larguras 360, 390, 412, 476, 761, 1088 e 1366; asserção `scrollWidth <= largura pedida`. Builds locais com `--outDir` fora do repositório (há arquivos rastreados em `frontend/dist`).
+- **Depois do deploy:** `content-encoding: gzip` e `cache-control` em `/assets/index-*.js`; 3 `curl` de latência.
