@@ -292,8 +292,8 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
 
       {/* Cabeçalho */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4 min-w-0 flex-1">
-          <button onClick={onBack} className="p-2 bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0">
+        <div className="flex items-center gap-4 min-w-0 flex-1 basis-full sm:basis-0">
+          <button onClick={onBack} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center bg-surface hover:bg-black/10 rounded-xl transition-colors shrink-0">
             <ArrowLeft size={20} />
           </button>
           <div className="min-w-0 flex-1">
@@ -323,11 +323,11 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             disabled={exporting}
             onClick={handleExportExcel}
-            className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 min-h-[44px] sm:min-h-0 bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
             title="Exportar esta chamada para planilha Excel (.xlsx)"
           >
             <FileSpreadsheet size={16} />
@@ -337,7 +337,7 @@ export default function CallInspector({ callId, onBack, autoScroll }) {
           <button
             disabled={exporting}
             onClick={handleExportPPTX}
-            className="flex items-center gap-2 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
+            className="flex flex-1 sm:flex-none justify-center items-center gap-2 min-h-[44px] sm:min-h-0 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2 px-3.5 rounded-xl text-sm transition-all shadow-sm disabled:opacity-50"
             title="Exportar esta chamada para apresentação PowerPoint (.pptx)"
           >
             <Presentation size={16} />

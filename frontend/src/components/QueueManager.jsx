@@ -156,7 +156,7 @@ function QueueManager({ userToken, onBack }) {
   return (
     <div className="space-y-6">
       {/* Header com botao Voltar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-textMain flex items-center gap-2">
             <Inbox size={24} className="text-primary" />
@@ -170,7 +170,7 @@ function QueueManager({ userToken, onBack }) {
           <button
             onClick={fetchAll}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm font-semibold disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-black/10 hover:bg-black/5 text-sm font-semibold disabled:opacity-50"
           >
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Atualizar
@@ -178,7 +178,7 @@ function QueueManager({ userToken, onBack }) {
           {onBack && (
             <button
               onClick={onBack}
-              className="px-4 py-2 rounded-xl border border-black/10 hover:bg-black/5 text-sm font-semibold"
+              className="px-4 py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-black/10 hover:bg-black/5 text-sm font-semibold"
             >
               Voltar
             </button>
@@ -196,7 +196,7 @@ function QueueManager({ userToken, onBack }) {
       )}
 
       {/* Cards de saude */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 min-[700px]:grid-cols-4 gap-4">
         <div className="glass-panel p-4">
           <div className="flex items-center gap-2 text-sm text-textMuted">
             <Server size={16} />
@@ -351,12 +351,12 @@ function QueueManager({ userToken, onBack }) {
             value={purgeConfirm}
             onChange={e => setPurgeConfirm(e.target.value)}
             placeholder='Digite "CONFIRMAR" para habilitar'
-            className="flex-1 px-3 py-2 rounded-xl border border-black/10 text-sm focus:border-red-500 focus:outline-none"
+            className="flex-1 min-w-0 px-3 py-2 min-h-[44px] sm:min-h-0 rounded-xl border border-black/10 text-base sm:text-sm focus:border-red-500 focus:outline-none"
           />
           <button
             onClick={handlePurge}
             disabled={purgeConfirm !== 'CONFIRMAR' || purging}
-            className="px-4 py-2 rounded-xl bg-red-600 text-white font-semibold text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-700 transition-colors"
+            className="px-4 py-2 min-h-[44px] sm:min-h-0 rounded-xl bg-red-600 text-white font-semibold text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-700 transition-colors"
           >
             {purging ? 'Limpando...' : 'Limpar tudo'}
           </button>
@@ -377,7 +377,8 @@ function QueueManager({ userToken, onBack }) {
               <h3 className="font-bold text-textMain">Mensagem</h3>
               <button
                 onClick={() => setSelectedMsg(null)}
-                className="text-textMuted hover:text-textMain"
+                aria-label="Fechar"
+                className="text-textMuted hover:text-textMain min-w-[44px] min-h-[44px]"
               >
                 ✕
               </button>

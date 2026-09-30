@@ -93,7 +93,7 @@ export default function SettingsPanel() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 min-[700px]:grid-cols-2 gap-6">
         {/* Checklist Column */}
         <div className="glass-panel p-6">
           <h3 className="font-semibold text-textMain mb-2 flex items-center gap-2">
@@ -108,9 +108,9 @@ export default function SettingsPanel() {
               value={newItem}
               onChange={(e) => setNewItem(e.target.value)}
               placeholder="Ex: Confirmação de Segurança (CPF)"
-              className="flex-1 bg-background border border-black/10 rounded-lg p-2.5 text-sm text-textMain focus:outline-none focus:border-primary"
+              className="flex-1 bg-background border border-black/10 rounded-lg p-2.5 text-base sm:text-sm text-textMain focus:outline-none focus:border-primary"
             />
-            <button type="submit" className="bg-surface border border-black/10 hover:bg-black/5 p-2.5 rounded-lg text-textMain transition-colors">
+            <button type="submit" aria-label="Adicionar" className="bg-surface border border-black/10 hover:bg-black/5 p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-textMain transition-colors">
               <Plus size={20} />
             </button>
           </form>
@@ -139,7 +139,7 @@ export default function SettingsPanel() {
               value={estrategiaVendas}
               onChange={(e) => setEstrategiaVendas(e.target.value)}
               placeholder="Ex: Se for venda, oferecer sempre o produto Premium. Cross-sell: sempre tentar acoplar o serviço Básico se comprar o Avançado..."
-              className="w-full h-32 bg-background border border-black/10 rounded-xl p-3 text-sm text-textMain focus:outline-none focus:border-green-500 resize-none"
+              className="w-full h-32 bg-background border border-black/10 rounded-xl p-3 text-base sm:text-sm text-textMain focus:outline-none focus:border-green-500 resize-none"
             />
           </div>
 
@@ -150,7 +150,7 @@ export default function SettingsPanel() {
               value={estrategiaRetencao}
               onChange={(e) => setEstrategiaRetencao(e.target.value)}
               placeholder="Ex: Oferecer primeiro um desconto de 10%. Se o cliente insistir, tentar migrar para o plano Essencial..."
-              className="w-full h-32 bg-background border border-black/10 rounded-xl p-3 text-sm text-textMain focus:outline-none focus:border-yellow-500 resize-none"
+              className="w-full h-32 bg-background border border-black/10 rounded-xl p-3 text-base sm:text-sm text-textMain focus:outline-none focus:border-yellow-500 resize-none"
             />
           </div>
         </div>
