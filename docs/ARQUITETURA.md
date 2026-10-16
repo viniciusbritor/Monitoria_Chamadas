@@ -1,10 +1,10 @@
 # Arquitetura do Modulo Monitoria de Chamadas
 
-> Ultima atualizacao: 12/07/2026 (Deploy producao + LLM via GCP Secret Manager)
+> Ultima atualizacao: 16/10/2026 (esteira v4 no Cloud Build, /health com commit_sha, log com severity, auditoria dos 6 servicos)
 
 ## Visao Geral
 
-4 servicos Cloud Run + Firestore + Pub/Sub em 1 unico projeto GCP (`coherence-ominichannel-fs`):
+6 servicos Cloud Run existem no projeto GCP `coherence-ominichannel-fs` (us-central1); 4 sao do modulo vivo e 2 sao legado orfao (auditoria de 16/10/2026, trafego de 30 dias):
 
 | Servico | Tipo | Acesso | Responsabilidade |
 |---|---|---|---|
@@ -12,16 +12,36 @@
 | `monitoria-whisper-worker` | Worker test | Privado (OIDC) | Consumer Pub/Sub test, transcricao, LLM |
 | `monitoria` | API prod | `https://monitoria.coherenceai.com.br` (dominio customizado) | API FastAPI, upload, settings |
 | `monitoria-worker` | Worker prod | Privado (OIDC) | Consumer Pub/Sub prod, transcricao, LLM |
+| `monitoria-cx` | ORFAO (legado) | Publico, sem gatilho | Deploy manual de 02/08/2026; 0 requisicoes em 30 dias; `docs/CUSTOS.md` ja o lista como "nao usado" |
+| `monitoria-cx-v2` | ORFAO (legado) | Publico, sem gatilho | Idem (homologacao V2 de julho/2026); 0 requisicoes em 30 dias |
+
+Situacao de cada um (Monitoring `request_count` de 30 dias, 16/10/2026): `monitoria` ~1.310 req e `monitoria-test-env` 112 req (vivos); `monitoria-whisper-worker` e `monitoria-worker` com gatilho de deploy mas 0 req (ver aviso das subscriptions abaixo); `monitoria-cx` e `monitoria-cx-v2` sem gatilho e 0 req. Nada foi apagado: a baixa e' decisao do dono.
+
+Todos os servicos HTTP expoem `GET /health` publico com `commit_sha` (API) ou `GET /healthz`/`/health` (worker, privado): o passo `validar-health` do Cloud Build confere esse SHA depois do deploy.
 
 | Topico | Subscription | Uso |
 |---|---|---|
-| `monitoria-whisper-jobs` | `monitoria-whisper-jobs-worker` (PULL, ack=600s) | Test: API test publica, worker test consome |
-| `monitoria-whisper-jobs-prod` | `monitoria-whisper-jobs-worker-prod` (PULL, ack=600s) | Prod: API prod publica, worker prod consome |
+| `monitoria-whisper-jobs` | `monitoria-whisper-jobs-worker` (desenho: PULL, ack=600s; **nao existe no GCP em 16/10/2026**) | Test: API test publica, worker test consome |
+| `monitoria-whisper-jobs-prod` | `monitoria-whisper-jobs-worker-prod` (desenho: PULL, ack=600s; **nao existe no GCP em 16/10/2026**) | Prod: API prod publica, worker prod consome |
+
+> **Alerta (16/10/2026):** os topicos `monitoria-whisper-jobs`, `monitoria-whisper-jobs-prod` e `-dlq` existem, mas **nenhuma subscription** do projeto aponta para eles (so ha as duas do ChatBotWhatsapp), e os workers estao em `PUBSUB_MODE=push`. A API publica quando `GET /healthz` do worker responde 200/403, entao um upload publicado nao teria consumidor. Nao foi corrigido nesta entrega (infra); confirmar com um upload de teste e recriar a subscription push, ou assumir o caminho de reserva in-process.
 
 ## Triggers e Infraestrutura de Deploy
 Os deploys automáticos em nuvem GCP são realizados pelo Cloud Build e isolados de duas formas:
 1. **Regras de Ignorar Arquivos (`ignoredFiles`)**: Para evitar custos de infraestrutura e builds redundantes, modificações exclusivas em arquivos YAML de build (`cloudbuild*.yaml`), pastas de documentação (`docs/**`, `*.md`) ou scripts locais (`scripts/**`) são ignoradas pelos triggers de build do GCP.
 2. **Integração de Módulos (Firestore Compartilhado)**: A arquitetura atual compartilha a base de dados Firestore entre os ambientes de teste e de produção. Para que o deploy de teste não sobrescreva a URL canoníca do Portal de Produção, o modulo de teste registra-se com o ID `monitoria-chamadas-test`. A promoção de código do branch `test` para `main` (produção) restaura o registro no ID canônico de produção `monitoria-chamadas`.
+
+### Gatilhos (Cloud Build, projeto `coherence-ominichannel-fs`)
+
+| Gatilho | Evento | Yaml |
+|---|---|---|
+| `pr-tests-monitoria-test` (2nd-gen, `--region=us-central1`) | PR contra `test` | `cloudbuild-pr-tests.yaml` (portao: suite completa) |
+| `deploy-monitoria-test-env` | push em `test` | `cloudbuild-test.yaml` |
+| `deploy-monitoria-whisper-worker` | push em `test` | `cloudbuild-worker.yaml` |
+| `deploy-monitoria-prod` | push em `main` | `cloudbuild-prod.yaml` |
+| `deploy-monitoria-worker-prod` | push em `main` | `cloudbuild-worker-prod.yaml` |
+
+Os quatro de deploy ainda sao 1st-gen (conexao GitHub antiga); migrar para a conexao 2nd-gen `github-connection` e' decisao do dono (a promocao para `main` tambem).
 
 ## Fluxo E2E (Diagrama Mermaid)
 

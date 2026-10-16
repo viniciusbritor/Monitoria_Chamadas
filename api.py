@@ -48,6 +48,12 @@ def now_brt_iso():
     return now_brt().isoformat()
 import json
 import jwt
+import logging
+from core import log_json
+
+log_json.setup()  # 16/10/2026: JSON com `severity` no stdout (monitor de erros de producao)
+log = logging.getLogger("monitoria.api")
+COMMIT_SHA = os.getenv("COMMIT_SHA", "dev")  # injetado no deploy (--set-env-vars)
 
 # Firebase Admin (substitui Google OAuth direto - agora validamos tokens emitidos pelo Portal)
 try:
@@ -147,6 +153,12 @@ async def enforce_portal_only_access(request, call_next):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
+@app.get("/health")
+def health():
+    """Publico e sem I/O: o validador de deploy confere `commit_sha` contra o merge."""
+    return {"status": "ok", "service": os.getenv("K_SERVICE", "monitoria"), "commit_sha": COMMIT_SHA}
+
+
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
@@ -170,7 +182,7 @@ def startup_event():
     init_db()
     t_init = time.time()
     if fb_auth is None:
-        print("ERRO CRITICO: firebase-admin nao foi inicializado. Verifique FIRESTORE_PROJECT_ID.", flush=True)
+        log.error("ERRO CRITICO: firebase-admin nao foi inicializado. Verifique FIRESTORE_PROJECT_ID.")
     # 30/09/2026 (perf): o Transcriber nao e' mais construido aqui. O construtor le
     # 2 segredos (Secret Manager) e o modelo Whisper ja era lazy; get_transcriber()
     # constroi no primeiro uso (caminho de reserva in-process, nao o Pub/Sub).
@@ -535,7 +547,7 @@ def get_call_audio_endpoint(call_id: str, user = Depends(get_current_user)):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[API] audio.erro call_id={call_id[:12]} tipo={type(e).__name__} msg={e}", flush=True)
+        log.error(f"[API] audio.erro call_id={call_id[:12]} tipo={type(e).__name__} msg={e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao gerar stream do áudio")
 
 
@@ -573,7 +585,7 @@ def delete_call_endpoint(call_id: str, user = Depends(get_current_user)):
                 gcs_deleted = True
                 print(f"[Delete] Audio deletado do GCS: {gcs_uri}", flush=True)
         except Exception as e:
-            print(f"[Delete] Falha ao deletar audio do GCS: {e}", flush=True)
+            log.error(f"[Delete] Falha ao deletar audio do GCS: {e}", exc_info=True)
 
     get_db().delete(call_id)
     print(f"[Delete] call_id={call_id[:8]}... deletado do Firestore por {user.get('email')}", flush=True)
@@ -625,7 +637,7 @@ async def upload_audio(
         gcs_ok = True
         print(f"[Upload] Audio salvo em {gcs_uri}", flush=True)
     except Exception as e:
-        print(f"[Upload] FALHA ao subir para GCS: {e}. Fallback total.", flush=True)
+        log.error(f"[Upload] FALHA ao subir para GCS: {e}. Fallback total.", exc_info=True)
 
     # 3. Decide path (hibrido)
     worker_ok = _worker_healthy()
@@ -705,7 +717,7 @@ async def upload_audio(
         message_id = future.result(timeout=10)
         print(f"[Upload] Job publicado no Pub/Sub: {message_id}", flush=True)
     except Exception as e:
-        print(f"[Upload] FALHA ao publicar no Pub/Sub: {e}. Marcando chamada como erro.", flush=True)
+        log.error(f"[Upload] FALHA ao publicar no Pub/Sub: {e}. Marcando chamada como erro.", exc_info=True)
         get_db().update(call_id, {
             "status": "Erro: falha ao publicar no Pub/Sub. Reenvie o audio.",
         })
@@ -1089,7 +1101,7 @@ async def recover_stale_jobs(request: Request):
                 flush=True,
             )
         except Exception as e:
-            print(f"[Recover] FALHA call_id={job.get('call_id')}: {e}", flush=True)
+            log.error(f"[Recover] FALHA call_id={job.get('call_id')}: {e}", exc_info=True)
 
     return {"recovered": len(recovered), "stale_jobs": recovered}
 
@@ -1150,7 +1162,7 @@ async def reprocess_na_fila(request: Request):
             })
             print(f"[Reprocess] call_id={call_id[:8]}... re-enfileirado (msg={msg_id})", flush=True)
         except Exception as e:
-            print(f"[Reprocess] FALHA call_id={call_id[:8]}...: {e}", flush=True)
+            log.error(f"[Reprocess] FALHA call_id={call_id[:8]}...: {e}", exc_info=True)
             results.append({"call_id": call_id, "error": str(e)})
 
     return {"reprocessed": len([r for r in results if "pubsub_message_id" in r]), "calls": results}
@@ -1196,7 +1208,7 @@ def _worker_healthy() -> bool:
             token = google.oauth2.id_token.fetch_id_token(req, WORKER_URL)
             headers["Authorization"] = f"Bearer {token}"
         except Exception as e:
-            print(f"[API] Aviso: Falha ao obter IAM token: {e}", flush=True)
+            log.warning(f"[API] Aviso: Falha ao obter IAM token: {e}", exc_info=True)
             
         r = httpx.get(url, headers=headers, timeout=5.0)
         
@@ -1287,7 +1299,7 @@ async def cleanup_orphans(request: Request):
     new_status = "Erro: processamento interrompido (orphaned >30min). Reenvie o audio."
     cleaned_ids = cleanup_orphans_db(older_than_seconds=30 * 60, new_status=new_status)
 
-    print(f"[Cleanup] {len(cleaned_ids)} orfaos marcados como erro", flush=True)
+    log.info(f"[Cleanup] {len(cleaned_ids)} orfaos marcados como erro")
     return {"cleaned": len(cleaned_ids), "orphans": cleaned_ids}
 
 
@@ -1343,7 +1355,7 @@ def export_excel_report(
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
     except Exception as e:
-        print(f"[ExportExcel] Erro ao gerar planilha: {e}", flush=True)
+        log.error(f"[ExportExcel] Erro ao gerar planilha: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro ao gerar planilha Excel: {e}")
 
 
@@ -1374,7 +1386,7 @@ def export_pptx_report(
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
     except Exception as e:
-        print(f"[ExportPPTX] Erro ao gerar apresentacao PPTX: {e}", flush=True)
+        log.error(f"[ExportPPTX] Erro ao gerar apresentacao PPTX: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Erro ao gerar apresentacao PowerPoint: {e}")
 
 

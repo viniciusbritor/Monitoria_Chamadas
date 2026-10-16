@@ -14,6 +14,9 @@ Reutilizavel por qualquer modulo do ecossistema Coherence.
 """
 import os
 import json
+import logging
+
+log = logging.getLogger(__name__)
 import time
 import base64
 from typing import Optional
@@ -136,7 +139,7 @@ def list_pending(limit: int = DEFAULT_PEEK_BATCH) -> dict:
             result["messages"].append(msg_dict)
     except Exception as e:
         # Em caso de erro (subscription vazia, permission denied), retornar vazio
-        print(f"[pubsub_admin] list_pending error: {e}", flush=True)
+        log.error(f"[pubsub_admin] list_pending error: {e}", exc_info=True)
     finally:
         subscriber.close()
     return result

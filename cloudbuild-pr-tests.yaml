@@ -1,0 +1,33 @@
+# Portao de PR (esteira /ci-cd-workflow-gcp v4, 16/10/2026): testa o codigo antes de qualquer
+# merge na test. O gatilho `pr-tests-monitoria-test` (PR contra ^test$) aponta para este
+# arquivo e publica o resultado como check no GitHub. Nenhum passo faz deploy nem recebe
+# credencial: a suite e' hermetica (sem Firestore, GCS, Pub/Sub, Whisper ou LLM reais).
+#
+# A suite vem da fonte UNICA .github/scripts/pytest-shard.sh (modo TODOS), a mesma que
+# roda local antes do push -- verde local ~ verde aqui.
+steps:
+  - name: bash
+    id: validar-branch
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        if ! [[ "$_HEAD_BRANCH" =~ ^(feat|fix|chore|perf|refactor|test|docs)/ ]]; then
+          echo "Branch $_HEAD_BRANCH fora do padrao Conventional Branches (feat|fix|chore|perf|refactor|test|docs)/<nome>" >&2
+          exit 1
+        fi
+  - name: python:3.11-slim
+    id: pytest
+    entrypoint: bash
+    env:
+      - GOOGLE_APPLICATION_CREDENTIALS=/workspace/.nonexistent-google-credentials.json
+      - PIP_CACHE_DIR=/workspace/.pip-cache
+    args:
+      - -ceu
+      - |
+        python -m pip install --disable-pip-version-check -q -r requirements.txt pytest pytest-xdist pyyaml
+        bash .github/scripts/pytest-shard.sh TODOS
+options:
+  machineType: E2_STANDARD_2
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1200s

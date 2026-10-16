@@ -215,37 +215,21 @@ O `secrets_manager.py` usa GCP Secret Manager (via `google.cloud.secretmanager`)
 
 IAM necessario: Cloud Run SA precisa de `roles/secretmanager.secretAccessor` no projeto.
 
-## Esteira CI/CD v3 (Portão de PR & Shift-Left Testing)
+## Esteira CI/CD v4 (Cloud Build, sem GitHub Actions) - 16/10/2026
 
-A partir de 14/09/2026, a esteira foi alinhada ao modelo canônico do **ChatBotWhatsapp** (skill `ci_cd_workflow_v3`):
+Skill `/ci-cd-workflow-gcp`. Fluxo: `worktree de origin/test -> implementar -> suite local TODOS -> commit convencional -> push -> PR contra test -> portao Cloud Build -> gh pr merge -> deploy por gatilho -> validar /health`.
 
-1. **Shift-Left Testing (Pre-Push Obrigatório):**
-   ```powershell
-   python -m pytest tests/ -v
-   ```
-   A suíte de testes deve passar 100% verde antes de qualquer push.
+- **Branch:** `feat|fix|chore|perf|refactor|test|docs/<nome>`, criada de `origin/test` em worktree (`git worktree add .claude/worktrees/<nome> -b <tipo>/<nome> origin/test`). O portao barra outro padrao.
+- **Suite local = suite do portao:** `bash .github/scripts/pytest-shard.sh TODOS` (fonte unica; `cloudbuild-pr-tests.yaml` chama o mesmo script). Hermetica: sem Firestore, GCS, Pub/Sub, Whisper ou LLM reais. No Windows, `pip install tzdata` antes (o `zoneinfo` precisa) e use um venv com Python 3.11/3.12 + `requirements.txt` + `pytest pytest-xdist pyyaml`.
+- **Portao:** gatilho `pr-tests-monitoria-test` (2nd-gen, `--region=us-central1`, PR contra `^test$`); check no GitHub: `pr-tests-monitoria-test (coherence-ominichannel-fs)`. Proteção da `test`: strict, exige esse check. Roda em todo PR, inclusive so de doc.
+- **Merge:** `gh pr merge <n> --merge` com o check verde; um PR por vez (strict). Proibido `git push` na `test` e merge pela interface web.
+- **Deploy:** push em `test` dispara `deploy-monitoria-test-env` e `deploy-monitoria-whisper-worker`; `main` (so' o dono promove) dispara os de producao. `ignoredFiles` (`cloudbuild*.yaml`, `docs/**`, `*.md`, `scripts/**`) evita build so de doc.
+- **Validacao pos-deploy:** o passo `validar-health` do build confere `GET /health` -> `commit_sha == $COMMIT_SHA` (API) ou o `COMMIT_SHA` da revisao (worker, privado). Depois do merge, conferir por ancestralidade: `git merge-base --is-ancestor <sha-do-merge> <commit_sha-no-ar>`.
+- **Rollback sem build:** `gcloud run services update-traffic <servico> --region=us-central1 --to-revisions=<rev>=100`.
+- **Links (regra 13):** PR `https://github.com/viniciusbritor/Monitoria_Chamadas/pull/<n>`; build `https://console.cloud.google.com/cloud-build/builds;region=us-central1/<id>?project=coherence-ominichannel-fs`; API test `https://monitoria-test-env-c5nbfc5meq-uc.a.run.app/health`.
 
-2. **Fluxo de Trabalho via Portão de PR:**
-   ```powershell
-   git checkout test && git pull origin test
-   git checkout -b feat/<nome-da-feature>
-   # implementar e testar localmente
-   git add . && git commit -m "feat: descricao concisa"
-   git push -u origin feat/<nome-da-feature>
-   gh pr create --title "feat: descricao concisa" --body "Detalhes das alteracoes" --base test
-   ```
-
-3. **Execução do Portão (.github/workflows/pr-tests.yml):**
-   - Valida o título no padrão Conventional Commits (`feat:`, `fix:`, `chore:`, etc.).
-   - Fixa a base `test` e monta o merge (CAS).
-   - Roda os testes no runner do GitHub Actions via `.github/scripts/pytest-shard.sh`.
-   - Em caso de aprovação (verde), o job `auto-merge` executa o merge atômico na `test` e apaga a branch de feature automaticamente.
-
-4. **Cloud Build (Deploy Guard & FinOps):**
-   - O Cloud Build é acionado pelo push em `test` após o merge.
-   - Não executa testes redundantes (já verificados no Portão).
-   - Possui trava `deploy-guard` para prevenir concorrência de deploys.
-   - Utiliza máquina `E2_STANDARD_2` (Free Tier) e cache BuildKit.
+### Logs e erros de producao
+Todo erro real sai como JSON com `severity` no stdout (`core/log_json.py`, ligado em `api.py` e `worker.py`; uvicorn incluso). Para investigar: Cloud Logging, `resource.type="cloud_run_revision" resource.labels.service_name="monitoria-test-env" severity>=ERROR`. Falha que o codigo trata e segue deve ser `log.warning`; so' o que exige acao e' `log.error`.
 
 ## Ver tambem
 

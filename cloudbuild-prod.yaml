@@ -62,8 +62,25 @@ steps:
       - '--memory=8Gi'
       - '--port=8080'
       - '--cpu-throttling'
-      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs-prod,PORTAL_API_URL=https://portal-omnichannel.coherenceai.com.br,TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1'
+      - '--min-instances=0'
+      - '--set-env-vars=FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,PUBSUB_TOPIC=monitoria-whisper-jobs-prod,PORTAL_API_URL=https://portal-omnichannel.coherenceai.com.br,TEST_ENV_AUDIENCE=https://monitoria.coherenceai.com.br,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1,COMMIT_SHA=$COMMIT_SHA'
       - '--quiet'
+
+  # 16/10/2026 (esteira v4): confere pelo /health que a revisao no ar e' ESTE commit.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'validar-health'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        URL=$$(gcloud run services describe monitoria --region=us-central1 --format="value(status.url)")
+        for i in $$(seq 1 12); do
+          SHA=$$(curl -fsS --max-time 10 "$$URL/health" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("commit_sha",""))' || true)
+          if [ "$$SHA" = "$COMMIT_SHA" ]; then echo "OK: $$URL/health commit_sha=$$SHA"; exit 0; fi
+          echo "tentativa $$i/12: commit_sha=$$SHA (esperado $COMMIT_SHA)"; sleep 5
+        done
+        echo "FALHA: $$URL/health nao devolveu commit_sha=$COMMIT_SHA" >&2
+        exit 1
 
   # Notifica Portal Coherence (producao)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

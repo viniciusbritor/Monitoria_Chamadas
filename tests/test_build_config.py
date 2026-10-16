@@ -1,69 +1,86 @@
-﻿"""Testes de governança e guardrails para a configuração de CI/CD e Cloud Build.
+﻿"""Governanca da esteira CI/CD (/ci-cd-workflow-gcp v4, 16/10/2026).
 
-Conforme a Esteira CI/CD v3 (ChatBotWhatsapp / ci_cd_workflow_v3):
-1. A suíte completa de testes roda EXCLUSIVAMENTE no Portão do GitHub Actions (.github/workflows/pr-tests.yml),
-   nunca no Cloud Build (evitando consumo duplicado/pago de minutos de build).
-2. O Cloud Build deve utilizar máquina gratuita E2_STANDARD_2 (120 min/dia Free Tier).
-3. O deploy deve respeitar --cpu-throttling e min-instances=0 (FinOps GCP).
-4. O build deve conter a trava de ordem `deploy-guard` para prevenir concorrência fora de ordem.
+1. O portao de PR e' o Cloud Build (`cloudbuild-pr-tests.yaml`), que roda a MESMA suite
+   do push local (`.github/scripts/pytest-shard.sh TODOS`). Os yamls de deploy nao rodam pytest.
+2. Todo deploy usa E2_STANDARD_2 (so' o yaml de teste da API), `--cpu-throttling`,
+   `--min-instances=0` e injeta COMMIT_SHA; depois confere a revisao (`validar-health`).
+3. O yaml de teste da API mantem a trava `deploy-guard` contra deploys fora de ordem.
 """
 from pathlib import Path
+
 import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CLOUDBUILD_TEST = REPO_ROOT / "cloudbuild-test.yaml"
-WORKFLOW_PR_TESTS = REPO_ROOT / ".github" / "workflows" / "pr-tests.yml"
+PR_TESTS = REPO_ROOT / "cloudbuild-pr-tests.yaml"
 PYTEST_SHARD_SCRIPT = REPO_ROOT / ".github" / "scripts" / "pytest-shard.sh"
+DEPLOYS = [
+    "cloudbuild-test.yaml",
+    "cloudbuild-prod.yaml",
+    "cloudbuild-worker.yaml",
+    "cloudbuild-worker-prod.yaml",
+]
+
+
+def _carregar(nome: str) -> dict:
+    caminho = REPO_ROOT / nome
+    assert caminho.exists(), f"{caminho} nao existe."
+    with caminho.open(encoding="utf-8-sig") as f:
+        return yaml.safe_load(f)
+
+
+def _texto_args(passo: dict) -> str:
+    return " ".join(str(a) for a in passo.get("args") or [])
 
 
 @pytest.fixture(scope="module")
 def cloudbuild_test_config() -> dict:
-    assert CLOUDBUILD_TEST.exists(), f"{CLOUDBUILD_TEST} não existe."
-    with CLOUDBUILD_TEST.open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    return _carregar("cloudbuild-test.yaml")
 
 
-class TestCloudBuildConfig:
-    def test_build_nao_roda_pytest_duplicado(self, cloudbuild_test_config):
-        """A suíte pytest mora no Portão do GitHub Actions, não no Cloud Build."""
-        for step in cloudbuild_test_config.get("steps", []):
-            args = " ".join(str(a) for a in step.get("args") or [])
-            assert "pytest" not in args, (
-                f"Step {step.get('id', step.get('name'))} executa pytest no Cloud Build. "
-                "Na v3, a suíte roda exclusivamente no Portão do GitHub Actions."
-            )
+class TestPortaoDePR:
+    def test_pr_tests_roda_a_suite_unica(self):
+        cfg = _carregar("cloudbuild-pr-tests.yaml")
+        ids = [s.get("id") for s in cfg["steps"]]
+        assert ids == ["validar-branch", "pytest"]
+        assert "pytest-shard.sh TODOS" in _texto_args(cfg["steps"][1])
+
+    def test_pr_tests_nao_faz_deploy_nem_recebe_secret(self):
+        cfg = _carregar("cloudbuild-pr-tests.yaml")
+        texto = PR_TESTS.read_text(encoding="utf-8")
+        assert "run deploy" not in texto and "availableSecrets" not in cfg
+        assert cfg["options"]["machineType"] == "E2_STANDARD_2"
+
+    def test_pytest_shard_script_aceita_todos(self):
+        assert "TODOS" in PYTEST_SHARD_SCRIPT.read_text(encoding="utf-8-sig")
+
+    def test_workflow_do_actions_foi_desligado(self):
+        assert not (REPO_ROOT / ".github" / "workflows" / "pr-tests.yml").exists()
+
+
+class TestDeploys:
+    @pytest.mark.parametrize("nome", DEPLOYS)
+    def test_deploy_nao_roda_pytest(self, nome):
+        for passo in _carregar(nome)["steps"]:
+            assert "pytest" not in _texto_args(passo), f"{nome}: o portao e' o cloudbuild-pr-tests.yaml."
+
+    @pytest.mark.parametrize("nome", DEPLOYS)
+    def test_cloud_run_throttling_min_zero_e_commit_sha(self, nome):
+        texto = (REPO_ROOT / nome).read_text(encoding="utf-8-sig")
+        assert "--no-cpu-throttling" not in texto
+        assert "--cpu-throttling" in texto, f"{nome}: falta --cpu-throttling"
+        assert "min-instances=0" in texto, f"{nome}: falta --min-instances=0"
+        assert "COMMIT_SHA=$COMMIT_SHA" in texto, f"{nome}: o deploy deve injetar COMMIT_SHA"
+
+    @pytest.mark.parametrize("nome", DEPLOYS)
+    def test_valida_a_revisao_no_ar_depois_do_deploy(self, nome):
+        passos = _carregar(nome)["steps"]
+        assert any(p.get("id") == "validar-health" for p in passos), f"{nome}: falta o passo validar-health"
 
     def test_machine_type_e2_standard_2(self, cloudbuild_test_config):
-        """Uso obrigatório de E2_STANDARD_2 para usufruir dos 120 min/dia grátis."""
-        options = cloudbuild_test_config.get("options", {})
-        assert options.get("machineType") == "E2_STANDARD_2", (
-            f"machineType esperado 'E2_STANDARD_2', obtido: '{options.get('machineType')}'"
-        )
+        assert cloudbuild_test_config.get("options", {}).get("machineType") == "E2_STANDARD_2"
 
     def test_deploy_guard_present(self, cloudbuild_test_config):
-        """Garante a trava de concorrência deploy-guard antes do deploy."""
-        step_ids = [s.get("id") for s in cloudbuild_test_config.get("steps", []) if s.get("id")]
-        assert "deploy-guard" in step_ids, "Step 'deploy-guard' deve existir para evitar deploys fora de ordem."
-
-    def test_cpu_throttling_and_min_instances(self, cloudbuild_test_config):
-        """Deploy no Cloud Run deve manter cpu-throttling ativo e min-instances=0."""
-        deploy_step = None
-        for step in cloudbuild_test_config.get("steps", []):
-            if step.get("id") == "deploy":
-                deploy_step = step
-                break
-        assert deploy_step is not None, "Step com id 'deploy' não encontrado no Cloud Build."
-        args_text = " ".join(str(a) for a in deploy_step.get("args", []))
-        assert "--cpu-throttling" in args_text, "Deploy deve conter '--cpu-throttling'."
-        assert "--min-instances=0" in args_text or "min-instances=0" in args_text, "Deploy deve conter '--min-instances=0'."
-
-
-class TestPortaoFilesExist:
-    def test_portao_workflow_exists(self):
-        """Workflow pr-tests.yml deve existir."""
-        assert WORKFLOW_PR_TESTS.exists(), f"Workflow {WORKFLOW_PR_TESTS} deve existir."
-
-    def test_pytest_shard_script_exists(self):
-        """Script .github/scripts/pytest-shard.sh deve existir."""
-        assert PYTEST_SHARD_SCRIPT.exists(), f"Script {PYTEST_SHARD_SCRIPT} deve existir."
+        ids = [s.get("id") for s in cloudbuild_test_config["steps"]]
+        assert "deploy-guard" in ids
+        assert ids.index("deploy-guard") < ids.index("deploy") < ids.index("validar-health")

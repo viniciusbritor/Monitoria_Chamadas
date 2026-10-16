@@ -6,6 +6,9 @@ fica atrelado ao user real (e nao a um service-account generico).
 """
 import os
 import httpx
+import logging
+
+log = logging.getLogger(__name__)
 
 PORTAL_API_URL = os.getenv("PORTAL_API_URL", "https://coherence-portal-test-c5nbfc5meq-uc.a.run.app")
 HTTP_TIMEOUT_SEC = 3.0
@@ -30,5 +33,5 @@ def log_access_denied(module_id: str, firebase_id_token: str, reason: str = ""):
         )
         return r.status_code == 200
     except Exception as e:
-        print(f"[portal_audit] Falha ao registrar acesso negado: {e}", flush=True)
+        log.error(f"[portal_audit] Falha ao registrar acesso negado: {e}", exc_info=True)
         return False
