@@ -2,6 +2,16 @@
 
 > Use este arquivo para registrar o histórico de evolução do projeto. Antes de um agente tomar decisões complexas, ele deve ler este diário para entender o que já foi tentado e como a arquitetura atual foi decidida.
 
+## 16/10/2026 - Monitoria na esteira /ci-cd-workflow-gcp v4 (portao no Cloud Build, /health, log com severity)
+
+- **Decisao do dono (16/10/2026):** todos os modulos usam o mesmo portao, pre-requisito do monitor central de erros de producao (erro novo vira issue no GitHub e uma rotina do Claude Code investiga e corrige pela esteira).
+- **Portao:** `cloudbuild-pr-tests.yaml` (branch conventional + `pytest-shard.sh TODOS`, E2_STANDARD_2, sem segredo, sem deploy) e gatilho 2nd-gen `pr-tests-monitoria-test` (repo `Monitoria_Chamadas` vinculado a `github-connection`; ate' hoje so' havia gatilhos 1st-gen de deploy). Proteção da `test` (strict) exigindo `pr-tests-monitoria-test (coherence-ominichannel-fs)`. O workflow `.github/workflows/pr-tests.yml` (Actions, parado) foi removido para nao haver dois portoes.
+- **Observabilidade:** `GET /health` (`commit_sha`) na API; `/health` e `commit_sha` no `/healthz` do worker; `core/log_json.py` (JSON com `severity`) ligado em `api.py` e `worker.py`; as falhas que eram `print` viraram `log.error(..., exc_info=True)` (ou `log.warning` quando o codigo segue sem dano). Cada yaml de deploy injeta `COMMIT_SHA` e termina com `validar-health`.
+- **FinOps:** `cloudbuild-prod.yaml` nao tinha `--min-instances=0` explicito (o servico estava em 0 por padrao); agora tem. Os 6 servicos ja estavam com `cpu-throttling=true` e min-instances 0 (verificado no GCP).
+- **Auditoria dos 6 servicos:** vivos `monitoria` e `monitoria-test-env`; `monitoria-whisper-worker` e `monitoria-worker` tem gatilho mas 0 requisicao em 30 dias e **nao ha subscription** nos topicos `monitoria-whisper-jobs*` (alerta em `docs/ARQUITETURA.md`); `monitoria-cx` e `monitoria-cx-v2` sao orfaos (sem gatilho, 0 req, `docs/CUSTOS.md` ja os lista como desligados). Nada foi apagado.
+- **Pendencias do dono:** migrar os 4 gatilhos de deploy para a conexao 2nd-gen; decidir a baixa de `monitoria-cx*`; decidir as subscriptions dos workers; promocao `test` -> `main`.
+- **Liçoes:** o checkout no Windows (autocrlf) deixa `.sh` com CRLF e o shard tinha BOM antes do shebang: `.gitattributes` agora forca `*.sh text eol=lf`; `logging.basicConfig(format=...)` e `print` saem sem severity no Cloud Run.
+
 ## 13/08/2026 23:50 BRT — Debugging Crítico: DeepSeek Reasoning Tokens (max_tokens 8192) + MiniMax Fallback + Sanitização de Logs
 
 ### Causa Raiz dos Erros Identificados

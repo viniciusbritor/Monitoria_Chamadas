@@ -313,7 +313,7 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 3. **Filtro Determinístico de Chamadas Mudas / Sem Diálogo**:
    - Áudios cuja transcrição resulte em menos de 20 caracteres ou menos de 4 palavras DEVEM ser categorizados diretamente como "Chamada Muda / Sem Contato" no worker, sem acionar inferência de LLM, evitando desperdício de tokens.
 
-## Regra #28 — Obediência Estrita à Esteira CI/CD v3 (Portão de PR, Auto-Merge CAS e Deploy Guard)
+## Regra #28 — Obediência Estrita à Esteira CI/CD v3 (Portão de PR, Auto-Merge CAS e Deploy Guard) [SUBSTITUÍDA pela Regra #29 em 16/10/2026: o portão agora é o Cloud Build]
 
 **Aplicável a partir de 14/09/2026. Regra Absoluta.**
 
@@ -337,3 +337,13 @@ Padrao canonico em `OmniChannel/docs/MODULE_INTEGRATION.md`.
 5. **Assets:** `Cache-Control: immutable` só em `/assets/*` (200); `index.html` continua `no-store`.
 6. **Mobile:** sem rolagem horizontal da página de 360 a 1366 px (inclui 476 px, 761 px e 1088 px do Z Fold 8); tabelas com rolagem própria; alvos de toque de 44 px e inputs de 16 px só no celular (`sm:` restaura o desktop); 2 colunas a partir de 700 px (`min-[700px]:`).
 7. **Boot:** o log `[Boot]` deve ser mantido; qualquer PR que diga melhorar o boot reporta o número dele depois do deploy.
+
+## Regra #29 - Esteira v4 no Cloud Build e observabilidade padrao (16/10/2026)
+
+Decisao do dono: todos os modulos seguem a mesma esteira (`/ci-cd-workflow-gcp`); a regra #28 (portao no GitHub Actions) foi substituida.
+
+1. **Portao de PR = Cloud Build** (`cloudbuild-pr-tests.yaml`, gatilho `pr-tests-monitoria-test`). Proibido `git push` direto na `test`, merge pela interface web e `gcloud builds submit`. Nenhum yaml de deploy roda pytest.
+2. **Cloud Run:** sempre `--cpu-throttling` e `--min-instances=0` (nos 4 yamls de deploy; testado em `tests/test_build_config.py`). `--no-cpu-throttling` e `min-instances>=1` so' por ordem explicita do dono.
+3. **`GET /health` publico com `commit_sha`** nos servicos HTTP (o deploy injeta `COMMIT_SHA=$COMMIT_SHA`); o passo `validar-health` do build falha se a revisao no ar nao for a do commit.
+4. **Erro = `severity` ERROR no log estruturado.** Use `log.error(..., exc_info=True)` (JSON via `core/log_json.py`); `print` sai sem severity e o monitor central de erros nao o ve. Nao registre PII (LGPD) na mensagem.
+5. **`CLAUDE.md` mantem a secao "Erro em producao: investigacao imediata".**

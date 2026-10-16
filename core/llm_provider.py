@@ -1,5 +1,8 @@
 import os
 import sys
+import logging
+
+log = logging.getLogger(__name__)
 import time
 import requests
 import json
@@ -109,7 +112,7 @@ class DeepSeekClient:
                         if extracted_reasoning:
                             print("[DeepSeek] Aviso: JSON extraido com sucesso de reasoning_content", flush=True)
                             return extracted_reasoning
-                        print("[DeepSeek] ERRO: Resposta em json_mode nao contem JSON valido", flush=True)
+                        log.error("[DeepSeek] ERRO: Resposta em json_mode nao contem JSON valido")
                         return None
                     else:
                         # Modo texto (diarização)

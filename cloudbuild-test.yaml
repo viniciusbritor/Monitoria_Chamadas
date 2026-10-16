@@ -104,8 +104,29 @@ steps:
           --port=8080 \
           --min-instances=0 \
           --cpu-throttling \
-          --set-env-vars="FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,GCP_PROJECT=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1" \
+          --set-env-vars="FIRESTORE_PROJECT_ID=coherence-ominichannel-fs,GCP_PROJECT=coherence-ominichannel-fs,PORTAL_API_URL=https://coherence-portal-test-c5nbfc5meq-uc.a.run.app,TEST_ENV_AUDIENCE=https://monitoria-test-env-c5nbfc5meq-uc.a.run.app,PERM_CACHE_TTL_SEC=300,GOOGLE_CLIENT_ID=,OMP_NUM_THREADS=2,PYTHONUNBUFFERED=1,COMMIT_SHA=$COMMIT_SHA" \
           --quiet
+
+  # 16/10/2026 (esteira v4): confere pelo /health que a revisao no ar e' ESTE commit.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'validar-health'
+    waitFor: ['deploy']
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        if [ -f /workspace/.deploy_superado ]; then
+          echo "Validacao pulada: build superado (ver deploy-guard)."
+          exit 0
+        fi
+        URL=$$(gcloud run services describe monitoria-test-env --region=us-central1 --format="value(status.url)")
+        for i in $$(seq 1 12); do
+          SHA=$$(curl -fsS --max-time 10 "$$URL/health" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("commit_sha",""))' || true)
+          if [ "$$SHA" = "$COMMIT_SHA" ]; then echo "OK: $$URL/health commit_sha=$$SHA"; exit 0; fi
+          echo "tentativa $$i/12: commit_sha=$$SHA (esperado $COMMIT_SHA)"; sleep 5
+        done
+        echo "FALHA: $$URL/health nao devolveu commit_sha=$COMMIT_SHA" >&2
+        exit 1
 
   # Etapa 8: Notificação de registro do módulo no Portal Coherence
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

@@ -1,5 +1,8 @@
 import os
 import json
+import logging
+
+log = logging.getLogger(__name__)
 import datetime
 from .llm_provider import LLMClient
 from .masker import mask_pii
@@ -181,7 +184,7 @@ Para cada fase, liste MULTIPLOS sentimentos com probabilidades. Ex: {{"sentiment
 
             return json.loads(text.strip())
         except Exception as e:
-            print(f"[Evaluator] Erro ao parsear resposta da IA: {e}")
+            log.error(f"[Evaluator] Erro ao parsear resposta da IA: {e}", exc_info=True)
             return {"error": "Falha no processamento", "raw_response": str(text)}
 
     def diarize_and_evaluate(self, transcript, user_settings=None,

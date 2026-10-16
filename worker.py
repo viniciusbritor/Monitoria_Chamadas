@@ -23,6 +23,12 @@ Deploy: Cloud Run service monitoria-whisper-worker
 """
 import os
 import json
+import logging
+from core import log_json
+
+log_json.setup()  # 16/10/2026: JSON com `severity` no stdout (monitor de erros de producao)
+log = logging.getLogger("monitoria.worker")
+COMMIT_SHA = os.getenv("COMMIT_SHA", "dev")
 import time
 import tempfile
 import shutil
@@ -327,7 +333,7 @@ def process_call(call_id: str, gcs_uri: str, user_id: str, diretrizes: str, audi
         user_settings = {k: v for k, v in settings_doc.items()
                          if k not in ("user_id", "updated_at")}
     except Exception as e:
-        print(f"[Worker {WORKER_ID}] Falha ao ler user_settings: {e}", flush=True)
+        log.error(f"[Worker {WORKER_ID}] Falha ao ler user_settings: {e}", exc_info=True)
         user_settings = {}
 
     # Prepara contexto POP a partir dos settings do usuario
@@ -533,7 +539,7 @@ def _flush_batch():
             try:
                 future.result()
             except Exception as e:
-                print(f"[Worker {WORKER_ID}] BATCH erro: {e}", flush=True)
+                log.error(f"[Worker {WORKER_ID}] BATCH erro: {e}", exc_info=True)
                 msg.nack()
 
 
@@ -546,7 +552,7 @@ def _process_single_message(message, data):
         call_id = data["call_id"]
         gcs_uri = data.get("gcs_uri") or data.get("audio_gcs_uri")
         if not gcs_uri:
-            print(f"[Worker {WORKER_ID}] ERRO: payload sem audio URI. keys={list(data.keys())}", flush=True)
+            log.error(f"[Worker {WORKER_ID}] ERRO: payload sem audio URI. keys={list(data.keys())}")
             raise KeyError("gcs_uri (ou audio_gcs_uri) ausente no payload")
         user_id = data["user_id"]
         diretrizes = data.get("diretrizes", "")
@@ -618,7 +624,7 @@ def _process_single_message(message, data):
             WORKER_STATE["current_state"] = "ready"
             WORKER_STATE["last_msg_received_at"] = time.time()  # FIX: watchdog nao dispara falso STUCK
     except Exception as e:
-        print(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", flush=True)
+        log.error(f"[Worker {WORKER_ID}] ERRO processando message {message.message_id}: {e}", exc_info=True)
         with HEALTHZ_LOCK:
             WORKER_STATE["consecutive_errors"] += 1
         POISON_THRESHOLD = 20
@@ -641,7 +647,7 @@ def callback(message):
     try:
         data = json.loads(message.data.decode("utf-8"))
     except Exception as e:
-        print(f"[Worker {WORKER_ID}] ERRO parse JSON: {e}. Ack (poison).", flush=True)
+        log.error(f"[Worker {WORKER_ID}] ERRO parse JSON: {e}. Ack (poison).", exc_info=True)
         message.ack()  # poison: mensagem invalida nunca sera viavel, ack imediato
         return
 
@@ -738,7 +744,7 @@ def _restart_streaming_pull():
                 WORKER_STATE["current_state"] = "ready"
             print(f"[WATCHDOG] streaming_pull recriado com sucesso", flush=True)
         except Exception as e:
-            print(f"[WATCHDOG] FALHA ao recriar streaming_pull: {e}", flush=True)
+            log.error(f"[WATCHDOG] FALHA ao recriar streaming_pull: {e}", exc_info=True)
 
 
 def _run_push_job(call_id, gcs_uri, user_id=None, diretrizes=None, duration=None):
@@ -763,7 +769,7 @@ def _run_push_job(call_id, gcs_uri, user_id=None, diretrizes=None, duration=None
         with HEALTHZ_LOCK:
             WORKER_STATE["consecutive_errors"] += 1
             WORKER_STATE["current_state"] = "ready"
-        print(f"[Worker {WORKER_ID}] Erro em PUSH process_audio ({call_id}): {e}", flush=True)
+        log.error(f"[Worker {WORKER_ID}] Erro em PUSH process_audio ({call_id}): {e}", exc_info=True)
 
 
 def health_check_server():
@@ -788,7 +794,7 @@ def health_check_server():
 
     class HealthHandler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path in ("/", "/healthz"):
+            if self.path in ("/", "/healthz", "/health"):
                 with HEALTHZ_LOCK:
                     now = time.time()
                     uptime = now - WORKER_STATE["started_at"]
@@ -808,6 +814,7 @@ def health_check_server():
                     payload = {
                         "status": "ok" if WORKER_STATE["current_state"] != "stuck" else "idle",
                         "worker_id": WORKER_ID,
+                        "commit_sha": COMMIT_SHA,
                         "state": WORKER_STATE["current_state"],
                         "uptime_sec": round(uptime, 1),
                         "last_msg_age_sec": round(last_msg_age, 1) if last_msg_age is not None else None,
@@ -868,7 +875,7 @@ def health_check_server():
                     self.end_headers()
                     self.wfile.write(json.dumps({"status": "ok", "call_id": call_id}).encode("utf-8"))
                 except Exception as e:
-                    print(f"[Worker {WORKER_ID}] Erro no PUSH handler: {e}", flush=True)
+                    log.error(f"[Worker {WORKER_ID}] Erro no PUSH handler: {e}", exc_info=True)
                     self.send_response(500)
                     self.send_header("Content-Type", "application/json")
                     self.end_headers()
@@ -954,7 +961,7 @@ def watchdog_loop():
                     WORKER_STATE["consecutive_errors"] += 1
                 _restart_streaming_pull()
         except Exception as e:
-            print(f"[WATCHDOG] Erro no loop (continuando): {type(e).__name__}: {e}", flush=True)
+            log.warning(f"[WATCHDOG] Erro no loop (continuando): {type(e).__name__}: {e}", exc_info=True)
             time.sleep(5)
 
 
@@ -980,7 +987,7 @@ def main():
             get_evaluator()
             print(f"[Worker {WORKER_ID}] Modelos IA prontos", flush=True)
         except Exception as e:
-            print(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", flush=True)
+            log.error(f"[Worker {WORKER_ID}] Falha pre-aquecimento IA: {e}", exc_info=True)
 
     threading.Thread(target=_warmup_async, daemon=True).start()
 
@@ -1021,7 +1028,7 @@ def main():
             print(f"[Worker {WORKER_ID}] Subscription criada com sucesso", flush=True)
         except Exception as e:
             err_str = str(e)
-            print(f"[Worker {WORKER_ID}] Subscription error (continuando): {err_str[:150]}", flush=True)
+            log.warning(f"[Worker {WORKER_ID}] Subscription error (continuando): {err_str[:150]}", exc_info=True)
             # Sempre continua - subscription ja pode existir
 
     # Pull em streaming (bloqueante)

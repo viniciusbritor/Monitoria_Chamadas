@@ -56,8 +56,22 @@ steps:
       - '--update-env-vars=WORKER_CALLBACK_URL=https://monitoria.coherenceai.com.br'
       - '--update-env-vars=OMP_NUM_THREADS=4'
       - '--update-env-vars=PYTHONUNBUFFERED=1'
+      - '--update-env-vars=COMMIT_SHA=$COMMIT_SHA'
       - '--update-env-vars=WHISPER_DOWNLOAD_ROOT=/app/whisper_models'
       - '--quiet'
+
+  # 16/10/2026 (esteira v4): worker e' privado, entao a validacao le o COMMIT_SHA da
+  # revisao implantada (o /health do worker devolve o mesmo valor, mas exige OIDC).
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'validar-health'
+    entrypoint: bash
+    args:
+      - '-c'
+      - |
+        SHA=$$(gcloud run services describe monitoria-worker --region=us-central1 --format=json | python3 -c 'import sys,json; d=json.load(sys.stdin); print(next((e.get("value","") for e in d["spec"]["template"]["spec"]["containers"][0].get("env",[]) if e["name"]=="COMMIT_SHA"),""))')
+        if [ "$$SHA" = "$COMMIT_SHA" ]; then echo "OK: monitoria-worker no ar com COMMIT_SHA=$$SHA"; exit 0; fi
+        echo "FALHA: monitoria-worker com COMMIT_SHA='$$SHA', esperado $COMMIT_SHA" >&2
+        exit 1
 
 images:
   - 'gcr.io/$PROJECT_ID/monitoria-worker:$COMMIT_SHA'
